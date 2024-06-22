@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: nba-server
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+      config:
+        server-addr: 127.0.0.1:8848
+        file-extension: yml
+        enabled: true
+  config:
+    import: optional:nacos:config.yml
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.zaxxer.hikari.HikariDataSource
+    url: jdbc:mysql://139.9.206.164:3306/timer_nba?useUnicode=true&characterEncoding=UTF8&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
+    username: root
+    password: King1992!
+    hikari:
+      allow-pool-suspension: true
+      minimum-idle: 10
+      maximum-pool-size: 20
+      idle-timeout: 180000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+server:
+  port: 8001
