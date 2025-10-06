@@ -1,7 +1,14 @@
 package com.rivers.nba.controller;
 
+
+import com.rivers.core.vo.ResultVO;
+import com.rivers.nba.GetPlayersReq;
+import com.rivers.nba.GetPlayersRes;
+import com.rivers.nba.service.IPlayerService;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * <p>
@@ -11,8 +18,23 @@ import org.springframework.stereotype.Controller;
  * @author rivers
  * @since 2024-06-16
  */
-@Controller
+@RestController
 @RequestMapping("/player")
 public class PlayerController {
 
+    private final IPlayerService playerService;
+
+    public PlayerController(IPlayerService playerService) {
+        this.playerService = playerService;
+    }
+
+    @PostMapping("syncAllPlayer")
+    public ResultVO<ResultVO.EmptyType> syncAllPlayer() {
+        return playerService.syncAllPlayer();
+    }
+
+    @PostMapping("getPlayerPage")
+    public ResultVO<GetPlayersRes> getPlayerPage(@RequestBody GetPlayersReq getPlayersReq) {
+        return playerService.getPlayerPage(getPlayersReq);
+    }
 }

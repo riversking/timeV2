@@ -1,16 +1,16 @@
 package com.rivers.nba.mapper;
 
-import com.rivers.nba.entity.Player;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.rivers.nba.entity.TimerPlayer;
 
 /**
  * <p>
  * 球员信息表 Mapper 接口
  * </p>
  *
- * @author rivers
- * @since 2024-06-16
+ * @author xx
+ * @since 2025-10-01
  */
-public interface PlayerMapper extends BaseMapper<Player> {
+public interface PlayerMapper extends BaseMapper<TimerPlayer> {
 
 }

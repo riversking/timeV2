@@ -1,18 +1,43 @@
 syntax="proto3";
 
 package grpc;//package与java_package有些不同，java_package是定义编译生成的java文件所在的目录，而package是对应的java类的命名空间
-option java_package = "com.diy.vcp.grpc.core";
-option java_outer_classname = "HelloWorldServiceProto";//要生成Java类的名称
+option java_package = "com.rivers.nba";
+option java_outer_classname = "NbaServiceProto";//要生成Java类的名称
 option java_multiple_files = true;
 
+message Player {
+    int64 id = 1;
+    int64 playerId = 21;
+    string team = 2;
+    int64 teamId = 3;
+    int32 jersey = 4;
+    string status = 5;
+    string positionCategory = 6;
+    string position = 7;
+    string firstName = 8;
+    string lastName = 9;
+    int32 height = 10;
+    int32 weight = 11;
+    string birthDate = 12;
+    string birthCity = 13;
+    string birthState = 14;
+    string birthCountry = 15;
+    string college = 16;
+    int32 salary = 17;
+    string photoUrl = 18;
+    int32 experience = 19;
+    string draftKingsName = 20;
+}
+
 //请求参数 基于序号的协议字段映射，所以字段可以乱序，可缺段
-message HelloRequest {
-    string name = 1;
-    string sex = 2;
+message GetPlayersReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string playerName = 3;
 }
 //响应参数
-message HelloReply {
-    string message = 1;
-    repeated HelloRequest requests = 2;
+message GetPlayersRes {
+    int64 total = 1;
+    repeated Player players = 2;
 }
 
