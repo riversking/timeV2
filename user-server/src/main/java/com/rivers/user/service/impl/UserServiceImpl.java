@@ -3,6 +3,7 @@ package com.rivers.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.activerecord.AbstractModel;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
@@ -148,5 +149,41 @@ public class UserServiceImpl implements IUserService {
                 )
                 .toList();
         return ResultVO.ok(UserPageRes.newBuilder().setTotal(total).addAllUsers(users).build());
+    }
+
+    @Override
+    public ResultVO<UserDetailRes> getUserDetail(UserReq userReq) {
+        String userId = userReq.getUserId();
+        if (StringUtils.isBlank(userId)) {
+            return ResultVO.fail("用户ID不能为空");
+        }
+        LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+        userWrapper.eq(TimerUser::getUserId, userId);
+        TimerUser timerUser = timerUserMapper.selectOne(userWrapper);
+        if (timerUser == null) {
+            return ResultVO.fail("用户不存在");
+        }
+        UserDetailRes userDetailRes = UserDetailRes.newBuilder()
+                .setId(timerUser.getId())
+                .setUserId(timerUser.getUserId())
+                .setUsername(timerUser.getUsername())
+                .setMail(timerUser.getMail())
+                .setNickname(timerUser.getNickname())
+                .setPhone(timerUser.getPhone())
+                .build();
+        return ResultVO.ok(userDetailRes);
+    }
+
+    @Override
+    public ResultVO<ResultVO.EmptyType> deleteUser(UserReq userReq) {
+        String userId = userReq.getUserId();
+        if (StringUtils.isBlank(userId)) {
+            return ResultVO.fail("用户ID不能为空");
+        }
+        LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+        userWrapper.eq(TimerUser::getUserId, userId);
+        TimerUser timerUser = timerUserMapper.selectOne(userWrapper);
+        Optional.ofNullable(timerUser).ifPresent(AbstractModel::deleteById);
+        return ResultVO.ok();
     }
 }

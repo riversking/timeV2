@@ -56,8 +56,8 @@ message UserPageRes {
 }
 
 
-message UserDetailReq {
-    int64 id = 1;
+message UserReq {
+    string userId = 1;
 }
 
 message UserDetailRes {

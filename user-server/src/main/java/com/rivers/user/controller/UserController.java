@@ -1,10 +1,7 @@
 package com.rivers.user.controller;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.SaveUserReq;
-import com.rivers.proto.UpdateUserReq;
-import com.rivers.proto.UserPageReq;
-import com.rivers.proto.UserPageRes;
+import com.rivers.proto.*;
 import com.rivers.user.service.IUserService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,5 +32,15 @@ public class UserController {
     @PostMapping("getUserPage")
     public ResultVO<UserPageRes> getUserPage(@RequestBody UserPageReq userPageReq) {
         return userService.getUserPage(userPageReq);
+    }
+
+    @PostMapping("getUserDetail")
+    public ResultVO<UserDetailRes> getUserDetail(@RequestBody UserReq userReq) {
+        return userService.getUserDetail(userReq);
+    }
+
+    @PostMapping("deleteUser")
+    public ResultVO<ResultVO.EmptyType> deleteUser(@RequestBody UserReq userReq) {
+        return userService.deleteUser(userReq);
     }
 }
