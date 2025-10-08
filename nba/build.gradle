@@ -34,7 +34,6 @@ dependencies {
     implementation 'org.apache.commons:commons-lang3:3.18.0'
     implementation 'com.google.guava:guava:33.4.0-jre'
     implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
-//    implementation files('../protos/proto-util.jar')
     implementation files('../protos/nbaservice_protos.jar')
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
     implementation 'org.springframework.boot:spring-boot-starter-web'

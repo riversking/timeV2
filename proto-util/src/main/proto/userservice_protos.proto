@@ -5,14 +5,66 @@ option java_package = "com.rivers.proto";
 option java_outer_classname = "UserServiceProto";//要生成Java类的名称
 option java_multiple_files = true;
 
-//请求参数 基于序号的协议字段映射，所以字段可以乱序，可缺段
-message HelloRequest1 {
-    string name = 1;
-    string sex = 2;
-}
-//响应参数
-message HelloReply1 {
-    string message = 1;
-    repeated HelloRequest1 requests = 2;
+message LoginUser {
+    string username = 1;
+    string userId = 2;
 }
 
+message SaveUserReq {
+    string username = 1;
+    string password = 2;
+    string phone = 3;
+    string mail = 4;
+    string nickname = 5;
+    string userId = 6;
+    LoginUser loginUser = 7;
+}
+
+message UpdateUserReq {
+    int64 id = 1;
+    string username = 2;
+    string password = 3;
+    string phone = 4;
+    string mail = 5;
+    string nickname = 6;
+    string userId = 7;
+    LoginUser loginUser = 8;
+}
+
+message User {
+    int64 id = 1;
+    string username = 2;
+    string phone = 3;
+    string mail = 4;
+    string nickname = 5;
+    string userId = 6;
+    string createTime = 7;
+    string updateTime = 8;
+}
+
+message UserPageReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string username = 3;
+    string userId = 4;
+    string nickname = 5;
+}
+
+message UserPageRes {
+    int64 total = 1;
+    repeated User users = 2;
+}
+
+
+message UserDetailReq {
+    int64 id = 1;
+}
+
+message UserDetailRes {
+    int64 id = 1;
+    string username = 2;
+    string phone = 3;
+    string mail = 4;
+    string nickname = 5;
+    string userId = 6;
+}
