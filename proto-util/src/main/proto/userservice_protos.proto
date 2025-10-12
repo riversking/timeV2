@@ -68,3 +68,4 @@ message UserDetailRes {
     string nickname = 5;
     string userId = 6;
 }
+

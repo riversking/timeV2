@@ -27,7 +27,7 @@ public class UserServiceImpl implements IUserService {
     }
 
     @Override
-    public ResultVO<ResultVO.EmptyType> saveUser(SaveUserReq saveUserReq) {
+    public ResultVO<Void> saveUser(SaveUserReq saveUserReq) {
         String username = saveUserReq.getUsername();
         String password = saveUserReq.getPassword();
         String phone = saveUserReq.getPhone();
@@ -71,7 +71,7 @@ public class UserServiceImpl implements IUserService {
 
     @SuppressWarnings("DuplicatedCode")
     @Override
-    public ResultVO<ResultVO.EmptyType> updateUser(UpdateUserReq updateUserReq) {
+    public ResultVO<Void> updateUser(UpdateUserReq updateUserReq) {
         long id = updateUserReq.getId();
         String username = updateUserReq.getUsername();
         String userId = updateUserReq.getUserId();
@@ -175,7 +175,7 @@ public class UserServiceImpl implements IUserService {
     }
 
     @Override
-    public ResultVO<ResultVO.EmptyType> deleteUser(UserReq userReq) {
+    public ResultVO<Void> deleteUser(UserReq userReq) {
         String userId = userReq.getUserId();
         if (StringUtils.isBlank(userId)) {
             return ResultVO.fail("用户ID不能为空");

@@ -11,7 +11,7 @@ import java.io.Serializable;
 
 /**
  * <p>
- * 
+ *
  * </p>
  *
  * @author xx
@@ -20,7 +20,7 @@ import java.io.Serializable;
 @EqualsAndHashCode(callSuper = true)
 @Data
 @TableName("timer_user")
-public class TimerUser extends BasicDO<TimerUser> {
+public class TimerUser extends BasicDO<TimerUser> implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;

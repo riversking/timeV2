@@ -1,4 +1,6 @@
 spring:
+  netty:
+    leak-detection: advanced
   application:
     name: time-gateway
   cloud:

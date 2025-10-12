@@ -20,12 +20,12 @@ public class UserController {
     }
 
     @PostMapping("saveUser")
-    public ResultVO<ResultVO.EmptyType> saveUser(@RequestBody SaveUserReq saveUserReq) {
+    public ResultVO<Void> saveUser(@RequestBody SaveUserReq saveUserReq) {
         return userService.saveUser(saveUserReq);
     }
 
     @PostMapping("updateUser")
-    public ResultVO<ResultVO.EmptyType> updateUser(@RequestBody UpdateUserReq updateUserReq) {
+    public ResultVO<Void> updateUser(@RequestBody UpdateUserReq updateUserReq) {
         return userService.updateUser(updateUserReq);
     }
 
@@ -40,7 +40,7 @@ public class UserController {
     }
 
     @PostMapping("deleteUser")
-    public ResultVO<ResultVO.EmptyType> deleteUser(@RequestBody UserReq userReq) {
+    public ResultVO<Void> deleteUser(@RequestBody UserReq userReq) {
         return userService.deleteUser(userReq);
     }
 }

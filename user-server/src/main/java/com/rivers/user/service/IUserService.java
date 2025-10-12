@@ -5,13 +5,13 @@ import com.rivers.proto.*;
 
 public interface IUserService {
 
-    ResultVO<ResultVO.EmptyType> saveUser(SaveUserReq saveUserReq);
+    ResultVO<Void> saveUser(SaveUserReq saveUserReq);
 
-    ResultVO<ResultVO.EmptyType> updateUser(UpdateUserReq updateUserReq);
+    ResultVO<Void> updateUser(UpdateUserReq updateUserReq);
 
     ResultVO<UserPageRes> getUserPage(UserPageReq userPageReq);
 
     ResultVO<UserDetailRes> getUserDetail(UserReq userReq);
 
-    ResultVO<ResultVO.EmptyType> deleteUser(UserReq userReq);
+    ResultVO<Void> deleteUser(UserReq userReq);
 }
