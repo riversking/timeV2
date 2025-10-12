@@ -1,8 +1,7 @@
-package com.rivers.admin.gateway.filter;
+package com.rivers.gateway.filter;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -31,6 +30,7 @@ public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // ... 前面的代码保持不变 ...
         ServerHttpResponse originalResponse = exchange.getResponse();
         DataBufferFactory bufferFactory = originalResponse.bufferFactory();
 
@@ -41,26 +41,25 @@ public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
         ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(originalResponse) {
             @Override
             @NonNull
-            public Mono<Void> writeWith(@NotNull Publisher<? extends DataBuffer> body) {
+            public Mono<Void> writeWith(@NonNull Publisher<? extends DataBuffer> body) {
                 // 1. 安全地转换 Publisher
                 Flux<DataBuffer> flux = Flux.from(body).cast(DataBuffer.class);
 
                 // 2. 使用 DataBufferUtils.join 聚合响应体
-                Mono<DataBuffer> joinedBufferMono = DataBufferUtils.join(flux);
+                Mono<DataBuffer> allDataBufferMono = DataBufferUtils.join(flux);
 
-                return joinedBufferMono.flatMap(originalBuffer -> {
-                    // 将原始 DataBuffer 的内容读取到字节数组中
-                    // 这样我们就可以安全地释放原始的 DataBuffer，然后处理字节数组
+                return allDataBufferMono.flatMap(originalBuffer -> {
+                    // 将 DataBuffer 内容读取到字节数组中，以便立即释放原始 DataBuffer
                     byte[] originalBytes = new byte[originalBuffer.readableByteCount()];
                     originalBuffer.read(originalBytes);
                     // 立即释放聚合后的原始 DataBuffer
                     DataBufferUtils.release(originalBuffer);
 
-                    String responseData = new String(originalBytes, StandardCharsets.UTF_8);
-                    log.info("Original Response Body: {}", responseData);
+                    String originalBody = new String(originalBytes, StandardCharsets.UTF_8);
+                    log.info("Original Response Body: {}", originalBody);
 
-                    // 根据状态码修改内容，得到新的字节数组
-                    byte[] modifiedContent = switch (getStatusCode()) {
+                    // 根据状态码修改内容
+                    byte[] modifiedBytes = switch (getStatusCode()) {
                         case null -> {
                             log.warn("Response status was null, returning raw content.");
                             yield originalBytes;
@@ -68,7 +67,7 @@ public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
                         case HttpStatus.OK, HttpStatus.UNAUTHORIZED -> originalBytes;
                         default -> {
                             try {
-                                JSONObject jsonObject = JSON.parseObject(responseData);
+                                JSONObject jsonObject = JSON.parseObject(originalBody);
                                 if (jsonObject != null) {
                                     jsonObject.put("code", jsonObject.get("status"));
                                     jsonObject.remove("status");
@@ -85,15 +84,16 @@ public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
                     };
 
                     // 3. 使用 usingWhen 来管理新创建的 DataBuffer
-                    // 资源提供者：创建新的 DataBuffer
-                    Mono<DataBuffer> resourceSupplier = Mono.just(bufferFactory.wrap(modifiedContent));
+                    // 资源提供者: 创建新的 DataBuffer
+                    Mono<DataBuffer> resourceSupplier = Mono.fromCallable(() -> bufferFactory.wrap(modifiedBytes));
 
-                    // 资源使用者：将 DataBuffer 写入响应
+                    // 资源使用者: 将 DataBuffer 写入响应
+                    // 资源清理器: 无论成功、失败还是取消，都释放 DataBuffer
                     return Mono.usingWhen(
                             resourceSupplier,
                             modifiedBuffer -> getDelegate().writeWith(Mono.just(modifiedBuffer)),
-                            // 资源清理器：无论成功、失败还是取消，都释放 DataBuffer
                             modifiedBuffer -> {
+                                log.debug("Releasing modified buffer.");
                                 DataBufferUtils.release(modifiedBuffer);
                                 return Mono.empty();
                             }
