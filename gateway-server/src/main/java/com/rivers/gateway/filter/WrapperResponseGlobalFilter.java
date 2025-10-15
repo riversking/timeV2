@@ -21,44 +21,37 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 @Component
 @Slf4j
 public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
 
     private static final String EXPORT_PATH = "export";
+    public static final String DEFAULT_RES = "{\"code\": 500, \"message\": \"Internal Server Error\"}";
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        // ... 前面的代码保持不变 ...
         ServerHttpResponse originalResponse = exchange.getResponse();
         DataBufferFactory bufferFactory = originalResponse.bufferFactory();
-
-        if (exchange.getRequest().getPath().value().contains(EXPORT_PATH)) {
-            return chain.filter(exchange);
-        }
-
         ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(originalResponse) {
             @Override
             @NonNull
             public Mono<Void> writeWith(@NonNull Publisher<? extends DataBuffer> body) {
-                // 1. 安全地转换 Publisher
+                if (exchange.getRequest().getPath().value().contains(EXPORT_PATH)) {
+                    return super.writeWith(body);
+                }
+                if (Objects.equals(getStatusCode(), HttpStatus.OK)) {
+                    return super.writeWith(body);
+                }
                 Flux<DataBuffer> flux = Flux.from(body).cast(DataBuffer.class);
-
-                // 2. 使用 DataBufferUtils.join 聚合响应体
                 Mono<DataBuffer> allDataBufferMono = DataBufferUtils.join(flux);
-
                 return allDataBufferMono.flatMap(originalBuffer -> {
-                    // 将 DataBuffer 内容读取到字节数组中，以便立即释放原始 DataBuffer
                     byte[] originalBytes = new byte[originalBuffer.readableByteCount()];
                     originalBuffer.read(originalBytes);
-                    // 立即释放聚合后的原始 DataBuffer
-                    DataBufferUtils.release(originalBuffer);
-
+                    // 不手动释放 originalBuffer
                     String originalBody = new String(originalBytes, StandardCharsets.UTF_8);
                     log.info("Original Response Body: {}", originalBody);
-
-                    // 根据状态码修改内容
                     byte[] modifiedBytes = switch (getStatusCode()) {
                         case null -> {
                             log.warn("Response status was null, returning raw content.");
@@ -74,34 +67,38 @@ public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
                                     yield jsonObject.toJSONString().getBytes(StandardCharsets.UTF_8);
                                 } else {
                                     log.warn("Failed to parse JSON, response is null.");
-                                    yield "{\"code\": 500, \"message\": \"Internal Server Error\"}".getBytes(StandardCharsets.UTF_8);
+                                    yield DEFAULT_RES.getBytes(StandardCharsets.UTF_8);
                                 }
                             } catch (Exception e) {
                                 log.error("Failed to parse or modify JSON response", e);
-                                yield "{\"code\": 500, \"message\": \"Internal Server Error\"}".getBytes(StandardCharsets.UTF_8);
+                                yield DEFAULT_RES.getBytes(StandardCharsets.UTF_8);
                             }
                         }
                     };
-
-                    // 3. 使用 usingWhen 来管理新创建的 DataBuffer
-                    // 资源提供者: 创建新的 DataBuffer
-                    Mono<DataBuffer> resourceSupplier = Mono.fromCallable(() -> bufferFactory.wrap(modifiedBytes));
-
-                    // 资源使用者: 将 DataBuffer 写入响应
-                    // 资源清理器: 无论成功、失败还是取消，都释放 DataBuffer
+                    // 使用 usingWhen 管理资源，包括异常情况
+                    DataBuffer modifiedBuffer = bufferFactory.wrap(modifiedBytes);
                     return Mono.usingWhen(
-                            resourceSupplier,
-                            modifiedBuffer -> getDelegate().writeWith(Mono.just(modifiedBuffer)),
-                            modifiedBuffer -> {
-                                log.debug("Releasing modified buffer.");
-                                DataBufferUtils.release(modifiedBuffer);
-                                return Mono.empty();
-                            }
+                            Mono.just(modifiedBuffer),
+                            mb -> {
+                                DataBufferUtils.release(originalBuffer);
+                                return getDelegate().writeWith(Flux.just(mb));
+                            },
+                            mb -> Mono.fromCallable(() -> DataBufferUtils.release(mb)),
+                            (mb, error) -> Mono.fromRunnable(() -> DataBufferUtils.release(mb)),
+                            mb -> Mono.fromRunnable(() -> DataBufferUtils.release(mb))
                     );
+                }).onErrorResume(e -> {
+                    log.error("Error occurred while processing response", e);
+                    return handleFallbackResponse();
                 });
             }
-        };
 
+            private Mono<Void> handleFallbackResponse() {
+                DataBuffer buffer = bufferFactory.wrap(DEFAULT_RES.getBytes(StandardCharsets.UTF_8));
+                return getDelegate().writeWith(Flux.just(buffer))
+                        .doFinally(signalType -> DataBufferUtils.release(buffer));
+            }
+        };
         return chain.filter(exchange.mutate().response(decoratedResponse).build());
     }
 
