@@ -44,12 +44,6 @@ public class TimerUser extends BasicDO<TimerUser> implements Serializable {
     private String password;
 
     /**
-     * 随机盐
-     */
-    @TableField("salt")
-    private String salt;
-
-    /**
      * 简介
      */
     @TableField("phone")

@@ -52,7 +52,7 @@ public class PlayerServiceImpl implements IPlayerService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ResultVO<ResultVO.EmptyType> syncAllPlayer() {
+    public ResultVO<Void> syncAllPlayer() {
         List<TimerPlayer> allPlayers = playerMapper.selectList(Wrappers.emptyWrapper());
         if (CollectionUtils.isNotEmpty(allPlayers)) {
             playerMapper.delete(Wrappers.emptyWrapper());

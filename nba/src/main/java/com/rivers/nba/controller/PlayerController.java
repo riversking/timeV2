@@ -29,7 +29,7 @@ public class PlayerController {
     }
 
     @PostMapping("syncAllPlayer")
-    public ResultVO<ResultVO.EmptyType> syncAllPlayer() {
+    public ResultVO<Void> syncAllPlayer() {
         return playerService.syncAllPlayer();
     }
 

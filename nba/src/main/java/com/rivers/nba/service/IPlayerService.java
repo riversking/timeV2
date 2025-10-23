@@ -14,7 +14,7 @@ import com.rivers.nba.GetPlayersRes;
  */
 public interface IPlayerService {
 
-    ResultVO<ResultVO.EmptyType> syncAllPlayer();
+    ResultVO<Void> syncAllPlayer();
 
 
     ResultVO<GetPlayersRes> getPlayerPage(GetPlayersReq getPlayersReq);

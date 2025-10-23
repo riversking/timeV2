@@ -1,8 +1,8 @@
-syntax="proto3";
+syntax = "proto3";
 
-package grpc;//package与java_package有些不同，java_package是定义编译生成的java文件所在的目录，而package是对应的java类的命名空间
+package grpc; //package与java_package有些不同，java_package是定义编译生成的java文件所在的目录，而package是对应的java类的命名空间
 option java_package = "com.rivers.proto";
-option java_outer_classname = "UserServiceProto";//要生成Java类的名称
+option java_outer_classname = "UserServiceProto"; //要生成Java类的名称
 option java_multiple_files = true;
 
 message LoginUser {
@@ -69,3 +69,74 @@ message UserDetailRes {
     string userId = 6;
 }
 
+message SaveRoleReq {
+    string roleCode = 1;
+    string roleName = 2;
+    LoginUser loginUser = 3;
+}
+
+message UpdateRoleReq {
+    int64 id = 1;
+    string roleCode = 2;
+    string roleName = 3;
+    LoginUser loginUser = 4;
+}
+
+message Role {
+    int64 id = 1;
+    string roleCode = 2;
+    string roleName = 3;
+    string createTime = 4;
+    string updateTime = 5;
+}
+
+message RolePageReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string roleCode = 3;
+    string roleName = 4;
+}
+
+message RolePageRes {
+    int64 total = 1;
+    repeated Role roles = 2;
+}
+
+message DeleteRoleReq {
+    string roleCode = 1;
+    LoginUser loginUser = 2;
+}
+
+message RoleDetailReq {
+    string roleCode = 1;
+}
+
+message RoleDetailRes {
+    int64 id = 1;
+    string roleCode = 2;
+    string roleName = 3;
+}
+
+message SaveUserRoleReq {
+    string roleCode = 1;
+    repeated string userIds = 2;
+    LoginUser loginUser = 3;
+}
+
+message RemoveUserRoleReq {
+    string roleCode = 1;
+    repeated string userIds = 2;
+    LoginUser loginUser = 3;
+}
+
+message UserRolePageReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string username = 3;
+    string userId = 4;
+}
+
+message UserRolePageRes {
+    int64 total = 1;
+    repeated User users = 2;
+}

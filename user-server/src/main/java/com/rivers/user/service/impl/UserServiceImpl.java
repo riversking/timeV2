@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -96,19 +97,18 @@ public class UserServiceImpl implements IUserService {
         LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
         userWrapper.eq(TimerUser::getUserId, userId);
         TimerUser timerUser = timerUserMapper.selectOne(userWrapper);
-        if (timerUser == null) {
-            return ResultVO.fail("用户不存在");
-        }
-        if (timerUser.getId() != id) {
+        if (Objects.nonNull(timerUser) && timerUser.getId() != id) {
             return ResultVO.fail("用户ID已存在");
         }
-        timerUser.setUsername(username);
-        timerUser.setPassword(password);
-        timerUser.setPhone(phone);
-        timerUser.setMail(mail);
-        timerUser.setNickname(updateUserReq.getNickname());
-        timerUser.setUserId(userId);
-        timerUser.updateById();
+        TimerUser user = new TimerUser();
+        user.setId(id);
+        user.setUsername(username);
+        user.setPassword(password);
+        user.setPhone(phone);
+        user.setMail(mail);
+        user.setNickname(updateUserReq.getNickname());
+        user.setUserId(userId);
+        user.updateById();
         return ResultVO.ok();
     }
 
