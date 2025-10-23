@@ -1,9 +1,11 @@
 package com.rivers.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.activerecord.AbstractModel;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.google.common.collect.Lists;
 import com.google.protobuf.ProtocolStringList;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
@@ -21,8 +23,10 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class RoleServiceImpl implements IRoleService {
@@ -233,6 +237,52 @@ public class RoleServiceImpl implements IRoleService {
                 .in(TimerUserRole::getUserId, userIdsList);
         timerUserRoleMapper.delete(userRoleWrapper);
         return ResultVO.ok();
+    }
+
+    @Override
+    public ResultVO<UserRolePageRes> getUserRolePage(UserRolePageReq userRolePageReq) {
+        int currentPage = userRolePageReq.getCurrentPage();
+        int pageSize = userRolePageReq.getPageSize();
+        String userId = userRolePageReq.getUserId();
+        String username = userRolePageReq.getUsername();
+        List<String> userIds = Lists.newArrayList();
+        if (StringUtils.isNotBlank(username)) {
+            LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+            userWrapper.like(TimerUser::getUsername, username);
+            List<TimerUser> timerUsers = timerUserMapper.selectList(userWrapper);
+            if (CollectionUtils.isEmpty(timerUsers)) {
+                return ResultVO.ok(UserRolePageRes.newBuilder().build());
+            }
+            List<String> list = timerUsers.stream().map(TimerUser::getUserId).toList();
+            userIds.addAll(list);
+        }
+        LambdaQueryWrapper<TimerUserRole> userRoleWrapper = Wrappers.lambdaQuery();
+        userRoleWrapper.in(CollectionUtils.isNotEmpty(userIds), TimerUserRole::getUserId, userIds)
+                .like(StringUtils.isNotBlank(userId), TimerUserRole::getUserId, userId);
+        Page<TimerUserRole> page = new Page<>(currentPage, pageSize);
+        IPage<TimerUserRole> userRolePage = timerUserRoleMapper.selectPage(page, userRoleWrapper);
+        long total = userRolePage.getTotal();
+        if (total == 0) {
+            return ResultVO.ok(UserRolePageRes.newBuilder().build());
+        }
+        List<TimerUserRole> records = userRolePage.getRecords();
+        List<String> ids = records.stream()
+                .map(TimerUserRole::getUserId)
+                .toList();
+        LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+        userWrapper.in(TimerUser::getUserId, ids);
+        List<TimerUser> users = timerUserMapper.selectList(userWrapper);
+        Map<String, String> userMap = users.stream()
+                .collect(Collectors.toMap(TimerUser::getUserId, TimerUser::getUsername));
+        List<User> list = records.stream()
+                .map(i -> {
+                    return User.newBuilder()
+                            .setUserId(i.getUserId())
+                            .setUsername(userMap.get(i.getUserId()))
+                            .build();
+                })
+                .toList();
+        return ResultVO.ok(UserRolePageRes.newBuilder().setTotal(total).addAllUsers(list).build());
     }
 
     private TimerRole getTimerRole(String roleCode) {

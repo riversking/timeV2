@@ -18,4 +18,6 @@ public interface IRoleService {
     ResultVO<Void> saveUserRole(SaveUserRoleReq saveUserRoleReq);
 
     ResultVO<Void> removeUserRole(RemoveUserRoleReq removeUserRoleReq);
+
+    ResultVO<UserRolePageRes> getUserRolePage(UserRolePageReq userRolePageReq);
 }

@@ -52,4 +52,9 @@ public class RoleController {
     public ResultVO<Void> removeUserRole(@RequestBody RemoveUserRoleReq removeUserRoleReq) {
         return roleService.removeUserRole(removeUserRoleReq);
     }
+
+    @PostMapping("getUserRolePage")
+    public ResultVO<UserRolePageRes> getUserRolePage(@RequestBody UserRolePageReq userRolePageReq) {
+        return roleService.getUserRolePage(userRolePageReq);
+    }
 }
