@@ -70,7 +70,6 @@ public class UserServiceImpl implements IUserService {
         return ResultVO.ok();
     }
 
-    @SuppressWarnings("DuplicatedCode")
     @Override
     public ResultVO<Void> updateUser(UpdateUserReq updateUserReq) {
         long id = updateUserReq.getId();
@@ -100,6 +99,8 @@ public class UserServiceImpl implements IUserService {
         if (Objects.nonNull(timerUser) && timerUser.getId() != id) {
             return ResultVO.fail("用户ID已存在");
         }
+        LoginUser loginUser = updateUserReq.getLoginUser();
+        String currentUserId = loginUser.getUserId();
         TimerUser user = new TimerUser();
         user.setId(id);
         user.setUsername(username);
@@ -108,6 +109,7 @@ public class UserServiceImpl implements IUserService {
         user.setMail(mail);
         user.setNickname(updateUserReq.getNickname());
         user.setUserId(userId);
+        user.setUpdateUser(currentUserId);
         user.updateById();
         return ResultVO.ok();
     }

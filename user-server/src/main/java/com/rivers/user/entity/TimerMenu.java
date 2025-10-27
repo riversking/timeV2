@@ -59,12 +59,6 @@ public class TimerMenu extends BasicDO<TimerMenu> {
     private String routePath;
 
     /**
-     * 组件路径
-     */
-    @TableField("component_path")
-    private String componentPath;
-
-    /**
      * 菜单图标
      */
     @TableField("icon")
@@ -88,9 +82,4 @@ public class TimerMenu extends BasicDO<TimerMenu> {
     @TableField("status")
     private Integer status;
 
-    /**
-     * 是否可见：1-显示，0-隐藏
-     */
-    @TableField("visible")
-    private Integer visible;
 }

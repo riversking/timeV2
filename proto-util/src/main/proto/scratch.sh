@@ -47,7 +47,7 @@ if ! command -v javac &> /dev/null; then
 fi
 
 # 设置 Protobuf 版本
-PROTOBUF_VERSION="4.29.3"
+PROTOBUF_VERSION="4.33.0"
 
 # 检查 protoc 版本
 PROTOC_VERSION=$(protoc --version | cut -d' ' -f2)
@@ -86,6 +86,7 @@ fi
 
 # 编译 Java 文件
 echo "编译 Java 文件..."
+# shellcheck disable=SC2046
 javac -cp "${PROTOBUF_JAR}" -d "${CLASSES_DIR}" $(find "${CLASSES_DIR}" -name "*.java")
 if [ $? -ne 0 ]; then
     echo "错误: Java 文件编译失败。"

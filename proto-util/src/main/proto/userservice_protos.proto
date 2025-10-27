@@ -140,3 +140,75 @@ message UserRolePageRes {
     int64 total = 1;
     repeated User users = 2;
 }
+
+message SaveMenuReq {
+    string menuCode = 1;
+    string menuName = 2;
+    int64 parentId = 3;
+    int32 menuType = 4;
+    string icon = 5;
+    int32 sortOrder = 6;
+    string permissionCode = 7;
+    string routePath = 8;
+    LoginUser loginUser = 9;
+}
+
+message UpdateMenuReq {
+    int64 id = 1;
+    string menuCode = 2;
+    string menuName = 3;
+    int64 parentId = 4;
+    int32 menuType = 5;
+    string icon = 6;
+    int32 sortOrder = 7;
+    string permissionCode = 8;
+    string routePath = 9;
+    LoginUser loginUser = 10;
+}
+
+message Menu {
+    int64 id = 1;
+    string menuCode = 2;
+    string menuName = 3;
+    int64 parentId = 4;
+    int32 menuType = 5;
+    string icon = 6;
+    int32 sortOrder = 7;
+    string permissionCode = 8;
+    string routePath = 9;
+    string createTime = 10;
+    string updateTime = 11;
+}
+
+message MenuTreeRes {
+    int64 id = 1;
+    string menuCode = 2;
+    string menuName = 3;
+    int64 parentId = 4;
+    int32 menuType = 5;
+    string icon = 6;
+    int32 sortOrder = 7;
+    string permissionCode = 8;
+    string routePath = 9;
+}
+
+message MenuDetailReq {
+    string menuCode = 1;
+}
+
+message MenuDetailRes {
+    int64 id = 1;
+    string menuCode = 2;
+    string menuName = 3;
+    int64 parentId = 4;
+    int32 menuType = 5;
+    string icon = 6;
+    int32 sortOrder = 7;
+    string permissionCode = 8;
+    string routePath = 9;
+}
+
+message DeleteMenuReq {
+    string menuCode = 1;
+    LoginUser loginUser = 2;
+}
