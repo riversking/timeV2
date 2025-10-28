@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 
 @Service
 public class MenuServiceImpl implements IMenuService {
@@ -117,9 +119,22 @@ public class MenuServiceImpl implements IMenuService {
                     return menuTreeVO;
                 })
                 .toList();
-        TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
-        List<MenuTreeVO> menuTree = treeFactory.buildTree(list);
-        return ResultVO.ok(menuTree);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // 使用虚拟线程并行处理节点转换
+            List<CompletableFuture<MenuTreeVO>> futures = list
+                    .parallelStream()
+                    .map(i -> CompletableFuture.supplyAsync(
+                            () -> i, executor))
+                    .toList();
+            // 收集转换结果
+            List<MenuTreeVO> trees = futures.stream()
+                    .map(CompletableFuture::join)
+                    .toList();
+            // 构建树结构
+            TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
+            List<MenuTreeVO> menuTree = treeFactory.buildTree(trees);
+            return ResultVO.ok(menuTree);
+        }
     }
 
     @Override
