@@ -212,3 +212,19 @@ message DeleteMenuReq {
     string menuCode = 1;
     LoginUser loginUser = 2;
 }
+
+message SaveRoleMenuReq {
+    string roleCode = 1;
+    repeated string menuCodes = 2;
+    LoginUser loginUser = 3;
+}
+
+message RemoveRoleMenuReq {
+    string roleCode = 1;
+    repeated string menuCodes = 2;
+    LoginUser loginUser = 3;
+}
+
+message RoleMenuTreeReq {
+    string roleCode = 1;
+}

@@ -4,6 +4,7 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.service.IMenuService;
 import com.rivers.user.vo.MenuTreeVO;
+import com.rivers.user.vo.RoleMenuTreeVO;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -44,5 +45,20 @@ public class MenuController {
     @PostMapping("deleteMenu")
     public ResultVO<Void> deleteMenu(@RequestBody DeleteMenuReq deleteMenuReq) {
         return menuService.deleteMenu(deleteMenuReq);
+    }
+
+    @PostMapping("saveRoleMenu")
+    public ResultVO<Void> saveRoleMenu(@RequestBody SaveRoleMenuReq saveRoleMenuReq) {
+        return menuService.saveRoleMenu(saveRoleMenuReq);
+    }
+
+    @PostMapping("removeRoleMenu")
+    public ResultVO<Void> removeRoleMenu(@RequestBody RemoveRoleMenuReq removeRoleMenuReq) {
+        return menuService.removeRoleMenu(removeRoleMenuReq);
+    }
+
+    @PostMapping("getRoleMenuTree")
+    public ResultVO<List<RoleMenuTreeVO>> getRoleMenuTree(@RequestBody RoleMenuTreeReq roleMenuTreeReq) {
+        return menuService.getRoleMenuTree(roleMenuTreeReq);
     }
 }

@@ -3,14 +3,10 @@ package com.rivers.user.entity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.rivers.core.entity.BasicDO;
-
-import java.io.Serial;
-import java.io.Serializable;
-
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.Setter;
+
+import java.io.Serial;
 
 /**
  * <p>
