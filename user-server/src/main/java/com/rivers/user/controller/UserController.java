@@ -3,10 +3,13 @@ package com.rivers.user.controller;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.service.IUserService;
+import com.rivers.user.vo.MenuTreeVO;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("user")
@@ -42,5 +45,10 @@ public class UserController {
     @PostMapping("deleteUser")
     public ResultVO<Void> deleteUser(@RequestBody UserReq userReq) {
         return userService.deleteUser(userReq);
+    }
+
+    @PostMapping("ownedMenuTree")
+    public ResultVO<List<MenuTreeVO>> ownedMenuTree(@RequestBody OwnedMenuTreeReq ownedMenuTreeReq) {
+        return userService.ownedMenuTree(ownedMenuTreeReq);
     }
 }

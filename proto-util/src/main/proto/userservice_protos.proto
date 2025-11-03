@@ -228,3 +228,7 @@ message RemoveRoleMenuReq {
 message RoleMenuTreeReq {
     string roleCode = 1;
 }
+
+message OwnedMenuTreeReq {
+    LoginUser loginUser = 1;
+}

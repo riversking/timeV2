@@ -5,15 +5,25 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.activerecord.AbstractModel;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.rivers.core.tree.TreeFactory;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
+import com.rivers.user.entity.TimerMenu;
+import com.rivers.user.entity.TimerRoleMenu;
 import com.rivers.user.entity.TimerUser;
+import com.rivers.user.entity.TimerUserRole;
+import com.rivers.user.mapper.TimerMenuMapper;
+import com.rivers.user.mapper.TimerRoleMenuMapper;
 import com.rivers.user.mapper.TimerUserMapper;
+import com.rivers.user.mapper.TimerUserRoleMapper;
 import com.rivers.user.service.IUserService;
+import com.rivers.user.vo.MenuTreeVO;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -23,8 +33,18 @@ public class UserServiceImpl implements IUserService {
 
     private final TimerUserMapper timerUserMapper;
 
-    public UserServiceImpl(TimerUserMapper timerUserMapper) {
+    private final TimerUserRoleMapper timerUserRoleMapper;
+
+    private final TimerRoleMenuMapper timerRoleMenuMapper;
+
+    private final TimerMenuMapper timerMenuMapper;
+
+    public UserServiceImpl(TimerUserMapper timerUserMapper, TimerUserRoleMapper timerUserRoleMapper,
+                           TimerRoleMenuMapper timerRoleMenuMapper, TimerMenuMapper timerMenuMapper) {
         this.timerUserMapper = timerUserMapper;
+        this.timerUserRoleMapper = timerUserRoleMapper;
+        this.timerRoleMenuMapper = timerRoleMenuMapper;
+        this.timerMenuMapper = timerMenuMapper;
     }
 
     @Override
@@ -187,5 +207,55 @@ public class UserServiceImpl implements IUserService {
         TimerUser timerUser = timerUserMapper.selectOne(userWrapper);
         Optional.ofNullable(timerUser).ifPresent(AbstractModel::deleteById);
         return ResultVO.ok();
+    }
+
+    @Override
+    public ResultVO<List<MenuTreeVO>> ownedMenuTree(OwnedMenuTreeReq ownedMenuTreeReq) {
+        LoginUser loginUser = ownedMenuTreeReq.getLoginUser();
+        String userId = loginUser.getUserId();
+        LambdaQueryWrapper<TimerUserRole> userRoleWrapper = Wrappers.lambdaQuery();
+        userRoleWrapper.eq(TimerUserRole::getUserId, userId);
+        List<TimerUserRole> userRoles = timerUserRoleMapper.selectList(userRoleWrapper);
+        if (CollectionUtils.isEmpty(userRoles)) {
+            return ResultVO.fail("获取菜单失败");
+        }
+        List<String> roleCodes = userRoles.stream()
+                .map(TimerUserRole::getRoleCode)
+                .toList();
+        LambdaQueryWrapper<TimerRoleMenu> roleMenuWrapper = Wrappers.lambdaQuery();
+        roleMenuWrapper.in(TimerRoleMenu::getRoleCode, roleCodes);
+        List<TimerRoleMenu> roleMenus = timerRoleMenuMapper.selectList(roleMenuWrapper);
+        if (CollectionUtils.isEmpty(roleMenus)) {
+            return ResultVO.fail("获取菜单失败");
+        }
+        List<String> menuCodes = roleMenus.stream()
+                .map(TimerRoleMenu::getMenuCode)
+                .distinct()
+                .toList();
+        LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
+        menuWrapper.in(TimerMenu::getMenuCode, menuCodes);
+        List<TimerMenu> menus = timerMenuMapper.selectList(menuWrapper);
+        if (CollectionUtils.isEmpty(menus)) {
+            return ResultVO.fail("获取菜单失败");
+        }
+        List<MenuTreeVO> menuTree = menus.stream()
+                .map(i -> {
+                    MenuTreeVO menuTreeVO = new MenuTreeVO();
+                    menuTreeVO.setId(i.getId());
+                    menuTreeVO.setParentId(i.getParentId());
+                    menuTreeVO.setMenuName(i.getMenuName());
+                    menuTreeVO.setMenuCode(i.getMenuCode());
+                    menuTreeVO.setMenuType(i.getMenuType());
+                    menuTreeVO.setRoutePath(i.getRoutePath());
+                    menuTreeVO.setIcon(i.getIcon());
+                    menuTreeVO.setMenuType(i.getMenuType());
+                    menuTreeVO.setSortOrder(i.getSortOrder());
+                    return menuTreeVO;
+                })
+                .sorted(Comparator.comparing(MenuTreeVO::getSortOrder))
+                .toList();
+        TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
+        List<MenuTreeVO> tree = treeFactory.buildTree(menuTree);
+        return ResultVO.ok(tree);
     }
 }
