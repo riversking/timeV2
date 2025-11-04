@@ -31,6 +31,7 @@ import java.util.Optional;
 @Service
 public class UserServiceImpl implements IUserService {
 
+    public static final String GET_MENU_ERROR = "获取菜单失败";
     private final TimerUserMapper timerUserMapper;
 
     private final TimerUserRoleMapper timerUserRoleMapper;
@@ -217,7 +218,7 @@ public class UserServiceImpl implements IUserService {
         userRoleWrapper.eq(TimerUserRole::getUserId, userId);
         List<TimerUserRole> userRoles = timerUserRoleMapper.selectList(userRoleWrapper);
         if (CollectionUtils.isEmpty(userRoles)) {
-            return ResultVO.fail("获取菜单失败");
+            return ResultVO.fail(GET_MENU_ERROR);
         }
         List<String> roleCodes = userRoles.stream()
                 .map(TimerUserRole::getRoleCode)
@@ -226,7 +227,7 @@ public class UserServiceImpl implements IUserService {
         roleMenuWrapper.in(TimerRoleMenu::getRoleCode, roleCodes);
         List<TimerRoleMenu> roleMenus = timerRoleMenuMapper.selectList(roleMenuWrapper);
         if (CollectionUtils.isEmpty(roleMenus)) {
-            return ResultVO.fail("获取菜单失败");
+            return ResultVO.fail(GET_MENU_ERROR);
         }
         List<String> menuCodes = roleMenus.stream()
                 .map(TimerRoleMenu::getMenuCode)
@@ -236,7 +237,7 @@ public class UserServiceImpl implements IUserService {
         menuWrapper.in(TimerMenu::getMenuCode, menuCodes);
         List<TimerMenu> menus = timerMenuMapper.selectList(menuWrapper);
         if (CollectionUtils.isEmpty(menus)) {
-            return ResultVO.fail("获取菜单失败");
+            return ResultVO.fail(GET_MENU_ERROR);
         }
         List<MenuTreeVO> menuTree = menus.stream()
                 .map(i -> {
