@@ -16,12 +16,15 @@ import org.springframework.scheduling.quartz.QuartzJobBean;
 @Slf4j
 public class BatchQuartzJob extends QuartzJobBean {
 
-    @Autowired
-    private JobLauncher jobLauncher;
+    private final JobLauncher jobLauncher;
 
-    @Autowired
     @Qualifier("businessJob")
-    private Job businessJob;
+    private final Job businessJob;
+
+    public BatchQuartzJob(JobLauncher jobLauncher, Job businessJob) {
+        this.jobLauncher = jobLauncher;
+        this.businessJob = businessJob;
+    }
 
     @Override
     protected void executeInternal(@NonNull JobExecutionContext context) throws JobExecutionException {
