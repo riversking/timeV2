@@ -23,15 +23,15 @@ public class BatchConfig {
     }
 
     @Bean
-    public Job businessStep(JobRepository jobRepository, PlatformTransactionManager transactionManage) {
-        return new JobBuilder("businessStep", jobRepository)
-                .start(businessJob(jobRepository, transactionManage))
+    public Job businessJob(JobRepository jobRepository, PlatformTransactionManager transactionManage) {
+        return new JobBuilder("businessJob", jobRepository)
+                .start(businessStep(jobRepository, transactionManage))
                 .build();
     }
 
     @Bean
-    public Step businessJob(JobRepository jobRepository, PlatformTransactionManager transactionManage) {
-        return new StepBuilder("businessJob", jobRepository)
+    public Step businessStep(JobRepository jobRepository, PlatformTransactionManager transactionManage) {
+        return new StepBuilder("businessStep", jobRepository)
                 .tasklet(businessTasklet, transactionManage)
                 .build();
     }
