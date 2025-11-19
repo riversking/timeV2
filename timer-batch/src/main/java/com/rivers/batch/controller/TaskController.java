@@ -49,3 +49,5 @@ public class TaskController {
     public ResultVO<Void> runTask(@RequestBody CommonTaskReq commonTaskReq) {
         return taskInfoService.runTask(commonTaskReq);
     }
+
+}
