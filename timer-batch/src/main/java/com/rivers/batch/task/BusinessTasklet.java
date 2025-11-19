@@ -28,12 +28,13 @@ public class BusinessTasklet implements Tasklet {
     public RepeatStatus execute(@NonNull StepContribution contribution, @NonNull ChunkContext chunkContext) {
         try {
             Map<String, Object> jobParameters = chunkContext.getStepContext().getJobParameters();
-            String jobName = (String) jobParameters.get("jobName");
-            log.info("Executing business task for job: {}", jobName);
-            String result = dynamicClient.executePostApi(jobName, "/api/business/execute", jobParameters);
+            log.info("Job parameters: {}", jobParameters);
+            String taskName = (String) jobParameters.get("taskName");
+            log.info("Executing business task for job: {}", taskName);
+//            String result = dynamicClient.executePostApi(jobName, "/api/business/execute", jobParameters);
             ExecutionContext executionContext = contribution.getStepExecution().getExecutionContext();
-            executionContext.put("businessTaskId", result);
-            return RepeatStatus.FINISHED;
+            executionContext.put("jobParameters", jobParameters);
+            log.info("Execution context: {}", executionContext);
         } catch (Exception e) {
             log.error("Error executing business tasklet", e);
         }

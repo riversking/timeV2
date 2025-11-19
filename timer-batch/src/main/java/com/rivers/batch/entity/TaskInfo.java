@@ -14,7 +14,7 @@ import lombok.Setter;
 
 /**
  * <p>
- * 
+ *
  * </p>
  *
  * @author xx
@@ -23,7 +23,7 @@ import lombok.Setter;
 @EqualsAndHashCode(callSuper = true)
 @Data
 @TableName("task_info")
-public class TaskInfo extends BasicDO<TaskInfo>{
+public class TaskInfo extends BasicDO<TaskInfo> {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -57,4 +57,7 @@ public class TaskInfo extends BasicDO<TaskInfo>{
      */
     @TableField("email")
     private String email;
+
+    @TableField("status")
+    private String status;
 }

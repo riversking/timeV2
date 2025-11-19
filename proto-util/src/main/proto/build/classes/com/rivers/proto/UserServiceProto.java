@@ -36,6 +36,16 @@ public final class UserServiceProto extends com.google.protobuf.GeneratedFile {
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_grpc_SaveTaskInfoReq_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_grpc_UpdateTaskInfoReq_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_grpc_UpdateTaskInfoReq_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_grpc_CommonTaskReq_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_grpc_CommonTaskReq_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -50,8 +60,14 @@ public final class UserServiceProto extends com.google.protobuf.GeneratedFile {
       "\"\212\001\n\017SaveTaskInfoReq\022\020\n\010taskName\030\001 \001(\t\022\017" +
       "\n\007jobName\030\002 \001(\t\022\014\n\004cron\030\003 \001(\t\022\023\n\013service" +
       "Name\030\004 \001(\t\022\r\n\005email\030\005 \001(\t\022\"\n\tloginUser\030\006" +
-      " \001(\0132\017.grpc.LoginUserB&\n\020com.rivers.prot" +
-      "oB\020UserServiceProtoP\001b\006proto3"
+      " \001(\0132\017.grpc.LoginUser\"\230\001\n\021UpdateTaskInfo" +
+      "Req\022\n\n\002id\030\001 \001(\003\022\020\n\010taskName\030\002 \001(\t\022\017\n\007job" +
+      "Name\030\003 \001(\t\022\014\n\004cron\030\004 \001(\t\022\023\n\013serviceName\030" +
+      "\005 \001(\t\022\r\n\005email\030\006 \001(\t\022\"\n\tloginUser\030\007 \001(\0132" +
+      "\017.grpc.LoginUser\"?\n\rCommonTaskReq\022\n\n\002id\030" +
+      "\001 \001(\003\022\"\n\tloginUser\030\002 \001(\0132\017.grpc.LoginUse" +
+      "rB&\n\020com.rivers.protoB\020UserServiceProtoP" +
+      "\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -69,6 +85,18 @@ public final class UserServiceProto extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_grpc_SaveTaskInfoReq_descriptor,
         new java.lang.String[] { "TaskName", "JobName", "Cron", "ServiceName", "Email", "LoginUser", });
+    internal_static_grpc_UpdateTaskInfoReq_descriptor =
+      getDescriptor().getMessageType(2);
+    internal_static_grpc_UpdateTaskInfoReq_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_grpc_UpdateTaskInfoReq_descriptor,
+        new java.lang.String[] { "Id", "TaskName", "JobName", "Cron", "ServiceName", "Email", "LoginUser", });
+    internal_static_grpc_CommonTaskReq_descriptor =
+      getDescriptor().getMessageType(3);
+    internal_static_grpc_CommonTaskReq_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_grpc_CommonTaskReq_descriptor,
+        new java.lang.String[] { "Id", "LoginUser", });
     descriptor.resolveAllFeaturesImmutable();
   }
 

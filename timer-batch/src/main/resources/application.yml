@@ -1,66 +1,10 @@
-server:
-  port: 8008
 spring:
   application:
-    name: timer-batch
-  rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: guest
-    password: guest
+    name: batch-server
   cloud:
     nacos:
-      discovery:
-        server-addr: 127.0.0.1:8848
       config:
-        import-check:
-          enabled: false
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    type: com.zaxxer.hikari.HikariDataSource
-    url: jdbc:mysql://127.0.0.1:3306/timer_batch?useUnicode=true&characterEncoding=UTF8&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
-    username: root
-    password: King9128@958
-    hikari:
-      allow-pool-suspension: true
-      minimum-idle: 10
-      maximum-pool-size: 20
-      idle-timeout: 180000
-      max-lifetime: 1800000
-      connection-timeout: 30000
-      connection-test-query: SELECT 1
-  quartz:
-    job-store-type: jdbc
-    jdbc:
-      initialize-schema: never
-    properties:
-      org:
-        quartz:
-          jobStore:
-            class: org.springframework.scheduling.quartz.LocalDataSourceJobStore
-            driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
-            tablePrefix: QRTZ_
-            isClustered: true
-            clusterCheckinInterval: 20000
-          threadPool:
-            class: org.quartz.simpl.SimpleThreadPool
-            threadCount: 10
-            threadPriority: 5
-  batch:
-    job:
-      enabled: false
-
-mybatis-plus:
-  mapper-locations: classpath*:/mapper/*.xml
-  global-config:
-    db-config:
-      id-type: auto
-      logic-delete-field: true
-      logic-delete-value: 1
-      logic-not-delete-value: 0
-  configuration:
-    map-underscore-to-camel-case: true
-    cache-enabled: true #配置的缓存的全局开关
-    lazyLoadingEnabled: true #延时加载的开关
-    multipleResultSetsEnabled: true #开启的话
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl #日志实现
+        server-addr: 127.0.0.1:8848
+        file-extension: yml
+  config:
+    import: nacos:batch-server.yml
