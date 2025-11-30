@@ -30,19 +30,15 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.springframework.cloud:spring-cloud-starter'
-    implementation 'org.apache.commons:commons-lang3:3.18.0'
-    implementation 'com.google.guava:guava:33.4.0-jre'
+    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
     implementation files('../protos/nbaservice_protos.jar')
-    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
     implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'io.github.riversking:rivers-core:1.0.13.3'
-    compileOnly 'org.projectlombok:lombok'
+    implementation 'io.github.riversking:rivers-core:1.0.19'
     annotationProcessor 'org.projectlombok:lombok'
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
-    implementation 'com.mysql:mysql-connector-j:8.4.0'
-    implementation 'com.alibaba:fastjson:2.0.58'
+    implementation 'com.mysql:mysql-connector-j'
     implementation 'org.springframework.boot:spring-boot-starter-undertow'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
