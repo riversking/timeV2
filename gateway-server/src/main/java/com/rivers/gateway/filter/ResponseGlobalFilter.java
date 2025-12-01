@@ -25,7 +25,7 @@ import java.util.Objects;
 
 @Component
 @Slf4j
-public class WrapperResponseGlobalFilter implements GlobalFilter, Ordered {
+public class ResponseGlobalFilter implements GlobalFilter, Ordered {
 
     private static final String EXPORT_PATH = "export";
     public static final String DEFAULT_RES = "{\"code\": 500, \"message\": \"Internal Server Error\"}";

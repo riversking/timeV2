@@ -9,12 +9,22 @@ spring:
     gateway:
       server:
         webflux:
+          discovery:
+            locator:
+              enabled: true
+              lower-case-service-id: true
           default-filters:
             - AddResponseHeader=X-Response-Default-Foo, Default-Bar
           routes:
             - id: user-server
               uri: lb://user-server
               predicates:
-                - Path=/**
+                - Path=/user-server/**
   config:
     import: nacos:gateway-server.yml
+
+
+ignore:
+  urls:
+    - /actuator/**
+    - /user-server/login

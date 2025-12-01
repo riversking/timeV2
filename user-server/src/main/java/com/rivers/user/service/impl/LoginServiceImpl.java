@@ -60,8 +60,8 @@ public class LoginServiceImpl implements ILoginService {
         loginUser.setUsername(user.getUsername());
         String key = UUID.randomUUID().toString();
         String token = JwtUtil.createJwt(loginUser, key);
-        stringRedisTemplate.opsForValue().set(userId + key, token);
-        stringRedisTemplate.expire(userId + key, 30, TimeUnit.MINUTES);
+        stringRedisTemplate.opsForValue().set("token:" + key, token);
+        stringRedisTemplate.expire("token:" + key, 30, TimeUnit.MINUTES);
         return ResultVO.ok(LoginRes.newBuilder().setToken(token).build());
     }
 }
