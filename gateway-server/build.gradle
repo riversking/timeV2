@@ -30,7 +30,7 @@ dependencies {
     implementation 'org.apache.commons:commons-lang3:3.18.0'
     implementation 'com.google.guava:guava:33.4.0-jre'
     implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
-    implementation 'io.github.riversking:rivers-core:1.0.13.3'
+    implementation 'io.github.riversking:rivers-core:1.0.19'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     implementation 'com.alibaba:fastjson:2.0.58'

@@ -4,19 +4,23 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import com.alibaba.nacos.shaded.com.google.common.collect.Maps;
 import com.rivers.core.config.FilterIgnorePropertiesConfig;
+import com.rivers.core.entity.LoginUser;
 import com.rivers.core.util.JwtUtil;
-import com.rivers.proto.LoginUser;
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
 import org.springframework.core.Ordered;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
@@ -26,21 +30,28 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @Slf4j
 public class RequestGlobalFilter implements GlobalFilter, Ordered {
 
+    public static final String CODE_401 = "{\"code\":401,\"msg\":\"鉴权失败\"}";
     private final GatewayFilter delegate;
 
     private final FilterIgnorePropertiesConfig filterIgnorePropertiesConfig;
 
-    private PathMatcher pathMatcher = new AntPathMatcher();
+    private final PathMatcher pathMatcher = new AntPathMatcher();
 
-    public RequestGlobalFilter(FilterIgnorePropertiesConfig filterIgnorePropertiesConfig) {
+    private final StringRedisTemplate stringRedisTemplate;
+
+    public RequestGlobalFilter(FilterIgnorePropertiesConfig filterIgnorePropertiesConfig, StringRedisTemplate stringRedisTemplate) {
         this.filterIgnorePropertiesConfig = filterIgnorePropertiesConfig;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.delegate = new ModifyRequestBodyGatewayFilterFactory().apply(this.getConfig());
     }
 
@@ -58,6 +69,45 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
         if (filterIgnorePropertiesConfig.getUrls().stream().anyMatch(i -> pathMatcher.match(i, path))) {
             return chain.filter(exchange);
         }
+        HttpHeaders headers = request.getHeaders();
+        String authorization = headers.getFirst(HttpHeaders.AUTHORIZATION);
+        if (StringUtils.isBlank(authorization)) {
+            // 修改报文 返回401
+            // 构造响应数据
+            ServerHttpResponse response = exchange.getResponse();
+            // 写入响应体
+            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
+            return response.writeWith(Mono.just(buffer));
+        }
+        String token = CharSequenceUtil.subAfter(authorization, "Bearer ", false);
+        if (StringUtils.isBlank(token)) {
+            // 修改报文 返回401
+            // 构造响应数据
+            ServerHttpResponse response = exchange.getResponse();
+            // 写入响应体
+            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
+            return response.writeWith(Mono.just(buffer));
+        }
+        Claims claims = JwtUtil.parseJwt(token);
+        String claimsId = claims.getId();
+        String redisToken = stringRedisTemplate.opsForValue().get("token:" + claimsId);
+        if (StringUtils.isBlank(redisToken)) {
+            // 修改报文 返回401
+            // 构造响应数据
+            ServerHttpResponse response = exchange.getResponse();
+            // 写入响应体
+            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
+            return response.writeWith(Mono.just(buffer));
+        }
+        if (!Objects.equals(redisToken, token)) {
+            // 修改报文 返回401
+            // 构造响应数据
+            ServerHttpResponse response = exchange.getResponse();
+            // 写入响应体
+            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
+            return response.writeWith(Mono.just(buffer));
+        }
+        stringRedisTemplate.expire("token:" + claimsId, 30, TimeUnit.MINUTES);
         if (request.getMethod() == HttpMethod.GET) {
             URI uri = request.getURI();
             StringBuilder query = new StringBuilder();
