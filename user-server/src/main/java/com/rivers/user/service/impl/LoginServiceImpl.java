@@ -56,7 +56,7 @@ public class LoginServiceImpl implements ILoginService {
         }
         String userId = user.getUserId();
         LoginUser loginUser = new LoginUser();
-        loginUser.setAccountNo(userId);
+        loginUser.setUserId(userId);
         loginUser.setUsername(user.getUsername());
         String key = UUID.randomUUID().toString();
         String token = JwtUtil.createJwt(loginUser, key);

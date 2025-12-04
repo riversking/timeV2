@@ -80,14 +80,6 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
             return response.writeWith(Mono.just(buffer));
         }
         String token = CharSequenceUtil.subAfter(authorization, "Bearer ", false);
-        if (StringUtils.isBlank(token)) {
-            // 修改报文 返回401
-            // 构造响应数据
-            ServerHttpResponse response = exchange.getResponse();
-            // 写入响应体
-            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
-            return response.writeWith(Mono.just(buffer));
-        }
         Claims claims = JwtUtil.parseJwt(token);
         String claimsId = claims.getId();
         String redisToken = stringRedisTemplate.opsForValue().get("token:" + claimsId);
