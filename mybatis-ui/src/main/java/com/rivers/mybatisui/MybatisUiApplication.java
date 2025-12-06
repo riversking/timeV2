@@ -7,7 +7,7 @@ import com.github.davidfantasy.mybatisplus.generatorui.mbp.NameConverter;
 public class MybatisUiApplication {
 
     public static void main(String[] args) {
-        GeneratorConfig config = GeneratorConfig.builder().jdbcUrl("jdbc:mysql://127.0.0.1:3306/timer_batch")
+        GeneratorConfig config = GeneratorConfig.builder().jdbcUrl("jdbc:mysql://127.0.0.1:3306/timer_admin")
                 .userName("root")
                 .password("King9128@958")
                 .driverClassName("com.mysql.cj.jdbc.Driver")
