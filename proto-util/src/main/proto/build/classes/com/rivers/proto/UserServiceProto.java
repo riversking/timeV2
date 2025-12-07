@@ -191,6 +191,16 @@ public final class UserServiceProto extends com.google.protobuf.GeneratedFile {
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_grpc_LoginRes_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_grpc_SaveDicReq_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_grpc_SaveDicReq_fieldAccessorTable;
+  static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_grpc_UpdateDicReq_descriptor;
+  static final 
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_grpc_UpdateDicReq_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -280,8 +290,15 @@ public final class UserServiceProto extends com.google.protobuf.GeneratedFile {
       "\"6\n\020OwnedMenuTreeReq\022\"\n\tloginUser\030\001 \001(\0132" +
       "\017.grpc.LoginUser\".\n\010LoginReq\022\020\n\010username" +
       "\030\001 \001(\t\022\020\n\010password\030\002 \001(\t\"\031\n\010LoginRes\022\r\n\005" +
-      "token\030\001 \001(\tB&\n\020com.rivers.protoB\020UserSer" +
-      "viceProtoP\001b\006proto3"
+      "token\030\001 \001(\t\"\203\001\n\nSaveDicReq\022\016\n\006dicKey\030\001 \001" +
+      "(\t\022\020\n\010dicValue\030\002 \001(\t\022\017\n\007dicDesc\030\003 \001(\t\022\020\n" +
+      "\010parentId\030\004 \001(\003\022\014\n\004sort\030\005 \001(\005\022\"\n\tloginUs" +
+      "er\030\006 \001(\0132\017.grpc.LoginUser\"\221\001\n\014UpdateDicR" +
+      "eq\022\n\n\002id\030\001 \001(\003\022\016\n\006dicKey\030\002 \001(\t\022\020\n\010dicVal" +
+      "ue\030\003 \001(\t\022\017\n\007dicDesc\030\004 \001(\t\022\020\n\010parentId\030\005 " +
+      "\001(\003\022\014\n\004sort\030\006 \001(\005\022\"\n\tloginUser\030\007 \001(\0132\017.g" +
+      "rpc.LoginUserB&\n\020com.rivers.protoB\020UserS" +
+      "erviceProtoP\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -485,6 +502,18 @@ public final class UserServiceProto extends com.google.protobuf.GeneratedFile {
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_grpc_LoginRes_descriptor,
         new java.lang.String[] { "Token", });
+    internal_static_grpc_SaveDicReq_descriptor =
+      getDescriptor().getMessageType(33);
+    internal_static_grpc_SaveDicReq_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_grpc_SaveDicReq_descriptor,
+        new java.lang.String[] { "DicKey", "DicValue", "DicDesc", "ParentId", "Sort", "LoginUser", });
+    internal_static_grpc_UpdateDicReq_descriptor =
+      getDescriptor().getMessageType(34);
+    internal_static_grpc_UpdateDicReq_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+        internal_static_grpc_UpdateDicReq_descriptor,
+        new java.lang.String[] { "Id", "DicKey", "DicValue", "DicDesc", "ParentId", "Sort", "LoginUser", });
     descriptor.resolveAllFeaturesImmutable();
   }
 

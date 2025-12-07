@@ -241,3 +241,22 @@ message LoginReq {
 message LoginRes {
     string token = 1;
 }
+
+message SaveDicReq {
+    string dicKey = 1;
+    string dicValue = 2;
+    string dicDesc = 3;
+    int64 parentId = 4;
+    int32 sort = 5;
+    LoginUser loginUser = 6;
+}
+
+message UpdateDicReq {
+    int64 id = 1;
+    string dicKey = 2;
+    string dicValue = 3;
+    string dicDesc = 4;
+    int64 parentId = 5;
+    int32 sort = 6;
+    LoginUser loginUser = 7;
+}
