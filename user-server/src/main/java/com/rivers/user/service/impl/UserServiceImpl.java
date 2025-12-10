@@ -256,7 +256,7 @@ public class UserServiceImpl implements IUserService {
                 .sorted(Comparator.comparing(MenuTreeVO::getSortOrder))
                 .toList();
         TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
-        List<MenuTreeVO> tree = treeFactory.buildTree(menuTree);
+        List<MenuTreeVO> tree = treeFactory.buildTree(menuTree, -1L);
         return ResultVO.ok(tree);
     }
 }

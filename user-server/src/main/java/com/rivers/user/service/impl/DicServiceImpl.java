@@ -109,7 +109,7 @@ public class DicServiceImpl implements IDicService {
                 .sorted(Comparator.comparing(DicTreeVO::getSort))
                 .toList();
         TreeFactory<Long, DicTreeVO> treeFactory = new TreeFactory<>();
-        SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(dicTrees);
+        SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(dicTrees, -1L);
         return ResultVO.ok(tree);
     }
 }
