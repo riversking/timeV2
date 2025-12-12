@@ -148,7 +148,7 @@ public class MenuServiceImpl implements IMenuService {
                     .toList();
             // 构建树结构
             TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
-            List<MenuTreeVO> menuTree = treeFactory.buildTree(trees, -1L);
+            List<MenuTreeVO> menuTree = treeFactory.buildTree(trees);
             return ResultVO.ok(menuTree);
         }
     }
@@ -300,7 +300,7 @@ public class MenuServiceImpl implements IMenuService {
                 })
                 .toList();
         TreeFactory<Long, RoleMenuTreeVO> treeFactory = new TreeFactory<>();
-        SequencedCollection<RoleMenuTreeVO> roleMenuTrees = treeFactory.buildTreeOrdered(menus, -1L);
+        SequencedCollection<RoleMenuTreeVO> roleMenuTrees = treeFactory.buildTreeOrdered(menus);
         return ResultVO.ok(Lists.newArrayList(roleMenuTrees));
     }
 }

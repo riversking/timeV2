@@ -11,14 +11,17 @@ import com.rivers.user.entity.TimerDic;
 import com.rivers.user.mapper.TimerDicMapper;
 import com.rivers.user.service.IDicService;
 import com.rivers.user.vo.DicTreeVO;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.SequencedCollection;
 
 @Service
+@Slf4j
 public class DicServiceImpl implements IDicService {
 
     private final TimerDicMapper timerDicMapper;
@@ -94,22 +97,24 @@ public class DicServiceImpl implements IDicService {
     @Override
     public ResultVO<SequencedCollection<DicTreeVO>> getDicTree() {
         LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
+        dicWrapper.orderByAsc(TimerDic::getSort)
+                .select(TimerDic::getId, TimerDic::getDicKey, TimerDic::getParentId);
+        long startTime = System.currentTimeMillis();
         List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
+        log.info("timerDictionaries: {}",  System.currentTimeMillis() - startTime);
         List<DicTreeVO> dicTrees = timerDictionaries.stream()
                 .map(i -> {
                     DicTreeVO dicTreeVO = new DicTreeVO();
                     dicTreeVO.setId(i.getId());
                     dicTreeVO.setDicKey(i.getDicKey());
                     dicTreeVO.setDicValue(i.getDicValue());
-                    dicTreeVO.setDicDesc(i.getDicDesc());
                     dicTreeVO.setSort(i.getSort());
                     dicTreeVO.setParentId(i.getParentId());
                     return dicTreeVO;
                 })
-                .sorted(Comparator.comparing(DicTreeVO::getSort))
                 .toList();
         TreeFactory<Long, DicTreeVO> treeFactory = new TreeFactory<>();
-        SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(dicTrees, -1L);
+        SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(dicTrees);
         return ResultVO.ok(tree);
     }
 }
