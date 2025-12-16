@@ -5,10 +5,7 @@ option java_package = "com.rivers.proto";
 option java_outer_classname = "UserServiceProto"; //要生成Java类的名称
 option java_multiple_files = true;
 
-message LoginUser {
-    string username = 1;
-    string userId = 2;
-}
+import "common_protos.proto";
 
 message SaveTaskInfoReq {
     string taskName = 1;
