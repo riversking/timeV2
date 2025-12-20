@@ -4,19 +4,16 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.rivers.core.tree.TreeFactory;
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.LoginUser;
-import com.rivers.proto.SaveDicReq;
-import com.rivers.proto.UpdateDicReq;
+import com.rivers.proto.*;
 import com.rivers.user.entity.TimerDic;
 import com.rivers.user.mapper.TimerDicMapper;
 import com.rivers.user.service.IDicService;
 import com.rivers.user.vo.DicTreeVO;
 import lombok.extern.slf4j.Slf4j;
+import lombok.val;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
 import java.util.SequencedCollection;
 
@@ -101,7 +98,7 @@ public class DicServiceImpl implements IDicService {
                 .select(TimerDic::getId, TimerDic::getDicKey, TimerDic::getParentId);
         long startTime = System.currentTimeMillis();
         List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
-        log.info("timerDictionaries: {}",  System.currentTimeMillis() - startTime);
+        log.info("timerDictionaries: {}", System.currentTimeMillis() - startTime);
         List<DicTreeVO> dicTrees = timerDictionaries.stream()
                 .map(i -> {
                     DicTreeVO dicTreeVO = new DicTreeVO();
@@ -116,5 +113,27 @@ public class DicServiceImpl implements IDicService {
         TreeFactory<Long, DicTreeVO> treeFactory = new TreeFactory<>();
         SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(dicTrees);
         return ResultVO.ok(tree);
+    }
+
+    @Override
+    public ResultVO<DicDataRes> getDicData(DicDataReq dicDataReq) {
+        var dicKey = dicDataReq.getDicKey();
+        if (StringUtils.isNotBlank(dicKey)) {
+            return ResultVO.fail("字典key不能为空");
+        }
+        LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
+        dicWrapper.eq(StringUtils.isNotBlank(dicKey), TimerDic::getDicKey, dicKey)
+                .orderByAsc(TimerDic::getSort)
+                .select(TimerDic::getId,TimerDic::getParentId, TimerDic::getDicKey, TimerDic::getDicValue, TimerDic::getSort);
+        List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
+        List<Dic> dicList = timerDictionaries.stream()
+                .map(i -> Dic.newBuilder()
+                        .setId(i.getId())
+                        .setDicKey(i.getDicKey())
+                        .setDicValue(i.getDicValue())
+                        .setParentId(i.getParentId())
+                        .build())
+                .toList();
+        return ResultVO.ok(DicDataRes.newBuilder().addAllDicData(dicList).build());
     }
 }

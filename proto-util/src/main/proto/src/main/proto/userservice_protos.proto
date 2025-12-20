@@ -260,3 +260,20 @@ message UpdateDicReq {
     int32 sort = 6;
     LoginUser loginUser = 7;
 }
+
+message Dic {
+    int64 id = 1;
+    string dicKey = 2;
+    string dicValue = 3;
+    string dicDesc = 4;
+    int64 parentId = 5;
+}
+
+message DicDataReq {
+    string dicKey = 1;
+    LoginUser loginUser = 2;
+}
+
+message DicDataRes {
+    repeated Dic dicData = 1;
+}

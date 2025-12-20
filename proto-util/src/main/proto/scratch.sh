@@ -47,7 +47,7 @@ if ! command -v javac &> /dev/null; then
 fi
 
 # 设置 Protobuf 版本
-PROTOBUF_VERSION="4.33.0"
+PROTOBUF_VERSION="4.33.2"
 
 # 检查 protoc 版本
 PROTOC_VERSION=$(protoc --version | cut -d' ' -f2)

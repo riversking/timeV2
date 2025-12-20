@@ -1,6 +1,8 @@
 package com.rivers.user.service;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.proto.DicDataReq;
+import com.rivers.proto.DicDataRes;
 import com.rivers.proto.SaveDicReq;
 import com.rivers.proto.UpdateDicReq;
 import com.rivers.user.vo.DicTreeVO;
@@ -15,4 +17,6 @@ public interface IDicService {
     ResultVO<Void> updateDic(UpdateDicReq updateDicReq);
 
     ResultVO<SequencedCollection<DicTreeVO>> getDicTree();
+
+    ResultVO<DicDataRes> getDicData(DicDataReq dicDataReq);
 }

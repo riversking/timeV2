@@ -1,6 +1,8 @@
 package com.rivers.user.controller;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.proto.DicDataReq;
+import com.rivers.proto.DicDataRes;
 import com.rivers.proto.SaveDicReq;
 import com.rivers.proto.UpdateDicReq;
 import com.rivers.user.service.IDicService;
@@ -35,6 +37,11 @@ public class DicController {
     @PostMapping("getDicTree")
     public ResultVO<SequencedCollection<DicTreeVO>> getDicTree() {
         return dicService.getDicTree();
+    }
+
+    @PostMapping("getDicData")
+    public ResultVO<DicDataRes> getDicData(@RequestBody DicDataReq dicDataReq) {
+        return dicService.getDicData(dicDataReq);
     }
 }
 

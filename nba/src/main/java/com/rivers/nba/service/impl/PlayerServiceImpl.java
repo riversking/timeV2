@@ -10,9 +10,12 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetPlayersReq;
 import com.rivers.nba.GetPlayersRes;
 import com.rivers.nba.Player;
+import com.rivers.nba.client.UserServiceClient;
 import com.rivers.nba.entity.TimerPlayer;
 import com.rivers.nba.mapper.PlayerMapper;
 import com.rivers.nba.service.IPlayerService;
+import com.rivers.proto.DicDataReq;
+import com.rivers.proto.DicDataRes;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -45,8 +48,11 @@ public class PlayerServiceImpl implements IPlayerService {
 
     private final PlayerMapper playerMapper;
 
-    public PlayerServiceImpl(PlayerMapper playerMapper) {
+    private final UserServiceClient userServiceClient;
+
+    public PlayerServiceImpl(PlayerMapper playerMapper, UserServiceClient userServiceClient) {
         this.playerMapper = playerMapper;
+        this.userServiceClient = userServiceClient;
     }
 
 
@@ -94,8 +100,12 @@ public class PlayerServiceImpl implements IPlayerService {
         if (total == 0) {
             return ResultVO.ok(GetPlayersRes.newBuilder().getDefaultInstanceForType());
         }
-
         List<TimerPlayer> records = playerPage.getRecords();
+        userServiceClient.getDicData(DicDataReq.newBuilder().setDicKey("sex").build())
+                .subscribe(i -> {
+                    DicDataRes data = i.getData();
+                    log.info("data {}", data);
+                });
         List<Player> list = records.stream()
                 .map(i ->
                         Player.newBuilder()
