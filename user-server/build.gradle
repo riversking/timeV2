@@ -43,15 +43,14 @@ dependencies {
 //    implementation 'org.springframework.boot:spring-boot-starter-undertow'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
     runtimeOnly 'com.mysql:mysql-connector-j'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-//configurations {
-//    implementation.exclude module: 'spring-boot-starter-tomcat'
-//}
+configurations {
+    implementation.exclude module: 'spring-boot-starter-web'
+}
 
 
 dependencyManagement {

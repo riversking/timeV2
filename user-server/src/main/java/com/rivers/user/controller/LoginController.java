@@ -7,6 +7,7 @@ import com.rivers.user.service.ILoginService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 @RestController
 public class LoginController {
@@ -18,7 +19,7 @@ public class LoginController {
     }
 
     @PostMapping("login")
-    public ResultVO<LoginRes> login(@RequestBody LoginReq loginReq) {
+    public Mono<ResultVO<LoginRes>> login(@RequestBody LoginReq loginReq) {
         return loginService.login(loginReq);
     }
 }

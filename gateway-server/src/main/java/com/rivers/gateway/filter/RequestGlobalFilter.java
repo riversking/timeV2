@@ -9,6 +9,7 @@ import com.rivers.core.util.JwtUtil;
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.NullMarked;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -62,8 +63,8 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
     }
 
     @Override
-    @NonNull
-    public Mono<Void> filter(ServerWebExchange exchange, @NonNull GatewayFilterChain chain) {
+    @NullMarked
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().value();
         if (filterIgnorePropertiesConfig.getUrls().stream().anyMatch(i -> pathMatcher.match(i, path))) {
@@ -147,6 +148,7 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
                         map.put("loginUser", loginUser);
                         log.info("登录用户信息: {}", loginUser);
                     });
+            log.info("request body {}", map);
             return Mono.just(map)
                     .map(Object.class::cast)
                     .doFinally(i -> map.clear());

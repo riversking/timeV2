@@ -3,7 +3,7 @@ import axios from 'axios'
 
 // 创建 axios 实例
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api',
+//   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8006/',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'

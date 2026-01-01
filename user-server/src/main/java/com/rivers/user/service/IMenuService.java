@@ -4,24 +4,26 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.vo.MenuTreeVO;
 import com.rivers.user.vo.RoleMenuTreeVO;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.SequencedCollection;
 
 public interface IMenuService {
 
-    ResultVO<Void> saveMenu(SaveMenuReq saveMenuReq);
+    Mono<ResultVO<Void>> saveMenu(SaveMenuReq saveMenuReq);
 
-    ResultVO<Void> updateMenu(UpdateMenuReq updateMenuReq);
+    Mono<ResultVO<Void>> updateMenu(UpdateMenuReq updateMenuReq);
 
-    ResultVO<List<MenuTreeVO>> getMenuTree();
+    Mono<ResultVO<List<MenuTreeVO>>> getMenuTree();
 
-    ResultVO<MenuDetailRes> getMenuDetail(MenuDetailReq menuDetailReq);
+    Mono<ResultVO<MenuDetailRes>> getMenuDetail(MenuDetailReq menuDetailReq);
 
-    ResultVO<Void> deleteMenu(DeleteMenuReq deleteMenuReq);
+    Mono<ResultVO<Void>> deleteMenu(DeleteMenuReq deleteMenuReq);
 
-    ResultVO<Void> saveRoleMenu(SaveRoleMenuReq saveRoleMenuReq);
+    Mono<ResultVO<Void>> saveRoleMenu(SaveRoleMenuReq saveRoleMenuReq);
 
-    ResultVO<Void> removeRoleMenu(RemoveRoleMenuReq removeRoleMenuReq);
+    Mono<ResultVO<Void>> removeRoleMenu(RemoveRoleMenuReq removeRoleMenuReq);
 
-    ResultVO<List<RoleMenuTreeVO>> getRoleMenuTree(RoleMenuTreeReq roleMenuTreeReq);
+    Mono<ResultVO<SequencedCollection<RoleMenuTreeVO>>> getRoleMenuTree(RoleMenuTreeReq roleMenuTreeReq);
 }

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 import java.util.SequencedCollection;
 
@@ -24,23 +25,24 @@ public class DicController {
         this.dicService = dicService;
     }
 
+    
     @PostMapping("saveDic")
-    public ResultVO<Void> saveDic(@RequestBody SaveDicReq saveDicReq) {
+    public Mono<ResultVO<Void>> saveDic(@RequestBody SaveDicReq saveDicReq) {
         return dicService.saveDic(saveDicReq);
     }
 
     @PostMapping("updateDic")
-    public ResultVO<Void> updateDic(@RequestBody UpdateDicReq updateDicReq) {
+    public Mono<ResultVO<Void>> updateDic(@RequestBody UpdateDicReq updateDicReq) {
         return dicService.updateDic(updateDicReq);
     }
 
     @PostMapping("getDicTree")
-    public ResultVO<SequencedCollection<DicTreeVO>> getDicTree() {
+    public Mono<ResultVO<SequencedCollection<DicTreeVO>>> getDicTree() {
         return dicService.getDicTree();
     }
 
     @PostMapping("getDicData")
-    public ResultVO<DicDataRes> getDicData(@RequestBody DicDataReq dicDataReq) {
+    public Mono<ResultVO<DicDataRes>> getDicData(@RequestBody DicDataReq dicDataReq) {
         return dicService.getDicData(dicDataReq);
     }
 }
