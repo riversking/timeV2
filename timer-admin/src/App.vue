@@ -1,13 +1,17 @@
+<!-- src/App.vue -->
 <template>
-  <main>
-    <Login />
-  </main>
+  <div class="app-container">
+    <router-view />
+  </div>
 </template>
 
 <script setup>
-import Login from './components/Login.vue';
+// 无需导入任何组件
 </script>
 
 <style>
-/* 根据需要添加全局样式 */
+.app-container {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
 </style>

@@ -1,4 +1,3 @@
-<!-- src/components/Login.vue -->
 <template>
   <div class="login-container">
     <el-card class="login-card">
@@ -49,7 +48,14 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { login } from "@/api/auth";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElLoading } from "element-plus";
+import { useRouter } from "vue-router";
+import { useUserStore } from "@/store/user";
+
+// 获取路由实例
+const router = useRouter();
+// 获取用户状态管理
+const userStore = useUserStore();
 
 // 表单数据
 const form = ref({
@@ -65,17 +71,28 @@ const error = ref<string | null>(null);
 const handleLogin = async () => {
   error.value = null;
   loading.value = true;
+  
   try {
     const res = await login({
       username: form.value.username,
       password: form.value.password,
     });
-    console.log("登录成功:", res);
+    
     if (res.code === 200) {
+      // 1. 保存token
       const token = res.data.token;
       localStorage.setItem("token", token);
+      
+      // 2. 保存用户信息到store
+      userStore.setToken(token);
+      userStore.setUserInfo(res.data.user);
+      
+      // 3. 获取用户菜单
+      await userStore.fetchMenu();
+      
+      // 4. 跳转到首页
       ElMessage.success("登录成功！");
-      // TODO: 路由跳转
+      router.push({ path: "/home" });
     } else {
       error.value = "登录失败：未返回有效 token";
     }
