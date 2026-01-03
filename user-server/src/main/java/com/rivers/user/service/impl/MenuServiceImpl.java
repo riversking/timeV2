@@ -33,6 +33,8 @@ import java.util.SequencedCollection;
 @Slf4j
 public class MenuServiceImpl implements IMenuService {
 
+    public static final String MENU_EMPTY = "菜单编码不能为空";
+    public static final String ROLE_EMPTY = "角色编码不能为空";
     private final TimerMenuMapper timerMenuMapper;
     private final TimerRoleMapper timerRoleMapper;
     private final TimerRoleMenuMapper timerRoleMenuMapper;
@@ -47,7 +49,7 @@ public class MenuServiceImpl implements IMenuService {
     @Override
     public Mono<ResultVO<Void>> saveMenu(SaveMenuReq saveMenuReq) {
         if (StringUtils.isBlank(saveMenuReq.getMenuCode())) {
-            return Mono.just(ResultVO.fail("菜单编码不能为空"));
+            return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
         if (StringUtils.isBlank(saveMenuReq.getMenuName())) {
             return Mono.just(ResultVO.fail("菜单名称不能为空"));
@@ -79,7 +81,8 @@ public class MenuServiceImpl implements IMenuService {
                 .onErrorResume(Exception.class, e -> {
                     log.error("保存菜单失败", e);
                     return Mono.just(ResultVO.fail("系统异常"));
-                });
+                })
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
@@ -115,36 +118,37 @@ public class MenuServiceImpl implements IMenuService {
                 .onErrorResume(Exception.class, e -> {
                     log.error("更新菜单失败", e);
                     return Mono.just(ResultVO.fail("系统异常"));
-                });
+                })
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
     public Mono<ResultVO<List<MenuTreeVO>>> getMenuTree() {
         return Mono.fromCallable(() -> {
                     List<TimerMenu> menus = timerMenuMapper.selectList(Wrappers.emptyWrapper());
-                    List<MenuTreeVO> vos = menus.stream()
+                    List<MenuTreeVO> menuTrees = menus.stream()
                             .map(menu -> {
                                 MenuTreeVO vo = new MenuTreeVO();
                                 BeanUtils.copyProperties(menu, vo);
                                 return vo;
                             })
                             .toList();
-
                     TreeFactory<Long, MenuTreeVO> factory = new TreeFactory<>();
-                    List<MenuTreeVO> tree = factory.buildTree(vos);
+                    List<MenuTreeVO> tree = factory.buildTree(menuTrees);
                     return ResultVO.ok(tree);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(Exception.class, e -> {
                     log.error("获取菜单树失败", e);
                     return Mono.just(ResultVO.fail("加载菜单失败"));
-                });
+                })
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
     public Mono<ResultVO<MenuDetailRes>> getMenuDetail(MenuDetailReq menuDetailReq) {
         if (StringUtils.isBlank(menuDetailReq.getMenuCode())) {
-            return Mono.just(ResultVO.fail("菜单编码不能为空"));
+            return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
@@ -176,7 +180,7 @@ public class MenuServiceImpl implements IMenuService {
     @Override
     public Mono<ResultVO<Void>> deleteMenu(DeleteMenuReq deleteMenuReq) {
         if (StringUtils.isBlank(deleteMenuReq.getMenuCode())) {
-            return Mono.just(ResultVO.fail("菜单编码不能为空"));
+            return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
@@ -191,7 +195,8 @@ public class MenuServiceImpl implements IMenuService {
                 .onErrorResume(Exception.class, e -> {
                     log.error("删除菜单失败", e);
                     return Mono.just(ResultVO.fail("删除失败"));
-                });
+                })
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
@@ -199,10 +204,10 @@ public class MenuServiceImpl implements IMenuService {
         String roleCode = saveRoleMenuReq.getRoleCode();
         ProtocolStringList menuCodes = saveRoleMenuReq.getMenuCodesList();
         if (StringUtils.isBlank(roleCode)) {
-            return Mono.just(ResultVO.fail("角色编码不能为空"));
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
         if (CollectionUtils.isEmpty(menuCodes)) {
-            return Mono.just(ResultVO.fail("菜单编码不能为空"));
+            return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     // 检查角色是否存在
@@ -245,14 +250,14 @@ public class MenuServiceImpl implements IMenuService {
                                 return rm;
                             })
                             .toList();
-
                     if (!toInsert.isEmpty()) {
                         timerRoleMenuMapper.insert(toInsert);
                     }
                     return ResultVO.<Void>ok();
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class, e -> Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage())))
                 .onErrorResume(Exception.class, e -> {
                     log.error("保存角色菜单失败", e);
                     return Mono.just(ResultVO.fail("操作失败"));
@@ -264,10 +269,10 @@ public class MenuServiceImpl implements IMenuService {
         String roleCode = removeRoleMenuReq.getRoleCode();
         ProtocolStringList menuCodes = removeRoleMenuReq.getMenuCodesList();
         if (StringUtils.isBlank(roleCode)) {
-            return Mono.just(ResultVO.fail("角色编码不能为空"));
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
         if (CollectionUtils.isEmpty(menuCodes)) {
-            return Mono.just(ResultVO.fail("菜单编码不能为空"));
+            return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerRoleMenu> wrapper = Wrappers.lambdaQuery();
@@ -280,14 +285,15 @@ public class MenuServiceImpl implements IMenuService {
                 .onErrorResume(Exception.class, e -> {
                     log.error("移除角色菜单失败", e);
                     return Mono.just(ResultVO.fail("操作失败"));
-                });
+                })
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
     public Mono<ResultVO<SequencedCollection<RoleMenuTreeVO>>> getRoleMenuTree(RoleMenuTreeReq roleMenuTreeReq) {
         String roleCode = roleMenuTreeReq.getRoleCode();
         if (StringUtils.isBlank(roleCode)) {
-            return Mono.just(ResultVO.fail("角色编码不能为空"));
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     // 验证角色存在
@@ -308,14 +314,14 @@ public class MenuServiceImpl implements IMenuService {
                     // 构建带 checked 的 VO
                     List<RoleMenuTreeVO> vos = allMenus.stream()
                             .map(menu -> {
-                                RoleMenuTreeVO vo = new RoleMenuTreeVO();
-                                vo.setId(menu.getId());
-                                vo.setParentId(menu.getParentId());
-                                vo.setMenuName(menu.getMenuName());
-                                vo.setMenuCode(menu.getMenuCode());
-                                vo.setSortOrder(menu.getSortOrder());
-                                vo.setChecked(assignedMenuCodes.contains(menu.getMenuCode()));
-                                return vo;
+                                RoleMenuTreeVO menuTreeVO = new RoleMenuTreeVO();
+                                menuTreeVO.setId(menu.getId());
+                                menuTreeVO.setParentId(menu.getParentId());
+                                menuTreeVO.setMenuName(menu.getMenuName());
+                                menuTreeVO.setMenuCode(menu.getMenuCode());
+                                menuTreeVO.setSortOrder(menu.getSortOrder());
+                                menuTreeVO.setChecked(assignedMenuCodes.contains(menu.getMenuCode()));
+                                return menuTreeVO;
                             })
                             .toList();
                     TreeFactory<Long, RoleMenuTreeVO> factory = new TreeFactory<>();
@@ -324,6 +330,7 @@ public class MenuServiceImpl implements IMenuService {
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(BusinessException.class, e ->
-                        Mono.just(ResultVO.fail(e.getMessage())));
+                        Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 }

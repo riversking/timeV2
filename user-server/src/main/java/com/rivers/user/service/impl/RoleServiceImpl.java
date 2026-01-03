@@ -3,10 +3,10 @@ package com.rivers.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.activerecord.AbstractModel;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ProtocolStringList;
+import com.rivers.core.exception.BusinessException;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.entity.TimerRole;
@@ -16,9 +16,12 @@ import com.rivers.user.mapper.TimerRoleMapper;
 import com.rivers.user.mapper.TimerUserMapper;
 import com.rivers.user.mapper.TimerUserRoleMapper;
 import com.rivers.user.service.IRoleService;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -29,15 +32,16 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class RoleServiceImpl implements IRoleService {
 
+    public static final String ROLE_EMPTY = "角色编码不能为空";
     private final TimerRoleMapper timerRoleMapper;
-
     private final TimerUserMapper timerUserMapper;
-
     private final TimerUserRoleMapper timerUserRoleMapper;
 
-    public RoleServiceImpl(TimerRoleMapper timerRoleMapper, TimerUserMapper timerUserMapper,
+    public RoleServiceImpl(TimerRoleMapper timerRoleMapper,
+                           TimerUserMapper timerUserMapper,
                            TimerUserRoleMapper timerUserRoleMapper) {
         this.timerRoleMapper = timerRoleMapper;
         this.timerUserMapper = timerUserMapper;
@@ -45,249 +49,301 @@ public class RoleServiceImpl implements IRoleService {
     }
 
     @Override
-    public ResultVO<Void> saveRole(SaveRoleReq saveRoleReq) {
-        String roleCode = saveRoleReq.getRoleCode();
-        String roleName = saveRoleReq.getRoleName();
-        if (StringUtils.isBlank(roleCode)) {
-            return ResultVO.fail("角色编码不能为空");
+    public Mono<ResultVO<Void>> saveRole(SaveRoleReq saveRoleReq) {
+        // 参数校验提前
+        if (StringUtils.isBlank(saveRoleReq.getRoleCode())) {
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
-        if (StringUtils.isBlank(roleName)) {
-            return ResultVO.fail("角色名称不能为空");
+        if (StringUtils.isBlank(saveRoleReq.getRoleName())) {
+            return Mono.just(ResultVO.fail("角色名称不能为空"));
         }
-        LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
-        roleWrapper.eq(TimerRole::getRoleCode, roleCode);
-        Long count = timerRoleMapper.selectCount(roleWrapper);
-        if (count > 0) {
-            return ResultVO.fail("角色编码已存在");
-        }
-        LoginUser loginUser = saveRoleReq.getLoginUser();
-        String userId = loginUser.getUserId();
-        TimerRole timerRole = new TimerRole();
-        timerRole.setRoleCode(roleCode);
-        timerRole.setRoleName(roleName);
-        timerRole.setCreateUser(userId);
-        timerRole.setUpdateUser(userId);
-        timerRole.insert();
-        return ResultVO.ok();
+        return Mono.fromCallable(() -> {
+                    String roleCode = saveRoleReq.getRoleCode();
+                    LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
+                    roleWrapper.eq(TimerRole::getRoleCode, roleCode);
+                    Long count = timerRoleMapper.selectCount(roleWrapper);
+                    if (count > 0) {
+                        throw new BusinessException("角色编码已存在");
+                    }
+                    LoginUser loginUser = saveRoleReq.getLoginUser();
+                    String userId = loginUser.getUserId();
+                    TimerRole timerRole = new TimerRole();
+                    timerRole.setRoleCode(roleCode);
+                    timerRole.setRoleName(saveRoleReq.getRoleName());
+                    timerRole.setCreateUser(userId);
+                    timerRole.setUpdateUser(userId);
+                    timerRole.setCreateTime(LocalDateTime.now());
+                    timerRole.setUpdateTime(LocalDateTime.now());
+                    timerRole.insert();
+                    return ResultVO.<Void>ok();
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class, e ->
+                        Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
-    public ResultVO<Void> updateRole(UpdateRoleReq updateRoleReq) {
-        String roleCode = updateRoleReq.getRoleCode();
-        String roleName = updateRoleReq.getRoleName();
-        if (StringUtils.isBlank(roleCode)) {
-            return ResultVO.fail("角色编码不能为空");
+    public Mono<ResultVO<Void>> updateRole(UpdateRoleReq updateRoleReq) {
+        if (StringUtils.isBlank(updateRoleReq.getRoleCode())) {
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
-        if (StringUtils.isBlank(roleName)) {
-            return ResultVO.fail("角色名称不能为空");
+        if (StringUtils.isBlank(updateRoleReq.getRoleName())) {
+            return Mono.just(ResultVO.fail("角色名称不能为空"));
         }
-        TimerRole timerRole = getTimerRole(roleCode);
-        long id = updateRoleReq.getId();
-        if (Objects.nonNull(timerRole) && timerRole.getId() != id) {
-            return ResultVO.fail("角色编码已存在");
-        }
-        LoginUser loginUser = updateRoleReq.getLoginUser();
-        String userId = loginUser.getUserId();
-        TimerRole upTimerRole = new TimerRole();
-        upTimerRole.setId(id);
-        upTimerRole.setUpdateUser(userId);
-        upTimerRole.setRoleName(roleName);
-        upTimerRole.setRoleCode(roleCode);
-        upTimerRole.updateById();
-        return ResultVO.ok();
+        return Mono.fromCallable(() -> {
+                    String roleCode = updateRoleReq.getRoleCode();
+                    long id = updateRoleReq.getId();
+                    TimerRole existing = getTimerRole(roleCode);
+                    if (existing != null && !Objects.equals(existing.getId(), id)) {
+                        throw new BusinessException("角色编码已存在");
+                    }
+                    LoginUser loginUser = updateRoleReq.getLoginUser();
+                    String userId = loginUser.getUserId();
+                    TimerRole upTimerRole = new TimerRole();
+                    upTimerRole.setId(id);
+                    upTimerRole.setRoleName(updateRoleReq.getRoleName());
+                    upTimerRole.setRoleCode(roleCode);
+                    upTimerRole.setUpdateUser(userId);
+                    upTimerRole.setUpdateTime(LocalDateTime.now());
+                    upTimerRole.updateById();
+                    return ResultVO.<Void>ok();
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
-    public ResultVO<RolePageRes> getRolePage(RolePageReq rolePageReq) {
-        int currentPage = rolePageReq.getCurrentPage();
-        int pageSize = rolePageReq.getPageSize();
-        String roleCode = rolePageReq.getRoleCode();
+    public Mono<ResultVO<RolePageRes>> getRolePage(RolePageReq rolePageReq) {
+        // 分页参数通常由前端控制，但可加基本保护
+        int currentPage = Math.max(1, rolePageReq.getCurrentPage());
+        int pageSize = Math.clamp(rolePageReq.getPageSize(), 1, 100);
+        var roleCode = rolePageReq.getRoleCode();
         String roleName = rolePageReq.getRoleName();
-        LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
-        roleWrapper.like(StringUtils.isNotBlank(roleCode), TimerRole::getRoleCode, roleCode)
-                .like(StringUtils.isNotBlank(roleName), TimerRole::getRoleName, roleName);
-        Page<TimerRole> page = new Page<>(currentPage, pageSize);
-        Page<TimerRole> timerRolePage = timerRoleMapper.selectPage(page, roleWrapper);
-        long total = timerRolePage.getTotal();
-        if (total == 0) {
-            return ResultVO.ok(RolePageRes.newBuilder().build());
-        }
-        List<TimerRole> records = timerRolePage.getRecords();
-        List<Role> list = records.stream()
-                .map(i -> {
-                    LocalDateTime createTime = i.getCreateTime();
-                    LocalDateTime updateTime = i.getUpdateTime();
-                    return Role.newBuilder().setId(i.getId())
-                            .setRoleCode(i.getRoleCode())
-                            .setRoleName(i.getRoleName())
-                            .setCreateTime(Objects.requireNonNull(Optional.ofNullable(createTime)
-                                    .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                                            .format(c))
-                                    .orElse(null)))
-                            .setUpdateTime(Objects.requireNonNull(Optional.ofNullable(updateTime)
-                                    .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                                            .format(c))
-                                    .orElse(null)))
-                            .build();
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerRole> wrapper = Wrappers.lambdaQuery();
+                    wrapper.like(StringUtils.isNotBlank(roleCode), TimerRole::getRoleCode, roleCode);
+                    wrapper.like(StringUtils.isNotBlank(roleName), TimerRole::getRoleName, roleName);
+                    Page<TimerRole> page = new Page<>(currentPage, pageSize);
+                    IPage<TimerRole> resultPage = timerRoleMapper.selectPage(page, wrapper);
+                    long total = resultPage.getTotal();
+                    if (total == 0) {
+                        return ResultVO.ok(RolePageRes.newBuilder().build());
+                    }
+                    DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    List<Role> roles = resultPage.getRecords().stream()
+                            .map(r -> Role.newBuilder()
+                                    .setId(r.getId())
+                                    .setRoleCode(r.getRoleCode())
+                                    .setRoleName(r.getRoleName())
+                                    .setCreateTime(Optional.ofNullable(r.getCreateTime())
+                                            .map(fmt::format).orElse(""))
+                                    .setUpdateTime(Optional.ofNullable(r.getUpdateTime())
+                                            .map(fmt::format).orElse(""))
+                                    .build())
+                            .toList();
+                    return ResultVO.ok(RolePageRes.newBuilder()
+                            .setTotal(total)
+                            .addAllRoles(roles)
+                            .build());
                 })
-                .toList();
-        return ResultVO.ok(RolePageRes.newBuilder().setTotal(total).addAllRoles(list).build());
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorReturn(ResultVO.fail("加载角色分页失败"));
     }
 
     @Override
-    public ResultVO<Void> deleteRole(DeleteRoleReq deleteRoleReq) {
-        String roleCode = deleteRoleReq.getRoleCode();
-        if (StringUtils.isBlank(roleCode)) {
-            return ResultVO.fail("角色编码不能为空");
+    public Mono<ResultVO<Void>> deleteRole(DeleteRoleReq deleteRoleReq) {
+        if (StringUtils.isBlank(deleteRoleReq.getRoleCode())) {
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
-        TimerRole timerRole = getTimerRole(roleCode);
-        Optional.ofNullable(timerRole).ifPresent(AbstractModel::deleteById);
-        return ResultVO.ok();
-    }
-
-    @Override
-    public ResultVO<RoleDetailRes> getRoleDetail(RoleDetailReq roleDetailReq) {
-        String roleCode = roleDetailReq.getRoleCode();
-        if (StringUtils.isBlank(roleCode)) {
-            return ResultVO.fail("角色编码不能为空");
-        }
-        TimerRole timerRole = getTimerRole(roleCode);
-        RoleDetailRes roleDetailRes = Optional.ofNullable(timerRole)
-                .map(i ->
-                        RoleDetailRes.newBuilder()
-                                .setId(i.getId())
-                                .setRoleCode(i.getRoleCode())
-                                .setRoleName(i.getRoleName())
-                                .build())
-                .orElse(RoleDetailRes.newBuilder().build());
-        return ResultVO.ok(roleDetailRes);
-    }
-
-    @Override
-    public ResultVO<Void> saveUserRole(SaveUserRoleReq saveUserRoleReq) {
-        String roleCode = saveUserRoleReq.getRoleCode();
-        ProtocolStringList userIdsList = saveUserRoleReq.getUserIdsList();
-        if (StringUtils.isBlank(roleCode)) {
-            return ResultVO.fail("角色编码不能为空");
-        }
-        if (CollectionUtils.isEmpty(userIdsList)) {
-            return ResultVO.fail("用户ID不能为空");
-        }
-        TimerRole timerRole = getTimerRole(roleCode);
-        if (Objects.isNull(timerRole)) {
-            return ResultVO.fail("角色不存在");
-        }
-        LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
-        userWrapper.in(TimerUser::getUserId, userIdsList);
-        List<TimerUser> timerUsers = timerUserMapper.selectList(userWrapper);
-        List<String> userIds = timerUsers.stream()
-                .map(TimerUser::getUserId)
-                .toList();
-        List<String> hasUserIds = userIdsList.stream()
-                .filter(userIds::contains)
-                .toList();
-        if (CollectionUtils.isEmpty(hasUserIds)) {
-            return ResultVO.fail("用户不存在");
-        }
-        LambdaQueryWrapper<TimerUserRole> userRoleWrapper = Wrappers.lambdaQuery();
-        userRoleWrapper.eq(TimerUserRole::getRoleCode, roleCode)
-                .in(TimerUserRole::getUserId, hasUserIds);
-        List<TimerUserRole> timerUserRoles = timerUserRoleMapper.selectList(userRoleWrapper);
-        List<String> hasRoleUsers = timerUserRoles.stream()
-                .map(TimerUserRole::getUserId)
-                .toList();
-        List<String> noRoleUsers = hasUserIds.stream()
-                .filter(i -> !hasRoleUsers.contains(i))
-                .toList();
-        if (CollectionUtils.isEmpty(noRoleUsers)) {
-            return ResultVO.ok();
-        }
-        LoginUser loginUser = saveUserRoleReq.getLoginUser();
-        String userId = loginUser.getUserId();
-        List<TimerUserRole> list = noRoleUsers.stream()
-                .map(i -> {
-                    TimerUserRole timerUserRole = new TimerUserRole();
-                    timerUserRole.setRoleCode(roleCode);
-                    timerUserRole.setUserId(i);
-                    timerUserRole.setCreateUser(userId);
-                    timerUserRole.setUpdateUser(userId);
-                    return timerUserRole;
+        return Mono.fromCallable(() -> {
+                    TimerRole role = getTimerRole(deleteRoleReq.getRoleCode());
+                    if (role != null) {
+                        role.deleteById();
+                    }
+                    return ResultVO.<Void>ok();
                 })
-                .toList();
-        timerUserRoleMapper.insert(list);
-        return ResultVO.ok();
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorReturn(ResultVO.fail("系统异常"));
     }
 
     @Override
-    public ResultVO<Void> removeUserRole(RemoveUserRoleReq removeUserRoleReq) {
-        String roleCode = removeUserRoleReq.getRoleCode();
-        ProtocolStringList userIdsList = removeUserRoleReq.getUserIdsList();
-        if (StringUtils.isBlank(roleCode)) {
-            return ResultVO.fail("角色编码不能为空");
+    public Mono<ResultVO<RoleDetailRes>> getRoleDetail(RoleDetailReq roleDetailReq) {
+        if (StringUtils.isBlank(roleDetailReq.getRoleCode())) {
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
-        if (CollectionUtils.isEmpty(userIdsList)) {
-            return ResultVO.fail("用户ID不能为空");
-        }
-        TimerRole timerRole = getTimerRole(roleCode);
-        if (Objects.isNull(timerRole)) {
-            return ResultVO.fail("角色不存在");
-        }
-        LambdaQueryWrapper<TimerUserRole> userRoleWrapper = Wrappers.lambdaQuery();
-        userRoleWrapper.eq(TimerUserRole::getRoleCode, roleCode)
-                .in(TimerUserRole::getUserId, userIdsList);
-        timerUserRoleMapper.delete(userRoleWrapper);
-        return ResultVO.ok();
+        return Mono.fromCallable(() -> {
+                    TimerRole role = getTimerRole(roleDetailReq.getRoleCode());
+                    if (role == null) {
+                        return ResultVO.ok(RoleDetailRes.newBuilder().build());
+                    }
+                    return ResultVO.ok(RoleDetailRes.newBuilder()
+                            .setId(role.getId())
+                            .setRoleCode(role.getRoleCode())
+                            .setRoleName(role.getRoleName())
+                            .build());
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorReturn(ResultVO.fail("查询角色详情失败"));
     }
 
     @Override
-    public ResultVO<UserRolePageRes> getUserRolePage(UserRolePageReq userRolePageReq) {
-        int currentPage = userRolePageReq.getCurrentPage();
-        int pageSize = userRolePageReq.getPageSize();
-        String userId = userRolePageReq.getUserId();
+    public Mono<ResultVO<Void>> saveUserRole(SaveUserRoleReq saveUserRoleReq) {
+        if (StringUtils.isBlank(saveUserRoleReq.getRoleCode())) {
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
+        }
+        if (CollectionUtils.isEmpty(saveUserRoleReq.getUserIdsList())) {
+            return Mono.just(ResultVO.fail("用户不能为空"));
+        }
+        return Mono.fromCallable(() -> {
+                    String roleCode = saveUserRoleReq.getRoleCode();
+                    ProtocolStringList userIdsList = saveUserRoleReq.getUserIdsList();
+                    TimerRole role = getTimerRole(roleCode);
+                    if (role == null) {
+                        throw new BusinessException("角色不存在");
+                    }
+                    // 查询存在的用户
+                    LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+                    userWrapper.in(TimerUser::getUserId, userIdsList);
+                    List<TimerUser> validUsers = timerUserMapper.selectList(userWrapper);
+                    List<String> validUserIds = validUsers.stream()
+                            .map(TimerUser::getUserId)
+                            .toList();
+                    if (validUserIds.isEmpty()) {
+                        throw new BusinessException("用户不存在");
+                    }
+                    // 查询已绑定该角色的用户
+                    LambdaQueryWrapper<TimerUserRole> boundWrapper = Wrappers.lambdaQuery();
+                    boundWrapper.eq(TimerUserRole::getRoleCode, roleCode)
+                            .in(TimerUserRole::getUserId, validUserIds);
+                    List<TimerUserRole> boundRoles = timerUserRoleMapper.selectList(boundWrapper);
+                    List<String> boundUserIds = boundRoles.stream()
+                            .map(TimerUserRole::getUserId)
+                            .toList();
+                    // 找出未绑定的用户
+                    List<String> toBind = validUserIds.stream()
+                            .filter(id -> !boundUserIds.contains(id))
+                            .toList();
+                    if (toBind.isEmpty()) {
+                        return ResultVO.<Void>ok();
+                    }
+                    String currentUserId = saveUserRoleReq.getLoginUser().getUserId();
+                    LocalDateTime now = LocalDateTime.now();
+                    List<TimerUserRole> newBindings = toBind.stream()
+                            .map(userId -> {
+                                TimerUserRole r = new TimerUserRole();
+                                r.setRoleCode(roleCode);
+                                r.setUserId(userId);
+                                r.setCreateUser(currentUserId);
+                                r.setUpdateUser(currentUserId);
+                                r.setCreateTime(now);
+                                r.setUpdateTime(now);
+                                return r;
+                            })
+                            .toList();
+
+                    timerUserRoleMapper.insert(newBindings);
+                    return ResultVO.<Void>ok(null);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("系统异常"));
+    }
+
+    @Override
+    public Mono<ResultVO<Void>> removeUserRole(RemoveUserRoleReq removeUserRoleReq) {
+        if (StringUtils.isBlank(removeUserRoleReq.getRoleCode())) {
+            return Mono.just(ResultVO.fail(ROLE_EMPTY));
+        }
+        if (CollectionUtils.isEmpty(removeUserRoleReq.getUserIdsList())) {
+            return Mono.just(ResultVO.fail("用户不能为空"));
+        }
+        return Mono.fromCallable(() -> {
+                    String roleCode = removeUserRoleReq.getRoleCode();
+                    TimerRole role = getTimerRole(roleCode);
+                    if (role == null) {
+                        throw new BusinessException("角色不存在");
+                    }
+                    LambdaQueryWrapper<TimerUserRole> wrapper = Wrappers.lambdaQuery();
+                    wrapper.eq(TimerUserRole::getRoleCode, roleCode)
+                            .in(TimerUserRole::getUserId, removeUserRoleReq.getUserIdsList());
+                    timerUserRoleMapper.delete(wrapper);
+                    return ResultVO.<Void>ok();
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(Exception.class, e -> Mono.just(ResultVO.fail("系统异常")))
+                .onErrorReturn(ResultVO.fail("系统异常"));
+    }
+
+    @Override
+    public Mono<ResultVO<UserRolePageRes>> getUserRolePage(UserRolePageReq userRolePageReq) {
+        int currentPage = Math.max(1, userRolePageReq.getCurrentPage());
+        int pageSize = Math.clamp(userRolePageReq.getPageSize(), 1, 100);
         String username = userRolePageReq.getUsername();
-        List<String> userIds = Lists.newArrayList();
-        if (StringUtils.isNotBlank(username)) {
-            LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
-            userWrapper.like(TimerUser::getUsername, username);
-            List<TimerUser> timerUsers = timerUserMapper.selectList(userWrapper);
-            if (CollectionUtils.isEmpty(timerUsers)) {
-                return ResultVO.ok(UserRolePageRes.newBuilder().build());
-            }
-            List<String> list = timerUsers.stream().map(TimerUser::getUserId).toList();
-            userIds.addAll(list);
-        }
-        LambdaQueryWrapper<TimerUserRole> userRoleWrapper = Wrappers.lambdaQuery();
-        userRoleWrapper.in(CollectionUtils.isNotEmpty(userIds), TimerUserRole::getUserId, userIds)
-                .like(StringUtils.isNotBlank(userId), TimerUserRole::getUserId, userId);
-        Page<TimerUserRole> page = new Page<>(currentPage, pageSize);
-        IPage<TimerUserRole> userRolePage = timerUserRoleMapper.selectPage(page, userRoleWrapper);
-        long total = userRolePage.getTotal();
-        if (total == 0) {
-            return ResultVO.ok(UserRolePageRes.newBuilder().build());
-        }
-        List<TimerUserRole> records = userRolePage.getRecords();
-        List<String> ids = records.stream()
-                .map(TimerUserRole::getUserId)
-                .toList();
-        LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
-        userWrapper.in(TimerUser::getUserId, ids);
-        List<TimerUser> users = timerUserMapper.selectList(userWrapper);
-        Map<String, String> userMap = users.stream()
-                .collect(Collectors.toMap(TimerUser::getUserId, TimerUser::getUsername));
-        List<User> list = records.stream()
-                .map(i -> {
-                    return User.newBuilder()
-                            .setUserId(i.getUserId())
-                            .setUsername(userMap.get(i.getUserId()))
-                            .build();
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerUserRole> wrapper = Wrappers.lambdaQuery();
+                    // 根据 username 查 userIds
+                    List<String> userIdsFromName = Lists.newArrayList();
+                    if (StringUtils.isNotBlank(username)) {
+                        LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+                        userWrapper.like(TimerUser::getUsername, username);
+                        List<TimerUser> users = timerUserMapper.selectList(userWrapper);
+                        if (users.isEmpty()) {
+                            return ResultVO.ok(UserRolePageRes.newBuilder().build());
+                        }
+                        List<String> userIds = users.stream()
+                                .map(TimerUser::getUserId)
+                                .toList();
+                        userIdsFromName.addAll(userIds);
+                    }
+                    // 构建查询条件
+                    if (CollectionUtils.isNotEmpty(userIdsFromName)) {
+                        wrapper.in(TimerUserRole::getUserId, userIdsFromName);
+                    }
+                    if (StringUtils.isNotBlank(userRolePageReq.getUserId())) {
+                        // 注意：如果同时传了 username 和 userId，这里会 AND，可能不符合预期
+                        // 实际业务中建议只支持一种查询方式，或改为 OR
+                        wrapper.like(TimerUserRole::getUserId, userRolePageReq.getUserId());
+                    }
+                    Page<TimerUserRole> page = new Page<>(currentPage, pageSize);
+                    IPage<TimerUserRole> resultPage = timerUserRoleMapper.selectPage(page, wrapper);
+                    long total = resultPage.getTotal();
+                    if (total == 0) {
+                        return ResultVO.ok(UserRolePageRes.newBuilder().build());
+                    }
+                    List<TimerUserRole> records = resultPage.getRecords();
+                    List<String> userIds = records.stream()
+                            .map(TimerUserRole::getUserId)
+                            .distinct()
+                            .toList();
+                    List<TimerUser> timerUsers = timerUserMapper.selectByIds(userIds);
+                    Map<String, String> userMap = timerUsers
+                            .stream()
+                            .collect(Collectors.toMap(TimerUser::getUserId,
+                                    TimerUser::getUsername,
+                                    (a, b) -> a));
+                    List<User> users = records.stream()
+                            .map(r -> User.newBuilder()
+                                    .setUserId(r.getUserId())
+                                    .setUsername(userMap.getOrDefault(r.getUserId(), ""))
+                                    .build())
+                            .toList();
+                    return ResultVO.ok(UserRolePageRes.newBuilder()
+                            .setTotal(total)
+                            .addAllUsers(users)
+                            .build());
                 })
-                .toList();
-        return ResultVO.ok(UserRolePageRes.newBuilder().setTotal(total).addAllUsers(list).build());
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(Exception.class, e -> Mono.just(ResultVO.fail("系统异常")))
+                .onErrorReturn(ResultVO.fail("查询用户角色分页失败"));
     }
 
     private TimerRole getTimerRole(String roleCode) {
-        LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
-        roleWrapper.eq(TimerRole::getRoleCode, roleCode);
-        return timerRoleMapper.selectOne(roleWrapper);
+        LambdaQueryWrapper<TimerRole> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(TimerRole::getRoleCode, roleCode);
+        return timerRoleMapper.selectOne(wrapper);
     }
 }

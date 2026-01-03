@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.SequencedCollection;
 
 @RestController
 @RequestMapping("menu")
@@ -23,42 +25,42 @@ public class MenuController {
     }
 
     @PostMapping("saveMenu")
-    public ResultVO<Void> saveMenu(@RequestBody SaveMenuReq saveMenuReq) {
-        return menuService.saveMenu(saveMenuReq);
+    public Mono<ResultVO<Void>> saveMenu(@RequestBody SaveMenuReq req) {
+        return menuService.saveMenu(req);
     }
 
     @PostMapping("updateMenu")
-    public ResultVO<Void> updateMenu(@RequestBody UpdateMenuReq updateMenuReq) {
-        return menuService.updateMenu(updateMenuReq);
+    public Mono<ResultVO<Void>> updateMenu(@RequestBody UpdateMenuReq req) {
+        return menuService.updateMenu(req);
     }
 
     @PostMapping("getMenuTree")
-    public ResultVO<List<MenuTreeVO>> getMenuTree() {
+    public Mono<ResultVO<List<MenuTreeVO>>> getMenuTree() {
         return menuService.getMenuTree();
     }
 
     @PostMapping("getMenuDetail")
-    public ResultVO<MenuDetailRes> getMenuDetail(@RequestBody MenuDetailReq menuDetailReq) {
+    public Mono<ResultVO<MenuDetailRes>> getMenuDetail(@RequestBody MenuDetailReq menuDetailReq) {
         return menuService.getMenuDetail(menuDetailReq);
     }
 
     @PostMapping("deleteMenu")
-    public ResultVO<Void> deleteMenu(@RequestBody DeleteMenuReq deleteMenuReq) {
+    public Mono<ResultVO<Void>> deleteMenu(@RequestBody DeleteMenuReq deleteMenuReq) {
         return menuService.deleteMenu(deleteMenuReq);
     }
 
     @PostMapping("saveRoleMenu")
-    public ResultVO<Void> saveRoleMenu(@RequestBody SaveRoleMenuReq saveRoleMenuReq) {
+    public Mono<ResultVO<Void>> saveRoleMenu(@RequestBody SaveRoleMenuReq saveRoleMenuReq) {
         return menuService.saveRoleMenu(saveRoleMenuReq);
     }
 
     @PostMapping("removeRoleMenu")
-    public ResultVO<Void> removeRoleMenu(@RequestBody RemoveRoleMenuReq removeRoleMenuReq) {
+    public Mono<ResultVO<Void>> removeRoleMenu(@RequestBody RemoveRoleMenuReq removeRoleMenuReq) {
         return menuService.removeRoleMenu(removeRoleMenuReq);
     }
 
     @PostMapping("getRoleMenuTree")
-    public ResultVO<List<RoleMenuTreeVO>> getRoleMenuTree(@RequestBody RoleMenuTreeReq roleMenuTreeReq) {
+    public Mono<ResultVO<SequencedCollection<RoleMenuTreeVO>>> getRoleMenuTree(@RequestBody RoleMenuTreeReq roleMenuTreeReq) {
         return menuService.getRoleMenuTree(roleMenuTreeReq);
     }
 }
