@@ -28,12 +28,19 @@ export const useUserStore = defineStore("user", () => {
 
     try {
       const res = await getUserMenu(); // 调用获取菜单API
+      console.log("Fetched Menu Data:", res);
       if (res.code === 200) {
         menuList.value = res.data;
+        console.log("Menu List Set In Store:", menuList.value);
+        return res.data;
       }
     } catch (error) {
       console.error("获取菜单失败:", error);
     }
+  };
+
+  const setMenuRoutes = (menus: MenuTreeVO[]) => {
+    menuList.value = menus;
   };
 
   const isMenuLoaded = computed(() => menuList.value.length > 0);
@@ -46,5 +53,6 @@ export const useUserStore = defineStore("user", () => {
     setUserInfo,
     fetchMenu,
     isMenuLoaded,
+    setMenuRoutes,
   };
 });

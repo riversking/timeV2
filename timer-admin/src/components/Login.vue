@@ -71,28 +71,20 @@ const error = ref<string | null>(null);
 const handleLogin = async () => {
   error.value = null;
   loading.value = true;
-  
+
   try {
     const res = await login({
       username: form.value.username,
       password: form.value.password,
     });
-    
     if (res.code === 200) {
       // 1. 保存token
       const token = res.data.token;
-      localStorage.setItem("token", token);
-      
       // 2. 保存用户信息到store
       userStore.setToken(token);
-      userStore.setUserInfo(res.data.user);
-      
-      // 3. 获取用户菜单
-      await userStore.fetchMenu();
-      
       // 4. 跳转到首页
       ElMessage.success("登录成功！");
-      router.push({ path: "/home" });
+      await router.replace({ path: "/home", replace: true });
     } else {
       error.value = "登录失败：未返回有效 token";
     }

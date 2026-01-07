@@ -6,4 +6,8 @@ export interface MenuTreeVO {
   routePath: string;
   icon?: string;
   children?: MenuTreeVO[];
+  meta?: {
+    title: string;
+    isDynamic: boolean;  
+  } 
 }
