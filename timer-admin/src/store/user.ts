@@ -13,7 +13,7 @@ export const useUserStore = defineStore("user", () => {
   const token = ref<string | null>(localStorage.getItem("token") || null);
   const userInfo = ref<any>(null);
   const menuList = ref<MenuTreeVO[]>([]);
-
+  const isMenuLoaded = ref<boolean>(false);
   const setToken = (newToken: string) => {
     token.value = newToken;
     localStorage.setItem("token", newToken);
@@ -43,7 +43,9 @@ export const useUserStore = defineStore("user", () => {
     menuList.value = menus;
   };
 
-  const isMenuLoaded = computed(() => menuList.value.length > 0);
+  const setIsMenuLoaded = (loaded: boolean) => {
+    isMenuLoaded.value = loaded;
+  };
 
   return {
     token,
@@ -54,5 +56,6 @@ export const useUserStore = defineStore("user", () => {
     fetchMenu,
     isMenuLoaded,
     setMenuRoutes,
+    setIsMenuLoaded
   };
 });

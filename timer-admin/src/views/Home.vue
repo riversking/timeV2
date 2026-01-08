@@ -89,38 +89,28 @@
         style="border-right: 1px solid #2d3748; height: calc(100vh - 60px)"
       >
         <el-menu
-          :default-openeds="defaultOpeneds"
-          default-active="/home"
+          :default-active="$route.path"
           class="el-menu-vertical"
           background-color="linear-gradient(135deg, #0f172a, #1e293b)"
           text-color="#e2e8f0"
           active-text-color="#4cc9f0"
-          router
+          :router="false"
+          @select="handleSelect"
         >
-          <template v-for="item in userStore.menuList" :key="item.id">
-            <el-sub-menu
-              v-if="item.children && item.children.length > 0"
-              :index="item.menuCode || 'default'"
-            >
-              <template #title>
-                <span>{{ item.menuName }}</span>
-              </template>
+          <template v-for="item in menuList" :key="item.routePath">
+            <el-menu-item v-if="!item.children" :index="item.routePath">
+              {{ item.menuName }}
+            </el-menu-item>
+            <el-sub-menu v-else :index="item.routePath">
+              <template #title>{{ item.menuName }}</template>
               <el-menu-item
                 v-for="child in item.children"
-                :key="child.id"
-                :index="child.routePath || 'default'"
-                @click="handleSelect(child.routePath || '/', '')"
+                :key="child.routePath"
+                :index="child.routePath"
               >
-                <router-link :to="child.routePath || '/'">
-                  {{ child.menuName }}
-                </router-link>
+                {{ child.menuName }}
               </el-menu-item>
             </el-sub-menu>
-            <el-menu-item v-else :index="item.routePath || 'default'" @click="handleSelect(item.routePath || '/', '')">
-              <router-link :to="item.routePath || '/'">
-                {{ item.menuName }}
-              </router-link>
-            </el-menu-item>
           </template>
         </el-menu>
       </el-aside>
@@ -159,8 +149,9 @@
           ></div>
           <router-view v-slot="{ Component }">
             <keep-alive>
-              <component :is="Component" />
+              <component :is="Component" v-if="$route.meta.keepAlive" />
             </keep-alive>
+            <component :is="Component" v-if="!$route.meta.keepAlive" />
           </router-view>
         </el-main>
       </el-container>
@@ -177,9 +168,7 @@ import { MenuTreeVO } from "@/proto";
 
 const router = useRouter();
 const userStore = useUserStore();
-const route = useRouter();
 const menuList = ref<MenuTreeVO[]>([]);
-const modules = import.meta.glob("/src/views/**/*.vue");
 
 // 默认展开所有菜单
 const defaultOpeneds = ref<string[]>([]);
@@ -201,12 +190,12 @@ onMounted(() => {
 const handleSelect = (key: string, indexPath: string) => {
   const fullPath = key;
   try {
-    const exists = route
+    const exists = router
       .getRoutes()
       .some((r) => r.path === fullPath || r.path === `/${fullPath}`);
     console.log("Navigating to:", fullPath, "Exists:", exists);
     if (exists) {
-      router.replace(fullPath);
+      router.push(fullPath);
     } else {
       console.warn("路由不存在:", fullPath);
     }

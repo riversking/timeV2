@@ -1,8 +1,6 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { MenuTreeVO } from "@/proto";
-import { C } from "vue-router/dist/router-CWoNjPRp.mjs";
-import { Console } from "console";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -26,6 +24,7 @@ export async function setupDynamicRoutes() {
   if (userStore.isMenuLoaded) {
     return;
   }
+  userStore.setIsMenuLoaded(true);
   try {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -54,9 +53,14 @@ export async function setupDynamicRoutes() {
     if (homeRoute) {
       routes.forEach((route) => {
         homeRoute.children.push(route);
-        router.addRoute("home", route);
+        router.addRoute("Home", route);
       });
     }
+    router.addRoute({
+      path: "/:pathMatch(.*)*",
+      // 修改重定向目标，避免循环
+      redirect: "/home",
+    });
     userStore.setMenuRoutes(menuItems);
   } catch (error) {
     console.error("动态添加路由失败:", error);
@@ -67,43 +71,50 @@ function convertToRoutes(menuList: MenuTreeVO[]): RouteRecordRaw[] {
   const modules = import.meta.glob("/src/views/**/*.vue");
   return menuList
     .map((item) => {
-
       console.log("Normalized Path:", item.routePath);
       const componentPath = item.children
         ? () => import(`@/layouts/DefaultLayout.vue`)
         : modules[`/src/views${item.routePath}.vue`]; // ✅ 添加斜杠
-
       return {
-        path: `${item.routePath}`,
+        path: item.routePath.startsWith("/")
+          ? item.routePath
+          : `/${item.routePath}`,
         name: item.menuName,
         component: componentPath,
-        meta: item.meta || {},
         children: item.children ? convertToRoutes(item.children) : [],
-        redirect: item.children ? `${item.routePath}` : undefined,
+        meta: { keepAlive: true },
       };
     })
     .filter(Boolean);
 }
 
 router.beforeEach(async (to, from, next) => {
-  const token = localStorage.getItem("token");
   const userStore = useUserStore();
+  if (userStore.token && to.path === "/login") {
+    next("/");
+    return;
+  }
 
-  if (to.path === "/login") {
-    next();
-  } else {
-    if (!userStore.isMenuLoaded) {
-      try {
-        await setupDynamicRoutes();
-        next();
-      } catch (error) {
-        console.error("路由守卫中加载菜单失败:", error);
-        next("/login");
-      }
-    } else {
+  if (!userStore.token && to.path !== "/login") {
+    next("/login");
+    return;
+  }
+  if (
+    !userStore.menuList.length &&
+    !userStore.isMenuLoaded &&
+    to.path !== "/login"
+  ) {
+    try {
+      await setupDynamicRoutes();
       next();
+      return;
+    } catch (error) {
+      console.error("路由守卫中加载菜单失败:", error);
+      next("/login");
+      return;
     }
   }
+  next();
 });
 
 export default router;
