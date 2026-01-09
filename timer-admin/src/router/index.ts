@@ -21,7 +21,7 @@ const router = createRouter({
 
 export async function setupDynamicRoutes() {
   const userStore = useUserStore();
-  if (userStore.isMenuLoaded) {
+  if (userStore.menuList.length>0||userStore.isMenuLoaded) {
     return;
   }
   userStore.setIsMenuLoaded(true);
@@ -41,7 +41,7 @@ export async function setupDynamicRoutes() {
       console.log("Normalized Path in setupDynamicRoutes:", item.routePath);
       return {
         ...item,
-        routePath: item.routePath,
+        routePath: item.routePath.startsWith("/") ? item.routePath : `${item.routhPath}`,
       };
     });
 
@@ -53,17 +53,19 @@ export async function setupDynamicRoutes() {
     if (homeRoute) {
       routes.forEach((route) => {
         homeRoute.children.push(route);
-        router.addRoute("Home", route);
+        router.addRoute("home", route);
       });
     }
     router.addRoute({
-      path: "/:pathMatch(.*)*",
+      path: '/:pathMatch(.*)*',
       // 修改重定向目标，避免循环
-      redirect: "/home",
+      redirect: '/home',
     });
     userStore.setMenuRoutes(menuItems);
   } catch (error) {
     console.error("动态添加路由失败:", error);
+  } finally {
+     userStore.srtIsMenuLoaded(false);
   }
 }
 
