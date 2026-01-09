@@ -8,13 +8,13 @@ const router = createRouter({
     {
       path: "/login",
       name: "Login",
-      component: () => import("@/components/Login.vue"),
+      component: Login
     },
     {
       path: "/home",
       name: "Home",
-      component: () => import("@/views/Home.vue"),
-      children: [],
+      component: Home,
+      meta: { requireAuth: true }
     },
   ],
 });
