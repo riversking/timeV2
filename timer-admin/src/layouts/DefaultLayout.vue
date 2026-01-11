@@ -89,33 +89,27 @@
         style="border-right: 1px solid #2d3748; height: calc(100vh - 60px)"
       >
         <el-menu
-          :default-active="$route.path"
+          :default-active="route.path"
           class="el-menu-vertical"
           background-color="linear-gradient(135deg, #0f172a, #1e293b)"
           text-color="#e2e8f0"
           active-text-color="#4cc9f0"
-          :router="false"
-          @select="handleSelect"
+          :router="true"
         >
           <template v-for="item in menuList" :key="item.routePath">
-            <el-sub-menu
-              v-if="item.children && item.children.length > 0"
-              :index="item.menuCode"
-            >
-              <template #title>
-                <span>{{ item.menuName }}</span>
-              </template>
+            <el-menu-item v-if="!item.children" :index="item.routePath">
+              {{ item.menuName }}
+            </el-menu-item>
+            <el-sub-menu v-else :index="item.routePath">
+              <template #title>{{ item.menuName }}</template>
               <el-menu-item
                 v-for="child in item.children"
-                :key="child.id"
+                :key="child.routePath"
                 :index="child.routePath"
               >
                 {{ child.menuName }}
               </el-menu-item>
             </el-sub-menu>
-            <el-menu-item v-else :index="item.routePath">
-              {{ item.menuName }}
-            </el-menu-item>
           </template>
         </el-menu>
       </el-aside>
@@ -154,9 +148,8 @@
           ></div>
           <router-view v-slot="{ Component }">
             <keep-alive>
-              <component :is="Component" v-if="$route.meta.keepAlive" />
+              <component :is="Component" v-if="route.meta.keepAlive" />
             </keep-alive>
-            <component :is="Component" v-if="!$route.meta.keepAlive" />
           </router-view>
         </el-main>
       </el-container>
@@ -166,12 +159,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { Search } from "@element-plus/icons-vue";
 import { MenuTreeVO } from "@/proto";
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const menuList = ref<MenuTreeVO[]>([]);
 
@@ -190,24 +184,9 @@ onMounted(() => {
       }
     }, 100);
   }
+  console.log(userStore.menuList);
 });
 
-const handleSelect = (key: string, indexPath: string) => {
-  const fullPath = key;
-  try {
-    const exists = router
-      .getRoutes()
-      .some((r) => r.path === fullPath || r.path === `/${fullPath}`);
-    console.log("Navigating to:", fullPath, "Exists:", exists);
-    if (exists) {
-      router.push(fullPath);
-    } else {
-      console.warn("路由不存在:", fullPath);
-    }
-  } catch (error) {
-    console.error("导航错误:", error);
-  }
-};
 
 const searchQuery = ref("");
 </script>

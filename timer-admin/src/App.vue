@@ -1,12 +1,15 @@
-<!-- src/App.vue -->
 <template>
-  <div class="app-container">
-    <router-view />
-  </div>
+  <router-view v-slot="{ Component }">
+    <keep-alive>
+      <component :is="Component" />
+    </keep-alive>
+  </router-view>
 </template>
 
 <script setup>
-// 无需导入任何组件
+import { useRouter, useRoute } from "vue-router";
+const route = useRoute();
+
 </script>
 
 <style>

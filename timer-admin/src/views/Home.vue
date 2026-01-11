@@ -89,13 +89,12 @@
         style="border-right: 1px solid #2d3748; height: calc(100vh - 60px)"
       >
         <el-menu
-          :default-active="$route.path"
+          :default-active="route.path"
           class="el-menu-vertical"
           background-color="linear-gradient(135deg, #0f172a, #1e293b)"
           text-color="#e2e8f0"
           active-text-color="#4cc9f0"
-          :router="false"
-          @select="handleSelect"
+          :router="true"
         >
           <template v-for="item in menuList" :key="item.routePath">
             <el-menu-item v-if="!item.children" :index="item.routePath">
@@ -147,11 +146,22 @@
               opacity: 0.4;
             "
           ></div>
+          
+          <!-- 面包屑 -->
+          <el-breadcrumb separator="/" style="margin-bottom: 20px;">
+            <el-breadcrumb-item 
+              v-for="(crumb, index) in breadcrumbs" 
+              :key="index"
+              :to="crumb.path ? { path: crumb.path } : undefined"
+            >
+              {{ crumb.title }}
+            </el-breadcrumb-item>
+          </el-breadcrumb>
+          
           <router-view v-slot="{ Component }">
             <keep-alive>
-              <component :is="Component" v-if="$route.meta.keepAlive" />
+              <component :is="Component" v-if="route.meta.keepAlive" />
             </keep-alive>
-            <component :is="Component" v-if="!$route.meta.keepAlive" />
           </router-view>
         </el-main>
       </el-container>
@@ -160,18 +170,73 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
-import { useRouter } from "vue-router";
+import { ref, onMounted, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { Search } from "@element-plus/icons-vue";
 import { MenuTreeVO } from "@/proto";
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const menuList = ref<MenuTreeVO[]>([]);
+const breadcrumbs = ref<{ title: string; path?: string }[]>([]);
 
 // 默认展开所有菜单
 const defaultOpeneds = ref<string[]>([]);
+
+// 生成面包屑
+const generateBreadcrumbs = (path: string) => {
+  breadcrumbs.value = [];
+  
+  // 添加首页
+  breadcrumbs.value.push({ title: '', path: '/' });
+  
+  // 递归获取父级菜单路径
+  const buildBreadcrumbTrail = (menuItems: MenuTreeVO[], targetPath: string, trail: MenuTreeVO[] = []): MenuTreeVO[] | null => {
+    for (const item of menuItems) {
+      const currentTrail = [...trail, item];
+      
+      if (item.routePath === targetPath) {
+        return currentTrail;
+      }
+      
+      if (item.children) {
+        const result = buildBreadcrumbTrail(item.children, targetPath, currentTrail);
+        if (result) return result;
+      }
+    }
+    return null;
+  };
+
+  const trail = buildBreadcrumbTrail(userStore.menuList, path);
+  
+  if (trail) {
+    trail.forEach(item => {
+      // 使用 breadcrumbTitle 如果存在，否则使用 menuName
+      const title = item.meta?.breadcrumbTitle || item.menuName;
+      breadcrumbs.value.push({ title, path: item.routePath });
+    });
+  } else if (path !== '/') {
+    // 如果没找到对应菜单，直接使用路径名作为面包屑
+    const pathSegments = path.split('/').filter(segment => segment);
+    let currentPath = '';
+    
+    pathSegments.forEach(segment => {
+      currentPath += '/' + segment;
+      breadcrumbs.value.push({ title: segment.charAt(0).toUpperCase() + segment.slice(1), path: currentPath });
+    });
+  }
+};
+
+// 监听路由变化生成面包屑
+watch(
+  () => route.path,
+  (newPath) => {
+    generateBreadcrumbs(newPath);
+  },
+  { immediate: true }
+);
 
 // 获取菜单数据后设置默认展开
 onMounted(() => {
@@ -185,24 +250,8 @@ onMounted(() => {
       }
     }, 100);
   }
+  console.log(userStore.menuList);
 });
-
-const handleSelect = (key: string, indexPath: string) => {
-  const fullPath = key;
-  try {
-    const exists = router
-      .getRoutes()
-      .some((r) => r.path === fullPath || r.path === `/${fullPath}`);
-    console.log("Navigating to:", fullPath, "Exists:", exists);
-    if (exists) {
-      router.push(fullPath);
-    } else {
-      console.warn("路由不存在:", fullPath);
-    }
-  } catch (error) {
-    console.error("导航错误:", error);
-  }
-};
 
 const searchQuery = ref("");
 </script>

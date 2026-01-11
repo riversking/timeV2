@@ -15,7 +15,7 @@
       <el-input
         v-model="searchQuery"
         placeholder="搜索用户名/邮箱"
-        prefix-icon="el-icon-search"
+        :prefix-icon="Search"
         @keyup.enter="handleSearch"
       />
       <el-button type="default" @click="handleSearch">
@@ -26,23 +26,20 @@
     <!-- 用户表格 -->
     <div class="table-container">
       <el-table
-        :data="filteredUsers"
+        :data="users"
         style="width: 100%"
-        :header-cell-style="{ background: '#1a2a4d', color: '#fff' }"
-        :cell-style="{ backgroundColor: '#0f1a2e', color: '#e6e6e6' }"
+        :header-cell-style="{ background: '#f5f7fa', color: '#333' }"
+        :cell-style="{ backgroundColor: '#ffffff', color: '#333' }"
+        v-loading="loading"
       >
-        <el-table-column prop="id" label="ID" width="100" />
-        <el-table-column prop="name" label="姓名" width="180" />
-        <el-table-column prop="email" label="邮箱" />
-        <el-table-column prop="role" label="角色" width="120">
-          <template #default="{ row }">
-            <el-tag :type="roleType(row.role)">{{ row.role }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="nickname" label="姓名" width="180" />
+        <el-table-column prop="username" label="用户名" width="180" />
+        <el-table-column prop="mail" label="邮箱" />
+        <el-table-column prop="phone" label="电话" />
+        <el-table-column prop="isEnable" label="是否禁用" width="100">
           <template #default="{ row }">
             <el-switch
-              v-model="row.status"
+              v-model="row.isEnable"
               :active-value="1"
               :inactive-value="0"
               @change="handleStatusChange(row)"
@@ -63,7 +60,7 @@
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
-        :total="totalUsers"
+        :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next, jumper"
         @size-change="handleSizeChange"
@@ -73,45 +70,69 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed } from 'vue';
-import { ElTable, ElTableColumn, ElTag, ElSwitch, ElPagination, ElInput, ElButton } from 'element-plus';
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue';
+import { ElTable, ElTableColumn, ElTag, ElSwitch, ElPagination, ElInput, ElButton, ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Search } from '@element-plus/icons-vue';
+import { getUserPage } from '@/api/user';
 
-// 模拟用户数据
-const users = ref([
-  { id: 1, name: '张三', email: 'zhangsan@example.com', role: '管理员', status: 1 },
-  { id: 2, name: '李四', email: 'lisi@example.com', role: '普通用户', status: 1 },
-  { id: 3, name: '王五', email: 'wangwu@example.com', role: '普通用户', status: 0 },
-  { id: 4, name: '赵六', email: 'zhaoliu@example.com', role: '管理员', status: 1 },
-  { id: 5, name: '孙七', email: 'sunqi@example.com', role: '普通用户', status: 0 }
-]);
+// 定义用户类型
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  status: number; // 1: 启用, 0: 禁用
+}
 
 // 分页相关
 const currentPage = ref(1);
 const pageSize = ref(10);
-const totalUsers = computed(() => users.value.length);
+const total = ref(0);
 
 // 搜索相关
 const searchQuery = ref('');
 
-// 过滤后的用户列表
-const filteredUsers = computed(() => {
-  return users.value.filter(user => {
-    return (
-      user.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.value.toLowerCase())
-    );
-  });
+// 用户数据
+const users = ref<User[]>([]);
+const loading = ref(false);
+
+// 获取用户数据
+const fetchUsers = async () => {
+  loading.value = true;
+  try {
+    // 调用后端接口获取用户分页数据
+    const response = await getUserPage({
+      currentPage: currentPage.value,
+      pageSize: pageSize.value,
+    });
+    console.log('获取用户数据成功:', response);
+    if (response.code === 200) {
+      users.value = response.data.users || [];
+      total.value = response.data.total || 0;
+    } else {
+      ElMessage.error(response.message || '获取用户数据失败');
+    }
+  } catch (error) {
+    console.error('获取用户数据失败:', error);
+    ElMessage.error('获取用户数据失败');
+  } finally {
+    loading.value = false;
+  }
+};
+
+// 初始加载数据
+onMounted(() => {
+  fetchUsers();
 });
 
 // 角色类型映射
-const roleType = (role) => {
+const roleType = (role: string) => {
   const types = {
     '管理员': 'danger',
     '普通用户': 'success'
   };
-  return types[role] || 'info';
+  return types[role as keyof typeof types] || 'info';
 };
 
 // 操作方法
@@ -121,41 +142,63 @@ const handleAddUser = () => {
   // 在实际项目中，应该使用 router.push('/user-add')
 };
 
-const handleEdit = (row) => {
+const handleEdit = (row: User) => {
   console.log('编辑用户:', row);
   // 在实际项目中，应该使用 router.push(`/user-edit/${row.id}`)
 };
 
-const handleDelete = (row) => {
-  console.log('删除用户:', row);
-  // 在实际项目中，应该调用删除API
+const handleDelete = async (row: User) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除用户 "${row.name}" 吗？`,
+      '确认删除',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+    
+    // 在实际项目中，这里应该调用删除API
+    console.log('删除用户:', row);
+    ElMessage.success('用户删除成功');
+    // 删除成功后重新加载数据
+    fetchUsers();
+  } catch (error) {
+    console.log('取消删除');
+  }
 };
 
-const handleStatusChange = (row) => {
-  console.log('状态变更:', row);
-  // 在实际项目中，应该调用API更新状态
+const handleStatusChange = async (row: User) => {
 };
 
 const handleSearch = () => {
   console.log('搜索:', searchQuery.value);
+  // 实现搜索功能，通常需要重新调用API
+  fetchUsers();
 };
 
-const handleSizeChange = (size) => {
+const handleSizeChange = (size: number) => {
   pageSize.value = size;
   currentPage.value = 1;
+  fetchUsers();
 };
 
-const handleCurrentChange = (page) => {
+const handleCurrentChange = (page: number) => {
   currentPage.value = page;
+  fetchUsers();
 };
 </script>
 
+/* ... existing code ... */
+/* ... existing code ... */
 <style scoped>
 .user-list-container {
-  background: linear-gradient(135deg, #0f1a2e, #1a2a4d);
+  /* Changed from dark gradient to white background */
+  background: #ffffff;
   min-height: 100vh;
   padding: 20px;
-  color: #e6e6e6;
+  color: #333333; /* Changed text color to dark for contrast */
 }
 
 .header {
@@ -164,56 +207,58 @@ const handleCurrentChange = (page) => {
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 15px;
-  border-bottom: 1px solid #2d3a5b;
+  border-bottom: 1px solid #e0e0e0; /* Lighter border for white theme */
 }
 
 .title {
   font-size: 24px;
   font-weight: bold;
-  color: #4fc08d;
+  color: #409eff; /* Blue color that works well on white background */
   margin: 0;
 }
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
+/* ... existing code ... */
 
 .search-bar {
   display: flex;
   gap: 10px;
   margin-bottom: 20px;
-  background: #0a1524;
+  background: #f5f7fa; /* Light gray background instead of dark */
   padding: 15px;
   border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); /* Softer shadow */
 }
 
 .table-container {
-  background: #0a1524;
+  background: #ffffff; /* White background for table container */
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); /* Softer shadow */
 }
 
 .pagination {
-  margin-top: 20px;
+  margin-top: 20px; /* Add space between table and pagination */
   display: flex;
-  justify-content: flex-end;
+  justify-content: right;
 }
 
-/* 深蓝科技感标签样式 */
+/* ... existing code ... */
+
+/* White theme tags */
 .el-tag {
-  background: #1a2a4d;
-  border: 1px solid #2d3a5b;
-  color: #4fc08d;
+  background: #f0f9ff;
+  border: 1px solid #b3d8ff;
+  color: #409eff;
 }
 
 .el-tag--success {
-  color: #4fc08d;
+  background: #f0f9ff;
+  border-color: #b3d8ff;
+  color: #67c23a;
 }
 
 .el-tag--danger {
-  color: #ff6b6b;
+  background: #fef0f0;
+  border-color: #fbc4c4;
+  color: #f56c6c;
 }
 </style>
