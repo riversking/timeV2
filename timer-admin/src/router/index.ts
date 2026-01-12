@@ -5,6 +5,7 @@ import { MenuTreeVO } from "@/proto";
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+
     {
       path: "/login",
       name: "Login",
@@ -15,6 +16,12 @@ const router = createRouter({
       name: "首页",
       component: () => import("@/views/Home.vue"),
       meta: { requiresAuth: true },
+    },
+    {
+      path: "/:dynamicPath(.*)",
+      name: "DynamicRouteLoader",
+      component: () => import("@/views/Home.vue"), // 临时组件，将在路由守卫中被替换
+      meta: { requiresAuth: true, isDynamicLoader: true },
     },
   ],
 });
@@ -35,15 +42,7 @@ export async function setupDynamicRoutes() {
     if (!Array.isArray(menuData)) {
       return;
     }
-    // 清除之前添加的动态路由（防止重复添加）
-    userStore.menuList.forEach((menuItem) => {
-      if (menuItem.routePath) {
-        const routeName = menuItem.menuName || menuItem.routePath;
-        if (router.hasRoute(routeName)) {
-          router.removeRoute(routeName);
-        }
-      }
-    });
+
     // ✅ 修复: 规范化菜单路径
     const menuItems = menuData
       .map((item: any) => {
@@ -61,10 +60,7 @@ export async function setupDynamicRoutes() {
       .filter((item: any) => item.routePath);
     const routes = convertToRoutes(menuItems);
     routes.forEach((route) => {
-      // 使用 name 来避免重复添加
-      if (!router.hasRoute(route.name as string)) {
-        router.addRoute(route);
-      }
+      router.addRoute(route);
     });
     userStore.setMenuRoutes(menuItems);
   } catch (error) {
@@ -97,7 +93,6 @@ function convertToRoutes(menuList: MenuTreeVO[]): RouteRecordRaw[] {
     .filter(Boolean);
 }
 
-// ... existing code ...
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
   if (userStore.token && to.path === "/login") {
@@ -124,10 +119,15 @@ router.beforeEach(async (to, from, next) => {
 
       if (!routeExists && userStore.token && to.path !== "/login") {
         try {
-          console.log("路由不存在，重新加载菜单...");
-          await setupDynamicRoutes();
-          next(to.fullPath);
-          return;
+          const newRouteExists =
+            router.hasRoute(to.name as string) ||
+            router.getRoutes().some((route) => route.path === to.path);
+          if (newRouteExists) {
+            next(to.fullPath);
+          } else {
+            console.warn(`路由仍然不存在: ${to.path}`);
+            next("/home");
+          }
         } catch (error) {
           console.error("重新加载菜单失败:", error);
           next("/login");
@@ -144,7 +144,6 @@ router.beforeEach(async (to, from, next) => {
       return;
     }
   }
-
   next();
 });
 
