@@ -5,7 +5,6 @@ import { MenuTreeVO } from "@/proto";
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-
     {
       path: "/login",
       name: "Login",
@@ -117,12 +116,13 @@ router.beforeEach(async (to, from, next) => {
         router.hasRoute(to.name as string) ||
         router.getRoutes().some((route) => route.path === to.path);
 
-      if (!routeExists && userStore.token && to.path !== "/login") {
+      if (routeExists && userStore.token && to.path !== "/login") {
         try {
           const newRouteExists =
             router.hasRoute(to.name as string) ||
             router.getRoutes().some((route) => route.path === to.path);
           if (newRouteExists) {
+            await setupDynamicRoutes();
             next(to.fullPath);
           } else {
             console.warn(`路由仍然不存在: ${to.path}`);

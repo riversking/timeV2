@@ -61,7 +61,9 @@
             <el-dropdown-menu>
               <el-dropdown-item>个人中心</el-dropdown-item>
               <el-dropdown-item>设置</el-dropdown-item>
-              <el-dropdown-item divided>退出登录</el-dropdown-item>
+              <el-dropdown-item divided @click="logout"
+                >退出登录</el-dropdown-item
+              >
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -146,18 +148,18 @@
               opacity: 0.4;
             "
           ></div>
-          
+
           <!-- 面包屑 -->
-          <el-breadcrumb separator="/" style="margin-bottom: 20px;">
-            <el-breadcrumb-item 
-              v-for="(crumb, index) in breadcrumbs" 
+          <el-breadcrumb separator="/" style="margin-bottom: 20px">
+            <el-breadcrumb-item
+              v-for="(crumb, index) in breadcrumbs"
               :key="index"
               :to="crumb.path ? { path: crumb.path } : undefined"
             >
               {{ crumb.title }}
             </el-breadcrumb-item>
           </el-breadcrumb>
-          
+
           <router-view v-slot="{ Component }">
             <keep-alive>
               <component :is="Component" v-if="route.meta.keepAlive" />
@@ -188,21 +190,29 @@ const defaultOpeneds = ref<string[]>([]);
 // 生成面包屑
 const generateBreadcrumbs = (path: string) => {
   breadcrumbs.value = [];
-  
+
   // 添加首页
-  breadcrumbs.value.push({ title: '', path: '/' });
-  
+  breadcrumbs.value.push({ title: "", path: "/" });
+
   // 递归获取父级菜单路径
-  const buildBreadcrumbTrail = (menuItems: MenuTreeVO[], targetPath: string, trail: MenuTreeVO[] = []): MenuTreeVO[] | null => {
+  const buildBreadcrumbTrail = (
+    menuItems: MenuTreeVO[],
+    targetPath: string,
+    trail: MenuTreeVO[] = []
+  ): MenuTreeVO[] | null => {
     for (const item of menuItems) {
       const currentTrail = [...trail, item];
-      
+
       if (item.routePath === targetPath) {
         return currentTrail;
       }
-      
+
       if (item.children) {
-        const result = buildBreadcrumbTrail(item.children, targetPath, currentTrail);
+        const result = buildBreadcrumbTrail(
+          item.children,
+          targetPath,
+          currentTrail
+        );
         if (result) return result;
       }
     }
@@ -210,21 +220,24 @@ const generateBreadcrumbs = (path: string) => {
   };
 
   const trail = buildBreadcrumbTrail(userStore.menuList, path);
-  
+
   if (trail) {
-    trail.forEach(item => {
+    trail.forEach((item) => {
       // 使用 breadcrumbTitle 如果存在，否则使用 menuName
       const title = item.meta?.breadcrumbTitle || item.menuName;
       breadcrumbs.value.push({ title, path: item.routePath });
     });
-  } else if (path !== '/') {
+  } else if (path !== "/") {
     // 如果没找到对应菜单，直接使用路径名作为面包屑
-    const pathSegments = path.split('/').filter(segment => segment);
-    let currentPath = '';
-    
-    pathSegments.forEach(segment => {
-      currentPath += '/' + segment;
-      breadcrumbs.value.push({ title: segment.charAt(0).toUpperCase() + segment.slice(1), path: currentPath });
+    const pathSegments = path.split("/").filter((segment) => segment);
+    let currentPath = "";
+
+    pathSegments.forEach((segment) => {
+      currentPath += "/" + segment;
+      breadcrumbs.value.push({
+        title: "首页",
+        path: currentPath,
+      });
     });
   }
 };
@@ -252,6 +265,17 @@ onMounted(() => {
   }
   console.log(userStore.menuList);
 });
+
+const logout = async () => {
+  try {
+    localStorage.removeItem("token");
+    userStore.setToken("");
+    userStore.setMenuRoutes([]);
+    await router.replace("/login");
+  } catch (error) {
+    console.error(error);
+  }
+};
 
 const searchQuery = ref("");
 </script>

@@ -67,6 +67,10 @@
         @current-change="handleCurrentChange"
       />
     </div>
+    <AddUserModal
+      v-model="showAddUserModal"
+      :userData="editingUser"
+    />
   </div>
 </template>
 
@@ -75,6 +79,7 @@ import { ref, onMounted, computed } from 'vue';
 import { ElTable, ElTableColumn, ElTag, ElSwitch, ElPagination, ElInput, ElButton, ElMessage, ElMessageBox } from 'element-plus';
 import { Plus, Search } from '@element-plus/icons-vue';
 import { getUserPage } from '@/api/user';
+import AddUserModal from '@/views/users/AddUserModal.vue'; // 导入新增的组件
 
 // 定义用户类型
 interface User {
@@ -96,7 +101,8 @@ const searchQuery = ref('');
 // 用户数据
 const users = ref<User[]>([]);
 const loading = ref(false);
-
+const showAddUserModal = ref(false);
+const editingUser = ref<User | null>(null);
 // 获取用户数据
 const fetchUsers = async () => {
   loading.value = true;
@@ -139,6 +145,8 @@ const roleType = (role: string) => {
 const handleAddUser = () => {
   // 跳转到添加用户页面
   console.log('添加新用户');
+  editingUser.value = null;
+  showAddUserModal.value = true;
   // 在实际项目中，应该使用 router.push('/user-add')
 };
 
@@ -187,6 +195,10 @@ const handleSizeChange = (size: number) => {
 const handleCurrentChange = (page: number) => {
   currentPage.value = page;
   fetchUsers();
+};
+// 保存用户（新增或编辑）
+const handleSaveUser = async (userData: User) => {
+  console.log('保存用户数据:', userData);
 };
 </script>
 
