@@ -32,7 +32,7 @@
         :cell-style="{ backgroundColor: '#ffffff', color: '#333' }"
         v-loading="loading"
       >
-        <el-table-column prop="nickname" label="姓名" width="180" />
+        <el-table-column prop="userId" label="账号" width="180" />
         <el-table-column prop="username" label="用户名" width="180" />
         <el-table-column prop="mail" label="邮箱" />
         <el-table-column prop="phone" label="电话" />
@@ -70,6 +70,7 @@
     <AddUserModal
       v-model="showAddUserModal"
       :userData="editingUser"
+      @save="handleSaveUser"
     />
   </div>
 </template>
@@ -197,8 +198,8 @@ const handleCurrentChange = (page: number) => {
   fetchUsers();
 };
 // 保存用户（新增或编辑）
-const handleSaveUser = async (userData: User) => {
-  console.log('保存用户数据:', userData);
+const handleSaveUser = async () => {
+  fetchUsers();
 };
 </script>
 

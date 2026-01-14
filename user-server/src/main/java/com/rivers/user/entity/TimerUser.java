@@ -64,8 +64,8 @@ public class TimerUser extends BasicDO<TimerUser> implements Serializable {
     /**
      * 昵称
      */
-    @TableField("nickname")
-    private String nickname;
+    @TableField("user_code")
+    private String userCode;
 
     /**
      * 0-有效，1-失效

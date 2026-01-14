@@ -12,29 +12,17 @@
       :rules="rules"
       label-width="100px"
     >
-      <el-form-item label="用户名" prop="username">
-        <el-input
-          v-model="formData.username"
-          placeholder="请输入用户名"
-        />
+     <el-form-item label="账号" prop="userId">
+        <el-input v-model="formData.userId" placeholder="请输入姓名" />
       </el-form-item>
-      <el-form-item label="姓名" prop="nickname">
-        <el-input
-          v-model="formData.nickname"
-          placeholder="请输入姓名"
-        />
+      <el-form-item label="用户名" prop="username">
+        <el-input v-model="formData.username" placeholder="请输入用户名" />
       </el-form-item>
       <el-form-item label="邮箱" prop="mail">
-        <el-input
-          v-model="formData.mail"
-          placeholder="请输入邮箱"
-        />
+        <el-input v-model="formData.mail" placeholder="请输入邮箱" />
       </el-form-item>
       <el-form-item label="电话" prop="phone">
-        <el-input
-          v-model="formData.phone"
-          placeholder="请输入电话号码"
-        />
+        <el-input v-model="formData.phone" placeholder="请输入电话号码" />
       </el-form-item>
       <el-form-item label="密码" prop="password">
         <el-input
@@ -55,8 +43,12 @@
     <template #footer>
       <span class="dialog-footer">
         <el-button @click="handleClose">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitLoading">
-          {{ isEdit ? '更新' : '创建' }}
+        <el-button
+          type="primary"
+          @click="handleSubmit"
+          :loading="submitLoading"
+        >
+          {{ isEdit ? "更新" : "创建" }}
         </el-button>
       </span>
     </template>
@@ -64,15 +56,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, nextTick, computed } from 'vue';
-import { ElDialog, ElForm, ElFormItem, ElInput, ElButton, ElMessage } from 'element-plus';
-import type { FormInstance, FormRules } from 'element-plus'
+import { ref, reactive, watch, nextTick, computed } from "vue";
+import {
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElButton,
+  ElMessage,
+} from "element-plus";
+import type { FormInstance, FormRules } from "element-plus";
+import { saveUser } from "@/api/user";
 
 // 定义用户类型
 interface User {
   id?: number;
   username: string;
-  nickname: string;
+  userId: string;
   mail: string;
   phone: string;
   password?: string;
@@ -99,12 +99,12 @@ interface Props {
 }
 
 interface Emits {
-  (e: 'update:modelValue', value: boolean): void;
-  (e: 'save', user: User): void;
+  (e: "update:modelValue", value: boolean): void;
+  (e: "save", user: User): void;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  userData: null
+  userData: null,
 });
 
 const emit = defineEmits<Emits>();
@@ -117,49 +117,60 @@ const submitLoading = ref(false);
 // 表单数据
 const formData = reactive<User>({
   id: undefined,
-  username: '',
-  nickname: '',
-  mail: '',
-  phone: '',
-  password: '',
-  confirmPassword: '',
-  isEnable: 1
+  username: "",
+  userId: "",
+  mail: "",
+  phone: "",
+  password: "",
+  confirmPassword: "",
+  isEnable: 1,
 });
 
 // 表单验证规则
 const rules = reactive<FormRules<User>>({
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度应在3-20个字符之间', trigger: 'blur' }
+    { required: true, message: "请输入用户名", trigger: "blur" },
+    {
+      min: 3,
+      max: 20,
+      message: "用户名长度应在3-20个字符之间",
+      trigger: "blur",
+    },
   ],
-  nickname: [
-    { required: true, message: '请输入姓名', trigger: 'blur' }
-  ],
+  userId: [{ required: true, message: "请输入账号", trigger: "blur" }],
   mail: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
+    { required: true, message: "请输入邮箱", trigger: "blur" },
+    { type: "email", message: "请输入正确的邮箱地址", trigger: "blur" },
   ],
   phone: [
-    { required: true, message: '请输入电话号码', trigger: 'blur' },
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号码', trigger: 'blur' }
+    { required: true, message: "请输入电话号码", trigger: "blur" },
+    {
+      pattern: /^1[3-9]\d{9}$/,
+      message: "请输入正确的手机号码",
+      trigger: "blur",
+    },
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度应在6-20个字符之间', trigger: 'blur' }
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 6, max: 20, message: "密码长度应在6-20个字符之间", trigger: "blur" },
   ],
   confirmPassword: [
-    { required: true, message: '请再次输入密码', trigger: 'blur' },
-    { 
-      validator: (rule: any, value: string, callback: (error?: Error) => void) => {
+    { required: true, message: "请再次输入密码", trigger: "blur" },
+    {
+      validator: (
+        rule: any,
+        value: string,
+        callback: (error?: Error) => void
+      ) => {
         if (value !== formData.password) {
-          callback(new Error('两次输入的密码不一致'));
+          callback(new Error("两次输入的密码不一致"));
         } else {
           callback();
         }
       },
-      trigger: 'blur'
-    }
-  ]
+      trigger: "blur",
+    },
+  ],
 });
 
 // 表单引用
@@ -167,7 +178,7 @@ const userFormRef = ref();
 
 // 获取对话框标题
 const dialogTitle = computed(() => {
-  return isEdit.value ? '编辑用户' : '新增用户';
+  return isEdit.value ? "编辑用户" : "新增用户";
 });
 
 // 将旧的用户格式转换为新的用户格式
@@ -175,12 +186,12 @@ const convertOldUserFormat = (oldUser: OldUser): User => {
   return {
     id: oldUser.id,
     username: oldUser.name, // 将 name 映射到 username
-    nickname: oldUser.name, // 将 name 映射到 nickname
+    userId: oldUser.name, // 将 name 映射到 nickname
     mail: oldUser.email, // 将 email 映射到 mail
-    phone: '', // 旧格式中没有电话字段
+    phone: "", // 旧格式中没有电话字段
     password: undefined,
     confirmPassword: undefined,
-    isEnable: oldUser.status // 将 status 映射到 isEnable
+    isEnable: oldUser.status, // 将 status 映射到 isEnable
   };
 };
 
@@ -194,7 +205,7 @@ watch(
       if (props.userData) {
         // 检查是否是旧格式的用户数据
         isEdit.value = true;
-        if ('name' in props.userData) {
+        if ("name" in props.userData) {
           // 是旧格式的用户数据
           const convertedUser = convertOldUserFormat(props.userData as OldUser);
           Object.assign(formData, convertedUser);
@@ -215,13 +226,14 @@ watch(
 const resetForm = () => {
   Object.assign(formData, {
     id: undefined,
-    username: '',
-    nickname: '',
-    mail: '',
-    phone: '',
-    password: '',
-    confirmPassword: '',
-    isEnable: 1
+    username: "",
+    userId: "",
+    nickname: "",
+    mail: "",
+    phone: "",
+    password: "",
+    confirmPassword: "",
+    isEnable: 1,
   });
   nextTick(() => {
     if (userFormRef.value) {
@@ -232,7 +244,7 @@ const resetForm = () => {
 
 // 处理关闭
 const handleClose = () => {
-  emit('update:modelValue', false);
+  emit("update:modelValue", false);
   nextTick(() => {
     resetForm();
   });
@@ -241,10 +253,10 @@ const handleClose = () => {
 // 提交表单
 const handleSubmit = async () => {
   if (!userFormRef.value) return;
-  
+
   const valid = await userFormRef.value.validate().catch(() => false);
   if (!valid) return;
-  
+
   submitLoading.value = true;
   try {
     // 准备提交数据
@@ -259,16 +271,21 @@ const handleSubmit = async () => {
       }
       delete submitData.confirmPassword;
     }
-    
+
+    const result = await saveUser(submitData);
+    if (result.code !== 200) {
+      ElMessage.error(isEdit.value ? "用户更新失败" : "用户创建失败");
+      return;
+    }
     // 触发保存事件
-    emit('save', submitData);
-    
+    emit("save", submitData);
+
     // 成功后关闭弹窗
-    ElMessage.success(isEdit.value ? '用户更新成功' : '用户创建成功');
+    ElMessage.success(isEdit.value ? "用户更新成功" : "用户创建成功");
     handleClose();
   } catch (error) {
-    console.error(isEdit.value ? '更新用户失败' : '创建用户失败', error);
-    ElMessage.error(isEdit.value ? '更新用户失败' : '创建用户失败');
+    console.error(isEdit.value ? "更新用户失败" : "创建用户失败", error);
+    ElMessage.error(isEdit.value ? "更新用户失败" : "创建用户失败");
   } finally {
     submitLoading.value = false;
   }

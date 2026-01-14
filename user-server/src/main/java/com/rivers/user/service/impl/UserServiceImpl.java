@@ -28,6 +28,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class UserServiceImpl implements IUserService {
@@ -81,7 +82,7 @@ public class UserServiceImpl implements IUserService {
                     timerUser.setUserId(userId);
                     timerUser.setPhone(saveUserReq.getPhone());
                     timerUser.setMail(saveUserReq.getMail());
-                    timerUser.setNickname(saveUserReq.getNickname());
+                    timerUser.setUserCode(UUID.randomUUID().toString());
                     timerUser.setCreateUser(currentUserId);
                     timerUser.setUpdateUser(currentUserId);
                     timerUser.insert();
@@ -127,7 +128,6 @@ public class UserServiceImpl implements IUserService {
                     user.setPassword(updateUserReq.getPassword());
                     user.setPhone(updateUserReq.getPhone());
                     user.setMail(updateUserReq.getMail());
-                    user.setNickname(updateUserReq.getNickname());
                     user.setUserId(userId);
                     user.setUpdateUser(currentUserId);
                     user.updateById();
@@ -145,11 +145,9 @@ public class UserServiceImpl implements IUserService {
         return Mono.fromCallable(() -> {
             String userId = userPageReq.getUserId();
             String username = userPageReq.getUsername();
-            String nickname = userPageReq.getNickname();
             LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
             wrapper.like(StringUtils.isNotBlank(userId), TimerUser::getUserId, userId)
-                    .like(StringUtils.isNotBlank(username), TimerUser::getUsername, username)
-                    .like(StringUtils.isNotBlank(nickname), TimerUser::getNickname, nickname);
+                    .like(StringUtils.isNotBlank(username), TimerUser::getUsername, username);
             Page<TimerUser> page = Page.of(currentPage, pageSize);
             IPage<TimerUser> result = timerUserMapper.selectPage(page, wrapper);
             long total = result.getTotal();
@@ -162,7 +160,6 @@ public class UserServiceImpl implements IUserService {
                             .setUserId(u.getUserId())
                             .setUsername(u.getUsername())
                             .setMail(u.getMail())
-                            .setNickname(u.getNickname())
                             .setPhone(u.getPhone())
                             .setCreateTime(Optional.ofNullable(u.getCreateTime())
                                     .map(dateTimeFormatter::format)
@@ -199,7 +196,6 @@ public class UserServiceImpl implements IUserService {
                             .setUserId(user.getUserId())
                             .setUsername(user.getUsername())
                             .setMail(user.getMail())
-                            .setNickname(user.getNickname())
                             .setPhone(user.getPhone())
                             .build();
                     return ResultVO.ok(res);
