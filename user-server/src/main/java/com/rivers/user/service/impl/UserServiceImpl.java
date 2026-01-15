@@ -182,7 +182,7 @@ public class UserServiceImpl implements IUserService {
     @Override
     public Mono<ResultVO<UserDetailRes>> getUserDetail(UserReq userReq) {
         if (StringUtils.isBlank(userReq.getUserId())) {
-            return Mono.just(ResultVO.<UserDetailRes>fail(USER_EMPTY));
+            return Mono.just(ResultVO.fail(USER_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
@@ -280,5 +280,28 @@ public class UserServiceImpl implements IUserService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(BusinessException.class,
                         ex -> Mono.just(ResultVO.fail(ex.getMessage())));
+    }
+
+    @Override
+    public Mono<ResultVO<UserDetailRes>> getCurrentUser(CommonReq commonReq) {
+        LoginUser loginUser = commonReq.getLoginUser();
+        String userId = loginUser.getUserId();
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
+                    wrapper.eq(TimerUser::getUserId, userId);
+                    TimerUser user = timerUserMapper.selectOne(wrapper);
+                    UserDetailRes userDetailRes = Optional.ofNullable(user)
+                            .map(i -> UserDetailRes.newBuilder()
+                                    .setUserId(i.getUserId())
+                                    .setUsername(i.getUsername())
+                                    .setMail(i.getMail())
+                                    .setPhone(i.getPhone())
+                                    .build()).orElse(UserDetailRes.newBuilder().build());
+                    return ResultVO.ok(userDetailRes);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("获取用户信息失败"));
     }
 }

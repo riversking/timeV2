@@ -1,6 +1,8 @@
 spring:
   application:
     name: gateway-server
+  config:
+    import: nacos:gateway-server.yml
   cloud:
     nacos:
       config:
@@ -20,8 +22,6 @@ spring:
               uri: lb://user-server
               predicates:
                 - Path=/user-server/**
-  config:
-    import: nacos:gateway-server.yml
 
 
 ignore:

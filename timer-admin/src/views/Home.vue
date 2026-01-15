@@ -55,7 +55,7 @@
               :size="32"
               src="https://cube.elemecdn.com/0/88/03d0d0c4d8ab6e68bf7534a7c8164.png"
             />
-            <span style="margin-left: 8px; color: #e2e8f0">Admin</span>
+            <span style="margin-left: 8px; color: #e2e8f0">{{ username }}</span>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
@@ -177,12 +177,14 @@ import { useRouter, useRoute } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { Search } from "@element-plus/icons-vue";
 import { MenuTreeVO } from "@/proto";
+import { getCurrentUser } from "@/api/user";
 
 const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 const menuList = ref<MenuTreeVO[]>([]);
 const breadcrumbs = ref<{ title: string; path?: string }[]>([]);
+const username = ref("");
 
 // 默认展开所有菜单
 const defaultOpeneds = ref<string[]>([]);
@@ -264,6 +266,7 @@ onMounted(() => {
     }, 100);
   }
   console.log(userStore.menuList);
+  fetchCurrenntUser();
 });
 
 const logout = async () => {
@@ -272,6 +275,16 @@ const logout = async () => {
     userStore.setToken("");
     userStore.setMenuRoutes([]);
     await router.replace("/login");
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const fetchCurrenntUser = async () => {
+  try {
+    const res = await getCurrentUser();
+    console.log("current", res);
+    username.value = res.data.username;
   } catch (error) {
     console.error(error);
   }

@@ -277,3 +277,7 @@ message DicDataReq {
 message DicDataRes {
     repeated Dic dicData = 1;
 }
+
+message CommonReq {
+    LoginUser loginUser = 1;
+}

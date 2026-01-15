@@ -49,7 +49,9 @@
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)"
+              >删除</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
@@ -76,16 +78,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { ElTable, ElTableColumn, ElTag, ElSwitch, ElPagination, ElInput, ElButton, ElMessage, ElMessageBox } from 'element-plus';
-import { Plus, Search } from '@element-plus/icons-vue';
-import { getUserPage } from '@/api/user';
-import AddUserModal from '@/views/users/AddUserModal.vue'; // 导入新增的组件
+import { ref, onMounted, computed } from "vue";
+import {
+  ElTable,
+  ElTableColumn,
+  ElTag,
+  ElSwitch,
+  ElPagination,
+  ElInput,
+  ElButton,
+  ElMessage,
+  ElMessageBox,
+} from "element-plus";
+import { Plus, Search } from "@element-plus/icons-vue";
+import { getUserPage, saveUser, getUserDetail } from "@/api/user";
+import AddUserModal from "@/views/users/AddUserModal.vue"; // 导入新增的组件
 
 // 定义用户类型
 interface User {
   id: number;
-  name: string;
+  username: string;
+  userId: string;
   email: string;
   role: string;
   status: number; // 1: 启用, 0: 禁用
@@ -97,7 +110,7 @@ const pageSize = ref(10);
 const total = ref(0);
 
 // 搜索相关
-const searchQuery = ref('');
+const searchQuery = ref("");
 
 // 用户数据
 const users = ref<User[]>([]);
@@ -113,16 +126,16 @@ const fetchUsers = async () => {
       currentPage: currentPage.value,
       pageSize: pageSize.value,
     });
-    console.log('获取用户数据成功:', response);
+    console.log("获取用户数据成功:", response);
     if (response.code === 200) {
       users.value = response.data.users || [];
       total.value = response.data.total || 0;
     } else {
-      ElMessage.error(response.message || '获取用户数据失败');
+      ElMessage.error(response.message || "获取用户数据失败");
     }
   } catch (error) {
-    console.error('获取用户数据失败:', error);
-    ElMessage.error('获取用户数据失败');
+    console.error("获取用户数据失败:", error);
+    ElMessage.error("获取用户数据失败");
   } finally {
     loading.value = false;
   }
@@ -136,53 +149,64 @@ onMounted(() => {
 // 角色类型映射
 const roleType = (role: string) => {
   const types = {
-    '管理员': 'danger',
-    '普通用户': 'success'
+    管理员: "danger",
+    普通用户: "success",
   };
-  return types[role as keyof typeof types] || 'info';
+  return types[role as keyof typeof types] || "info";
 };
 
 // 操作方法
 const handleAddUser = () => {
   // 跳转到添加用户页面
-  console.log('添加新用户');
+  console.log("添加新用户");
   editingUser.value = null;
   showAddUserModal.value = true;
   // 在实际项目中，应该使用 router.push('/user-add')
 };
 
-const handleEdit = (row: User) => {
-  console.log('编辑用户:', row);
-  // 在实际项目中，应该使用 router.push(`/user-edit/${row.id}`)
+const handleEdit = async (row: User) => {
+  console.log("编辑用户:", row.userId);
+  try {
+    const res = await getUserDetail({
+      userId: row.userId,
+    });
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    editingUser.value = { ...res.data };
+    showAddUserModal.value = true; // 显示模态框
+  } catch (error) {
+    console.log("获取用户详情失败");
+  }
 };
 
 const handleDelete = async (row: User) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除用户 "${row.name}" 吗？`,
-      '确认删除',
+      `确定要删除用户 "${row.username}" 吗？`,
+      "确认删除",
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning',
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
       }
     );
-    
+
     // 在实际项目中，这里应该调用删除API
-    console.log('删除用户:', row);
-    ElMessage.success('用户删除成功');
+    console.log("删除用户:", row);
+    ElMessage.success("用户删除成功");
     // 删除成功后重新加载数据
     fetchUsers();
   } catch (error) {
-    console.log('取消删除');
+    console.log("取消删除");
   }
 };
 
-const handleStatusChange = async (row: User) => {
-};
+const handleStatusChange = async (row: User) => {};
 
 const handleSearch = () => {
-  console.log('搜索:', searchQuery.value);
+  console.log("搜索:", searchQuery.value);
   // 实现搜索功能，通常需要重新调用API
   fetchUsers();
 };
@@ -198,13 +222,22 @@ const handleCurrentChange = (page: number) => {
   fetchUsers();
 };
 // 保存用户（新增或编辑）
-const handleSaveUser = async () => {
-  fetchUsers();
+const handleSaveUser = async (data: any) => {
+  try {
+    const result = await saveUser(data);
+    if (result.code !== 200) {
+      ElMessage.error(result.message);
+      return;
+    }
+    showAddUserModal.value = false;
+    fetchUsers();
+  } catch (error) {
+    ElMessage.error("保存用户失败");
+  }
 };
 </script>
 
-/* ... existing code ... */
-/* ... existing code ... */
+/* ... existing code ... */ /* ... existing code ... */
 <style scoped>
 .user-list-container {
   /* Changed from dark gradient to white background */

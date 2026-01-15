@@ -20,4 +20,6 @@ public interface IUserService {
     Mono<ResultVO<Void>> deleteUser(UserReq userReq);
 
     Mono<ResultVO<List<MenuTreeVO>>> ownedMenuTree(OwnedMenuTreeReq ownedMenuTreeReq);
+
+    Mono<ResultVO<UserDetailRes>> getCurrentUser(CommonReq commonReq);
 }

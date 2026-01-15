@@ -51,4 +51,9 @@ public class UserController {
     public Mono<ResultVO<List<MenuTreeVO>>> ownedMenuTree(@RequestBody OwnedMenuTreeReq ownedMenuTreeReq) {
         return userService.ownedMenuTree(ownedMenuTreeReq);
     }
+
+    @PostMapping("getCurrentUser")
+    public Mono<ResultVO<UserDetailRes>> getCurrentUser(@RequestBody CommonReq commonReq) {
+        return userService.getCurrentUser(commonReq);
+    }
 }

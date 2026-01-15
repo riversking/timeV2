@@ -66,7 +66,6 @@ import {
   ElMessage,
 } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import { saveUser } from "@/api/user";
 
 // 定义用户类型
 interface User {
@@ -83,7 +82,8 @@ interface User {
 // 定义旧的用户类型，用于兼容现有数据
 interface OldUser {
   id: number;
-  name: string;
+  username: string;
+  userId: string;
   email: string;
   role: string;
   status: number;
@@ -185,8 +185,8 @@ const dialogTitle = computed(() => {
 const convertOldUserFormat = (oldUser: OldUser): User => {
   return {
     id: oldUser.id,
-    username: oldUser.name, // 将 name 映射到 username
-    userId: oldUser.name, // 将 name 映射到 nickname
+    username: oldUser.username, // 将 name 映射到 username
+    userId: oldUser.userId, // 将 name 映射到 nickname
     mail: oldUser.email, // 将 email 映射到 mail
     phone: "", // 旧格式中没有电话字段
     password: undefined,
@@ -271,17 +271,8 @@ const handleSubmit = async () => {
       }
       delete submitData.confirmPassword;
     }
-
-    const result = await saveUser(submitData);
-    if (result.code !== 200) {
-      ElMessage.error(isEdit.value ? "用户更新失败" : "用户创建失败");
-      return;
-    }
     // 触发保存事件
     emit("save", submitData);
-
-    // 成功后关闭弹窗
-    ElMessage.success(isEdit.value ? "用户更新成功" : "用户创建成功");
     handleClose();
   } catch (error) {
     console.error(isEdit.value ? "更新用户失败" : "创建用户失败", error);
