@@ -1,33 +1,34 @@
 package com.rivers.batch.quartz;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NullMarked;
 import org.quartz.JobDataMap;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobParameters;
-import org.springframework.batch.core.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.parameters.JobParameters;
+import org.springframework.batch.core.job.parameters.JobParametersBuilder;
+import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.lang.NonNull;
 import org.springframework.scheduling.quartz.QuartzJobBean;
 
 @Slf4j
 public class BatchQuartzJob extends QuartzJobBean {
 
-    private final JobLauncher jobLauncher;
+    private final JobOperator jobOperator;
 
     @Qualifier("businessJob")
     private final Job businessJob;
 
-    public BatchQuartzJob(JobLauncher jobLauncher, Job businessJob) {
-        this.jobLauncher = jobLauncher;
+    public BatchQuartzJob(JobOperator jobOperator, Job businessJob) {
+        this.jobOperator = jobOperator;
         this.businessJob = businessJob;
     }
 
     @Override
-    protected void executeInternal(@NonNull JobExecutionContext context) throws JobExecutionException {
+    @NullMarked
+    protected void executeInternal(JobExecutionContext context) throws JobExecutionException {
         try {
             String jobName = context.getJobDetail().getKey().getName();
             JobDataMap jobDataMap = context.getJobDetail().getJobDataMap();
@@ -39,7 +40,7 @@ public class BatchQuartzJob extends QuartzJobBean {
                     .addString("serviceName", jobDataMap.getString("serviceName"))
                     .addString("trigger", "quartz")
                     .toJobParameters();
-            JobExecution jobExecution = jobLauncher.run(businessJob, jobParameters);
+            JobExecution jobExecution = jobOperator.start(businessJob, jobParameters);
             log.info("Batch job {} completed with status: {}", jobName, jobExecution.getStatus());
         } catch (Exception e) {
             log.error("Error executing batch job", e);
