@@ -21,3 +21,19 @@ export async function getCurrentUser() {
 export async function getUserDetail(data: any) {
   return http.post(`${API_PREFIX}/getUserDetail`, data).then((res) => res.data);
 }
+
+export async function updateUser(data: any) {
+  return http.post(`${API_PREFIX}/updateUser`, data).then((res) => res.data);
+}
+
+export async function deleteUser(data: any) {
+  return http.post(`${API_PREFIX}/deleteUser`, data).then((res) => res.data);
+}
+
+export async function enableUser(data: any) {
+  return http.post(`${API_PREFIX}/enableUser`, data).then((res) => res.data);
+}
+
+export async function disableUser(data: any) {
+  return http.post(`${API_PREFIX}/disableUser`, data).then((res) => res.data);
+}

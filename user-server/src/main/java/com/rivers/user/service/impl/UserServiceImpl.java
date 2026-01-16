@@ -1,6 +1,7 @@
 package com.rivers.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -20,15 +21,13 @@ import com.rivers.user.service.IUserService;
 import com.rivers.user.vo.MenuTreeVO;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class UserServiceImpl implements IUserService {
@@ -54,9 +53,6 @@ public class UserServiceImpl implements IUserService {
         if (StringUtils.isBlank(saveUserReq.getUsername())) {
             return Mono.just(ResultVO.fail("用户名不能为空"));
         }
-        if (StringUtils.isBlank(saveUserReq.getPassword())) {
-            return Mono.just(ResultVO.fail("密码不能为空"));
-        }
         if (StringUtils.isBlank(saveUserReq.getPhone())) {
             return Mono.just(ResultVO.fail("手机号不能为空"));
         }
@@ -78,7 +74,6 @@ public class UserServiceImpl implements IUserService {
                     String currentUserId = loginUser.getUserId();
                     TimerUser timerUser = new TimerUser();
                     timerUser.setUsername(saveUserReq.getUsername());
-                    timerUser.setPassword(saveUserReq.getPassword());
                     timerUser.setUserId(userId);
                     timerUser.setPhone(saveUserReq.getPhone());
                     timerUser.setMail(saveUserReq.getMail());
@@ -86,7 +81,6 @@ public class UserServiceImpl implements IUserService {
                     timerUser.setCreateUser(currentUserId);
                     timerUser.setUpdateUser(currentUserId);
                     timerUser.insert();
-
                     return ResultVO.<Void>ok();
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -98,9 +92,6 @@ public class UserServiceImpl implements IUserService {
     public Mono<ResultVO<Void>> updateUser(UpdateUserReq updateUserReq) {
         if (StringUtils.isBlank(updateUserReq.getUsername())) {
             return Mono.just(ResultVO.fail("用户名不能为空"));
-        }
-        if (StringUtils.isBlank(updateUserReq.getPassword())) {
-            return Mono.just(ResultVO.fail("密码不能为空"));
         }
         if (StringUtils.isBlank(updateUserReq.getPhone())) {
             return Mono.just(ResultVO.fail("手机号不能为空"));
@@ -125,7 +116,6 @@ public class UserServiceImpl implements IUserService {
                     TimerUser user = new TimerUser();
                     user.setId(id);
                     user.setUsername(updateUserReq.getUsername());
-                    user.setPassword(updateUserReq.getPassword());
                     user.setPhone(updateUserReq.getPhone());
                     user.setMail(updateUserReq.getMail());
                     user.setUserId(userId);
@@ -157,10 +147,12 @@ public class UserServiceImpl implements IUserService {
             DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             List<User> users = result.getRecords().stream()
                     .map(u -> User.newBuilder()
+                            .setId(u.getId())
                             .setUserId(u.getUserId())
                             .setUsername(u.getUsername())
                             .setMail(u.getMail())
                             .setPhone(u.getPhone())
+                            .setIsDisable(u.getIsDisable())
                             .setCreateTime(Optional.ofNullable(u.getCreateTime())
                                     .map(dateTimeFormatter::format)
                                     .orElse(""))
@@ -303,5 +295,42 @@ public class UserServiceImpl implements IUserService {
                 .onErrorResume(BusinessException.class,
                         e -> Mono.just(ResultVO.fail(e.getMessage())))
                 .onErrorReturn(ResultVO.fail("获取用户信息失败"));
+    }
+
+    @Override
+    public Mono<ResultVO<Void>> enableUser(EnableUserReq enableUserReq) {
+        LoginUser loginUser = enableUserReq.getLoginUser();
+        String userId = enableUserReq.getUserId();
+        return Mono.fromCallable(() -> changeUserStatus(userId, 0, loginUser))
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("禁用用户失败"));
+    }
+
+    @Override
+    public Mono<ResultVO<Void>> disableUser(DisableUserReq disableUserReq) {
+        LoginUser loginUser = disableUserReq.getLoginUser();
+        String userId = disableUserReq.getUserId();
+        return Mono.fromCallable(() -> changeUserStatus(userId, 1, loginUser))
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage()))
+                ).onErrorReturn(ResultVO.fail("禁用用户失败"));
+    }
+
+    private @NonNull ResultVO<Void> changeUserStatus(String userId, int isDisable, LoginUser loginUser) {
+        LambdaUpdateWrapper<TimerUser> userWrapper = Wrappers.lambdaUpdate();
+        userWrapper.eq(TimerUser::getUserId, userId);
+        TimerUser timerUser = timerUserMapper.selectOne(userWrapper);
+        if (Objects.isNull(timerUser)) {
+            throw new BusinessException("用户不存在");
+        }
+        TimerUser user = new TimerUser();
+        user.setIsDisable(isDisable);
+        user.setId(timerUser.getId());
+        user.setUpdateUser(loginUser.getUserId());
+        user.updateById();
+        return ResultVO.<Void>ok();
     }
 }

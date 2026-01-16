@@ -38,8 +38,9 @@ message User {
     string mail = 4;
     string nickname = 5;
     string userId = 6;
-    string createTime = 7;
-    string updateTime = 8;
+    int32 isDisable = 7;
+    string createTime = 8;
+    string updateTime = 9;
 }
 
 message UserPageReq {
@@ -280,4 +281,14 @@ message DicDataRes {
 
 message CommonReq {
     LoginUser loginUser = 1;
+}
+
+message EnableUserReq {
+    string userId = 1;
+    LoginUser loginUser = 2;
+}
+
+message DisableUserReq {
+    string userId = 1;
+    LoginUser loginUser = 2;
 }

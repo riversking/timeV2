@@ -56,4 +56,14 @@ public class UserController {
     public Mono<ResultVO<UserDetailRes>> getCurrentUser(@RequestBody CommonReq commonReq) {
         return userService.getCurrentUser(commonReq);
     }
+
+    @PostMapping("enableUser")
+    public Mono<ResultVO<Void>> enableUser(@RequestBody EnableUserReq enableUserReq) {
+        return userService.enableUser(enableUserReq);
+    }
+
+    @PostMapping("disableUser")
+    public Mono<ResultVO<Void>> disableUser(@RequestBody DisableUserReq disableUserReq) {
+        return userService.disableUser(disableUserReq);
+    }
 }

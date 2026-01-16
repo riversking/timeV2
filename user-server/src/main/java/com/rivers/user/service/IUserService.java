@@ -22,4 +22,8 @@ public interface IUserService {
     Mono<ResultVO<List<MenuTreeVO>>> ownedMenuTree(OwnedMenuTreeReq ownedMenuTreeReq);
 
     Mono<ResultVO<UserDetailRes>> getCurrentUser(CommonReq commonReq);
+
+    Mono<ResultVO<Void>> enableUser(EnableUserReq enableUserReq);
+
+    Mono<ResultVO<Void>> disableUser(DisableUserReq disableUserReq);
 }

@@ -12,7 +12,7 @@
       :rules="rules"
       label-width="100px"
     >
-     <el-form-item label="账号" prop="userId">
+      <el-form-item label="账号" prop="userId">
         <el-input v-model="formData.userId" placeholder="请输入姓名" />
       </el-form-item>
       <el-form-item label="用户名" prop="username">
@@ -23,21 +23,6 @@
       </el-form-item>
       <el-form-item label="电话" prop="phone">
         <el-input v-model="formData.phone" placeholder="请输入电话号码" />
-      </el-form-item>
-      <el-form-item label="密码" prop="password">
-        <el-input
-          v-model="formData.password"
-          type="password"
-          placeholder="请输入密码"
-          v-if="!isEdit"
-        />
-      </el-form-item>
-      <el-form-item label="确认密码" prop="confirmPassword" v-if="!isEdit">
-        <el-input
-          v-model="formData.confirmPassword"
-          type="password"
-          placeholder="请再次输入密码"
-        />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -74,9 +59,7 @@ interface User {
   userId: string;
   mail: string;
   phone: string;
-  password?: string;
-  confirmPassword?: string;
-  isEnable?: number;
+  isDisable?: number;
 }
 
 // 定义旧的用户类型，用于兼容现有数据
@@ -86,7 +69,7 @@ interface OldUser {
   userId: string;
   email: string;
   role: string;
-  status: number;
+  isDisable: number;
 }
 
 // 统一用户类型接口
@@ -101,6 +84,7 @@ interface Props {
 interface Emits {
   (e: "update:modelValue", value: boolean): void;
   (e: "save", user: User): void;
+  (e: "edit", user: User): void;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -121,9 +105,7 @@ const formData = reactive<User>({
   userId: "",
   mail: "",
   phone: "",
-  password: "",
-  confirmPassword: "",
-  isEnable: 1,
+  isDisable: 1,
 });
 
 // 表单验证规则
@@ -150,27 +132,6 @@ const rules = reactive<FormRules<User>>({
       trigger: "blur",
     },
   ],
-  password: [
-    { required: true, message: "请输入密码", trigger: "blur" },
-    { min: 6, max: 20, message: "密码长度应在6-20个字符之间", trigger: "blur" },
-  ],
-  confirmPassword: [
-    { required: true, message: "请再次输入密码", trigger: "blur" },
-    {
-      validator: (
-        rule: any,
-        value: string,
-        callback: (error?: Error) => void
-      ) => {
-        if (value !== formData.password) {
-          callback(new Error("两次输入的密码不一致"));
-        } else {
-          callback();
-        }
-      },
-      trigger: "blur",
-    },
-  ],
 });
 
 // 表单引用
@@ -180,20 +141,6 @@ const userFormRef = ref();
 const dialogTitle = computed(() => {
   return isEdit.value ? "编辑用户" : "新增用户";
 });
-
-// 将旧的用户格式转换为新的用户格式
-const convertOldUserFormat = (oldUser: OldUser): User => {
-  return {
-    id: oldUser.id,
-    username: oldUser.username, // 将 name 映射到 username
-    userId: oldUser.userId, // 将 name 映射到 nickname
-    mail: oldUser.email, // 将 email 映射到 mail
-    phone: "", // 旧格式中没有电话字段
-    password: undefined,
-    confirmPassword: undefined,
-    isEnable: oldUser.status, // 将 status 映射到 isEnable
-  };
-};
 
 // 监听 props 变化
 watch(
@@ -205,14 +152,8 @@ watch(
       if (props.userData) {
         // 检查是否是旧格式的用户数据
         isEdit.value = true;
-        if ("name" in props.userData) {
-          // 是旧格式的用户数据
-          const convertedUser = convertOldUserFormat(props.userData as OldUser);
-          Object.assign(formData, convertedUser);
-        } else {
-          // 是新格式的用户数据
-          Object.assign(formData, props.userData);
-        }
+        // 是新格式的用户数据
+        Object.assign(formData, props.userData);
       } else {
         // 新增模式
         isEdit.value = false;
@@ -262,17 +203,12 @@ const handleSubmit = async () => {
     // 准备提交数据
     const submitData = { ...formData };
     if (!isEdit.value) {
-      // 新增时不传入 confirmPassword 字段
-      delete submitData.confirmPassword;
+      emit("save", submitData);
     } else {
       // 编辑时，如果没有更改密码则不传递密码字段
-      if (!submitData.password) {
-        delete submitData.password;
-      }
-      delete submitData.confirmPassword;
+      emit("edit", submitData);
     }
     // 触发保存事件
-    emit("save", submitData);
     handleClose();
   } catch (error) {
     console.error(isEdit.value ? "更新用户失败" : "创建用户失败", error);

@@ -36,10 +36,10 @@
         <el-table-column prop="username" label="用户名" width="180" />
         <el-table-column prop="mail" label="邮箱" />
         <el-table-column prop="phone" label="电话" />
-        <el-table-column prop="isEnable" label="是否禁用" width="100">
+        <el-table-column prop="isDisable" label="是否禁用" width="100">
           <template #default="{ row }">
             <el-switch
-              v-model="row.isEnable"
+              v-model="row.isDisable"
               :active-value="1"
               :inactive-value="0"
               @change="handleStatusChange(row)"
@@ -73,6 +73,7 @@
       v-model="showAddUserModal"
       :userData="editingUser"
       @save="handleSaveUser"
+      @edit="handleUpdateUser"
     />
   </div>
 </template>
@@ -91,7 +92,15 @@ import {
   ElMessageBox,
 } from "element-plus";
 import { Plus, Search } from "@element-plus/icons-vue";
-import { getUserPage, saveUser, getUserDetail } from "@/api/user";
+import {
+  getUserPage,
+  saveUser,
+  getUserDetail,
+  updateUser,
+  deleteUser,
+  enableUser,
+  disableUser,
+} from "@/api/user";
 import AddUserModal from "@/views/users/AddUserModal.vue"; // 导入新增的组件
 
 // 定义用户类型
@@ -101,7 +110,7 @@ interface User {
   userId: string;
   email: string;
   role: string;
-  status: number; // 1: 启用, 0: 禁用
+  isDisable: number; // 1: 启用, 0: 禁用
 }
 
 // 分页相关
@@ -192,7 +201,11 @@ const handleDelete = async (row: User) => {
         type: "warning",
       }
     );
-
+    const res = await deleteUser(row);
+    if (res.code !== 200) {
+      ElMessage.error("删除失败");
+      return;
+    }
     // 在实际项目中，这里应该调用删除API
     console.log("删除用户:", row);
     ElMessage.success("用户删除成功");
@@ -203,7 +216,33 @@ const handleDelete = async (row: User) => {
   }
 };
 
-const handleStatusChange = async (row: User) => {};
+const handleStatusChange = async (row: User) => {
+  console.log("状态变更:", row.isDisable);
+  if (row.isDisable === 0) {
+    // 在实际项目中，这里应该调用启用API
+    try {
+      await enableUser({
+        userId: row.userId,
+      });
+    } catch (error) {
+      ElMessage.error("启用失败");
+      return;
+    }
+    ElMessage.success("用户启用成功");
+  } else {
+    // 在实际项目中，这里应该调用禁用API
+    try {
+      await disableUser({
+        userId: row.userId,
+      });
+    } catch (error) {
+      ElMessage.error("禁用失败");
+      return;
+    }
+    ElMessage.success("用户禁用成功");
+  }
+  fetchUsers()
+};
 
 const handleSearch = () => {
   console.log("搜索:", searchQuery.value);
@@ -233,6 +272,20 @@ const handleSaveUser = async (data: any) => {
     fetchUsers();
   } catch (error) {
     ElMessage.error("保存用户失败");
+  }
+};
+
+const handleUpdateUser = async (data: any) => {
+  try {
+    const result = await updateUser(data);
+    if (result.code !== 200) {
+      ElMessage.error(result.message);
+      return;
+    }
+    showAddUserModal.value = false;
+    fetchUsers();
+  } catch (error) {
+    ElMessage.error("编辑用户失败");
   }
 };
 </script>
