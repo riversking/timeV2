@@ -40,8 +40,8 @@
           <template #default="{ row }">
             <el-switch
               v-model="row.isDisable"
-              :active-value="1"
-              :inactive-value="0"
+              active-value="1"
+              inactive-value="0"
               @change="handleStatusChange(row)"
             />
           </template>
@@ -83,7 +83,6 @@ import { ref, onMounted, computed } from "vue";
 import {
   ElTable,
   ElTableColumn,
-  ElTag,
   ElSwitch,
   ElPagination,
   ElInput,
@@ -110,7 +109,7 @@ interface User {
   userId: string;
   email: string;
   role: string;
-  isDisable: number; // 1: 启用, 0: 禁用
+  isDisable: string; // 1: 启用, 0: 禁用
 }
 
 // 分页相关
@@ -126,6 +125,7 @@ const users = ref<User[]>([]);
 const loading = ref(false);
 const showAddUserModal = ref(false);
 const editingUser = ref<User | null>(null);
+
 // 获取用户数据
 const fetchUsers = async () => {
   loading.value = true;
@@ -218,7 +218,7 @@ const handleDelete = async (row: User) => {
 
 const handleStatusChange = async (row: User) => {
   console.log("状态变更:", row.isDisable);
-  if (row.isDisable === 0) {
+  if (row.isDisable === "0") {
     // 在实际项目中，这里应该调用启用API
     try {
       await enableUser({
@@ -241,7 +241,7 @@ const handleStatusChange = async (row: User) => {
     }
     ElMessage.success("用户禁用成功");
   }
-  fetchUsers()
+  fetchUsers();
 };
 
 const handleSearch = () => {

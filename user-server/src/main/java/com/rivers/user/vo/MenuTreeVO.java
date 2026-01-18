@@ -29,6 +29,8 @@ public class MenuTreeVO implements TreeNode<Long, MenuTreeVO> {
 
     private Integer status;
 
+    private String component;
+
     private List<MenuTreeVO> children = Lists.newArrayList();
 
     @Override

@@ -160,10 +160,20 @@
             </el-breadcrumb-item>
           </el-breadcrumb>
 
-          <router-view v-slot="{ Component }">
+          <router-view v-slot="{ Component, route }">
+            <!-- 注意  v-if="route.meta.isKeepAlive"放在keep-alive标签上不会生效 -->
             <keep-alive>
-              <component :is="Component" v-if="route.meta.keepAlive" />
+              <component
+                :is="Component"
+                :key="route.name"
+                v-if="route.meta.isKeepAlive"
+              ></component>
             </keep-alive>
+            <component
+              :is="Component"
+              :key="route.name"
+              v-if="!route.meta.isKeepAlive"
+            ></component>
           </router-view>
         </el-main>
       </el-container>

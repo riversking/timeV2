@@ -78,4 +78,7 @@ public class TimerMenu extends BasicDO<TimerMenu> {
     @TableField("status")
     private Integer status;
 
+    @TableField("component")
+    private String component;
+
 }

@@ -71,5 +71,5 @@ public class TimerUser extends BasicDO<TimerUser> implements Serializable {
      * 0-有效，1-失效
      */
     @TableField("is_disable")
-    private Integer isDisable;
+    private String isDisable;
 }

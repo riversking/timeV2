@@ -259,6 +259,7 @@ public class UserServiceImpl implements IUserService {
                                 vo.setMenuType(m.getMenuType());
                                 vo.setRoutePath(m.getRoutePath());
                                 vo.setIcon(m.getIcon());
+                                vo.setComponent(m.getComponent());
                                 vo.setSortOrder(m.getSortOrder());
                                 return vo;
                             })
@@ -301,7 +302,7 @@ public class UserServiceImpl implements IUserService {
     public Mono<ResultVO<Void>> enableUser(EnableUserReq enableUserReq) {
         LoginUser loginUser = enableUserReq.getLoginUser();
         String userId = enableUserReq.getUserId();
-        return Mono.fromCallable(() -> changeUserStatus(userId, 0, loginUser))
+        return Mono.fromCallable(() -> changeUserStatus(userId, "0", loginUser))
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(BusinessException.class,
                         e -> Mono.just(ResultVO.fail(e.getMessage())))
@@ -312,14 +313,14 @@ public class UserServiceImpl implements IUserService {
     public Mono<ResultVO<Void>> disableUser(DisableUserReq disableUserReq) {
         LoginUser loginUser = disableUserReq.getLoginUser();
         String userId = disableUserReq.getUserId();
-        return Mono.fromCallable(() -> changeUserStatus(userId, 1, loginUser))
+        return Mono.fromCallable(() -> changeUserStatus(userId, "1", loginUser))
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(BusinessException.class,
                         e -> Mono.just(ResultVO.fail(e.getMessage()))
                 ).onErrorReturn(ResultVO.fail("禁用用户失败"));
     }
 
-    private @NonNull ResultVO<Void> changeUserStatus(String userId, int isDisable, LoginUser loginUser) {
+    private @NonNull ResultVO<Void> changeUserStatus(String userId, String isDisable, LoginUser loginUser) {
         LambdaUpdateWrapper<TimerUser> userWrapper = Wrappers.lambdaUpdate();
         userWrapper.eq(TimerUser::getUserId, userId);
         TimerUser timerUser = timerUserMapper.selectOne(userWrapper);

@@ -38,7 +38,7 @@ message User {
     string mail = 4;
     string nickname = 5;
     string userId = 6;
-    int32 isDisable = 7;
+    string isDisable = 7;
     string createTime = 8;
     string updateTime = 9;
 }
@@ -150,8 +150,9 @@ message SaveMenuReq {
     string icon = 5;
     int32 sortOrder = 6;
     string permissionCode = 7;
-    string routePath = 8;
-    LoginUser loginUser = 9;
+    string component = 8;
+    string routePath = 9;
+    LoginUser loginUser = 10;
 }
 
 message UpdateMenuReq {
@@ -164,7 +165,8 @@ message UpdateMenuReq {
     int32 sortOrder = 7;
     string permissionCode = 8;
     string routePath = 9;
-    LoginUser loginUser = 10;
+    string component = 10;
+    LoginUser loginUser = 11;
 }
 
 message Menu {
@@ -177,8 +179,9 @@ message Menu {
     int32 sortOrder = 7;
     string permissionCode = 8;
     string routePath = 9;
-    string createTime = 10;
-    string updateTime = 11;
+    string component = 10;
+    string createTime = 11;
+    string updateTime = 12;
 }
 
 message MenuTreeRes {
@@ -191,6 +194,7 @@ message MenuTreeRes {
     int32 sortOrder = 7;
     string permissionCode = 8;
     string routePath = 9;
+    string component = 10;
 }
 
 message MenuDetailReq {
@@ -207,6 +211,7 @@ message MenuDetailRes {
     int32 sortOrder = 7;
     string permissionCode = 8;
     string routePath = 9;
+    string component = 10;
 }
 
 message DeleteMenuReq {

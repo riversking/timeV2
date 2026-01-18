@@ -16,11 +16,17 @@ const router = createRouter({
       component: () => import("@/views/Home.vue"),
       meta: { requiresAuth: true },
     },
+     {
+      path: "/",
+      name: "首页",
+      component: () => import("@/views/Home.vue"),
+      meta: { requiresAuth: true },
+    },
     {
       path: "/:dynamicPath(.*)",
       name: "DynamicRouteLoader",
-      component: () => import("@/views/Home.vue"), // 临时组件，将在路由守卫中被替换
-      meta: { requiresAuth: true, isDynamicLoader: true },
+      component: () => import("@/views/404.vue"), // 临时组件，将在路由守卫中被替换
+      meta: { requiresAuth: true, isDynamicLoader: true }, 
     },
   ],
 });
@@ -73,11 +79,12 @@ function convertToRoutes(menuList: MenuTreeVO[]): RouteRecordRaw[] {
   const modules = import.meta.glob("/src/views/**/*.vue");
   return menuList
     .map((item) => {
-      console.log("Normalized Path:", item.routePath);
+      console.log("Normalized Path:", item.component);
       const componentPath = !item.children
         ? () => import(`@/layouts/DefaultLayout.vue`)
-        : modules[`/src/views${item.routePath}.vue`] ||
-          (() => import(`@/views/Home.vue`));
+        : modules[`/src/views${item.component}.vue`] ||
+          (() => import(`@/views/404.vue`));
+      console.log("componentPath:", componentPath);
 
       return {
         path: item.routePath.startsWith("/")

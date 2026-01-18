@@ -59,7 +59,7 @@ interface User {
   userId: string;
   mail: string;
   phone: string;
-  isDisable?: number;
+  isDisable?: string;
 }
 
 // 定义旧的用户类型，用于兼容现有数据
@@ -69,7 +69,7 @@ interface OldUser {
   userId: string;
   email: string;
   role: string;
-  isDisable: number;
+  isDisable: string;
 }
 
 // 统一用户类型接口
@@ -105,7 +105,7 @@ const formData = reactive<User>({
   userId: "",
   mail: "",
   phone: "",
-  isDisable: 1,
+  isDisable: "",
 });
 
 // 表单验证规则
