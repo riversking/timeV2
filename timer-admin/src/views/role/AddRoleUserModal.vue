@@ -1,10 +1,12 @@
-<!-- src/views/role/AddRoleUsersModal.vue -->
 <template>
   <el-dialog
     v-model="dialogVisible"
     title="添加角色人员"
-    width="800px"
+    width="1000px"
     :before-close="handleClose"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    append-to-body
   >
     <div class="transfer-container">
       <div class="transfer-panel">
@@ -18,20 +20,18 @@
           />
         </div>
         <div class="panel-body">
-          <el-checkbox-group v-model="selectedUserIds" class="user-list">
-            <el-checkbox
-              v-for="user in filteredSelectedUsers"
-              :key="user.id"
-              :label="user.id"
-              class="user-item"
-            >
-              <div class="user-info">
-                <span class="user-name">{{ user.username }}</span>
-                <span class="user-id">({{ user.userId }})</span>
-              </div>
-            </el-checkbox>
-          </el-checkbox-group>
-          <div v-if="filteredSelectedUsers.length === 0" class="empty-state">
+          <el-table
+            :data="selectedUsers"
+            style="width: 100%"
+            max-height="250"
+            @selection-change="handleSelectedChange"
+            ref="selectedTableRef"
+          >
+            <el-table-column type="selection" width="55" />
+            <el-table-column prop="username" label="用户名" />
+            <el-table-column prop="userId" label="用户ID" />
+          </el-table>
+          <div v-if="selectedUsers.length === 0" class="empty-state">
             暂无已选人员
           </div>
         </div>
@@ -40,14 +40,14 @@
       <div class="transfer-buttons">
         <el-button
           type="primary"
-          :disabled="unselectedUsers.length === 0"
+          :disabled="unselectedUserIds.length === 0"
           @click="moveToSelected"
           icon="ArrowRight"
         >
           移入
         </el-button>
         <el-button
-          :disabled="selectedUsers.length === 0"
+          :disabled="selectedUserIds.length === 0"
           @click="moveToUnselected"
           icon="ArrowLeft"
         >
@@ -66,20 +66,18 @@
           />
         </div>
         <div class="panel-body">
-          <el-checkbox-group v-model="unselectedUserIds" class="user-list">
-            <el-checkbox
-              v-for="user in filteredUnselectedUsers"
-              :key="user.id"
-              :label="user.id"
-              class="user-item"
-            >
-              <div class="user-info">
-                <span class="user-name">{{ user.username }}</span>
-                <span class="user-id">({{ user.userId }})</span>
-              </div>
-            </el-checkbox>
-          </el-checkbox-group>
-          <div v-if="filteredUnselectedUsers.length === 0" class="empty-state">
+          <el-table
+            :data="unselectedUsers"
+            style="width: 100%"
+            max-height="250"
+            @selection-change="handleUnselectedChange"
+            ref="unselectedTableRef"
+          >
+            <el-table-column type="selection" width="55" />
+            <el-table-column prop="username" label="用户名" />
+            <el-table-column prop="userId" label="用户ID" />
+          </el-table>
+          <div v-if="unselectedUsers.length === 0" class="empty-state">
             暂无更多人员可选
           </div>
         </div>
@@ -97,14 +95,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import {
-  ElDialog,
-  ElCheckboxGroup,
-  ElCheckbox,
-  ElInput,
-  ElButton,
-  ElMessage
-} from "element-plus";
+import { ElDialog, ElTable, ElInput, ElButton, ElMessage } from "element-plus";
 import { ArrowRight, ArrowLeft } from "@element-plus/icons-vue";
 import { getUserPage } from "@/api/user";
 
@@ -113,20 +104,19 @@ interface User {
   id: number;
   username: string;
   userId: string;
-  email?: string;
 }
 
 // 定义角色类型
-interface Role {
+interface RoleUser {
   id: number;
-  roleName: string;
-  roleCode: string;
+  username: string;
+  userId: string;
 }
 
 // Props 和 Emits
 interface Props {
   modelValue: boolean;
-  roleData?: Role | null;
+  roleUserData?: RoleUser | null;
 }
 
 interface Emits {
@@ -135,16 +125,13 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  roleData: null,
+  roleUserData: null,
 });
 
 const emit = defineEmits<Emits>();
 
 // 对话框显示状态
 const dialogVisible = ref(false);
-
-// 所有用户数据
-const allUsers = ref<User[]>([]);
 
 // 已选用户数据
 const selectedUsers = ref<User[]>([]);
@@ -164,34 +151,20 @@ const selectedFilter = ref("");
 // 未选人员搜索过滤
 const unselectedFilter = ref("");
 
+// 引用表格实例
+const selectedTableRef = ref();
+const unselectedTableRef = ref();
+
 // 监听 props 的变化
 watch(
   () => props.modelValue,
   (newVal) => {
     dialogVisible.value = newVal;
-    if (newVal && props.roleData) {
+    if (newVal) {
       loadUsers();
     }
   }
 );
-
-// 计算属性：过滤后的已选用户
-const filteredSelectedUsers = computed(() => {
-  if (!selectedFilter.value) return selectedUsers.value;
-  return selectedUsers.value.filter(user =>
-    user.username.toLowerCase().includes(selectedFilter.value.toLowerCase()) ||
-    user.userId.toLowerCase().includes(selectedFilter.value.toLowerCase())
-  );
-});
-
-// 计算属性：过滤后的未选用户
-const filteredUnselectedUsers = computed(() => {
-  if (!unselectedFilter.value) return unselectedUsers.value;
-  return unselectedUsers.value.filter(user =>
-    user.username.toLowerCase().includes(unselectedFilter.value.toLowerCase()) ||
-    user.userId.toLowerCase().includes(unselectedFilter.value.toLowerCase())
-  );
-});
 
 // 加载用户数据
 const loadUsers = async () => {
@@ -202,77 +175,31 @@ const loadUsers = async () => {
       pageSize: 1000, // 获取所有用户
     });
 
-    if (response.code === 200) {
-      allUsers.value = response.data.users || [];
-
-      // 模拟获取角色已分配的用户（在实际项目中，这应该是从后端API获取的数据）
-      // 这里我们随机选择一些用户作为已分配用户
-      const assignedUserIds = [allUsers.value[0]?.id, allUsers.value[2]?.id].filter(Boolean);
-      
-      selectedUsers.value = allUsers.value.filter(user => 
-        assignedUserIds.includes(user.id)
-      );
-      unselectedUsers.value = allUsers.value.filter(user => 
-        !assignedUserIds.includes(user.id)
-      );
-
-      // 初始化已选用户的 ID 数组
-      selectedUserIds.value = selectedUsers.value.map(user => user.id);
-      unselectedUserIds.value = [];
-    } else {
+    if (response.code !== 200) {
       ElMessage.error(response.message || "获取用户数据失败");
     }
+    unselectedUsers.value = response.data.users || [];
   } catch (error) {
     console.error("获取用户数据失败:", error);
     ElMessage.error("获取用户数据失败");
   }
 };
 
-// 将未选用户移入已选列表
-const moveToSelected = () => {
-  if (unselectedUserIds.value.length === 0) return;
-
-  // 从未选列表中移除选中的用户
-  const movedUsers = unselectedUsers.value.filter(user => 
-    unselectedUserIds.value.includes(user.id)
-  );
-  
-  unselectedUsers.value = unselectedUsers.value.filter(user => 
-    !unselectedUserIds.value.includes(user.id)
-  );
-  
-  // 添加到已选列表
-  selectedUsers.value = [...selectedUsers.value, ...movedUsers];
-  
-  // 更新 ID 数组
-  selectedUserIds.value = [...selectedUserIds.value, ...unselectedUserIds.value];
-  unselectedUserIds.value = [];
-
-  ElMessage.success(`成功添加 ${movedUsers.length} 名用户`);
+// 处理已选表格的选择变化
+const handleSelectedChange = (selection: User[]) => {
+  selectedUserIds.value = selection.map((user) => user.id);
 };
+
+// 处理未选表格的选择变化
+const handleUnselectedChange = (selection: User[]) => {
+  unselectedUserIds.value = selection.map((user) => user.id);
+};
+
+// 将未选用户移入已选列表
+const moveToSelected = () => {};
 
 // 将已选用户移出到未选列表
-const moveToUnselected = () => {
-  if (selectedUserIds.value.length === 0) return;
-
-  // 从已选列表中移除选中的用户
-  const movedUsers = selectedUsers.value.filter(user => 
-    selectedUserIds.value.includes(user.id)
-  );
-  
-  selectedUsers.value = selectedUsers.value.filter(user => 
-    !selectedUserIds.value.includes(user.id)
-  );
-  
-  // 添加到未选列表
-  unselectedUsers.value = [...unselectedUsers.value, ...movedUsers];
-  
-  // 更新 ID 数组
-  unselectedUserIds.value = [...unselectedUserIds.value, ...selectedUserIds.value];
-  selectedUserIds.value = [];
-
-  ElMessage.success(`成功移出 ${movedUsers.length} 名用户`);
-};
+const moveToUnselected = () => {};
 
 // 关闭对话框
 const handleClose = () => {
@@ -285,7 +212,7 @@ const handleClose = () => {
 
 // 确认分配
 const handleConfirm = async () => {
-  if (!props.roleData) {
+  if (!props.roleUserData) {
     ElMessage.error("角色数据不完整");
     return;
   }
@@ -294,18 +221,7 @@ const handleConfirm = async () => {
   // 这里应该调用实际的API来分配用户到角色
   try {
     // 模拟API调用
-    // const result = await assignUsersToRole({
-    //   roleId: props.roleData.id,
-    //   userIds: selectedUserIds.value
-    // });
-    
-    // if (result.code === 200) {
-      ElMessage.success("用户分配成功");
-      emit("confirm", {
-        roleId: props.roleData.id,
-        userIds: selectedUserIds.value
-      });
-      handleClose();
+    handleClose();
     // } else {
     //   ElMessage.error(result.message || "用户分配失败");
     // }
@@ -319,7 +235,7 @@ const handleConfirm = async () => {
 <style scoped>
 .transfer-container {
   display: flex;
-  height: 400px;
+  height: 350px;
 }
 
 .transfer-panel {
@@ -349,37 +265,6 @@ const handleConfirm = async () => {
   padding: 10px;
 }
 
-.user-list {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.user-item {
-  padding: 8px;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
-  transition: all 0.3s;
-}
-
-.user-item:hover {
-  background-color: #f5f7fa;
-}
-
-.user-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.user-name {
-  font-weight: 500;
-}
-
-.user-id {
-  font-size: 12px;
-  color: #909399;
-}
-
 .empty-state {
   text-align: center;
   color: #909399;
@@ -405,5 +290,13 @@ const handleConfirm = async () => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+:deep(.el-dialog__wrapper) {
+  pointer-events: auto;
+}
+
+:deep(.el-dialog) {
+  margin-top: 6vh !important;
+  pointer-events: auto;
 }
 </style>
