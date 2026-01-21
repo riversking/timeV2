@@ -76,7 +76,7 @@
       @save="handleSaveRole"
       @edit="handleUpdateRole"
     />
-    <AddRoleUserModal v-model="showAddRoleUserModal" />
+    <AddRoleUserModal v-model="showAddRoleUserModal" :roleCode="roleCode" />
   </div>
 </template>
 
@@ -103,6 +103,13 @@ interface Role {
   roleCode: string;
 }
 
+// 定义角色用户类型
+interface RoleUser {
+  id: number;
+  username: string;
+  userId: string;
+}
+
 // 分页相关
 const currentPage = ref(1);
 const pageSize = ref(10);
@@ -113,11 +120,13 @@ const searchQuery = ref("");
 
 // 角色数据
 const roles = ref<Role[]>([]);
+const roleUsers = ref<RoleUser[]>([]);
 const loading = ref(false);
 // 弹框相关
 const showAddRoleModal = ref(false);
 const editingRole = ref<Role | null>(null);
 const showAddRoleUserModal = ref(false);
+const roleCode = ref("");
 
 onMounted(async () => {
   await fetchRoles();
@@ -155,11 +164,6 @@ const handleAddRole = () => {
   showAddRoleModal.value = true;
 };
 
-const handleAssignUsers = (row: Role) => {
-  console.log("添加人员到角色:", row.roleCode);
-  // 在实际项目中，应该跳转到分配用户页面
-};
-
 // 操作方法
 const handleEdit = async (row: Role) => {
   console.log("编辑角色:", row.roleCode);
@@ -180,7 +184,8 @@ const handleEdit = async (row: Role) => {
 };
 
 const handleAddRoleUser = async (row: Role) => {
-    showAddRoleUserModal.value = true;  
+  showAddRoleUserModal.value = true;
+  roleCode.value = row.roleCode;
 };
 
 const handlePermission = (row: Role) => {

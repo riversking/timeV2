@@ -23,7 +23,7 @@
           <el-table
             :data="selectedUsers"
             style="width: 100%"
-            max-height="250"
+            max-height="350"
             @selection-change="handleSelectedChange"
             ref="selectedTableRef"
           >
@@ -31,6 +31,17 @@
             <el-table-column prop="username" label="用户名" />
             <el-table-column prop="userId" label="用户ID" />
           </el-table>
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="selectedCurrentPage"
+              v-model:page-size="selectedPageSize"
+              :total="selectedTotal"
+              :page-sizes="[5, 10, 20]"
+              layout="total, prev, pager, next"
+              @size-change="handleSelectedSizeChange"
+              @current-change="handleSelectedCurrentChange"
+            />
+          </div>
           <div v-if="selectedUsers.length === 0" class="empty-state">
             暂无已选人员
           </div>
@@ -42,14 +53,14 @@
           type="primary"
           :disabled="unselectedUserIds.length === 0"
           @click="moveToSelected"
-          icon="ArrowRight"
+          :icon="ArrowRight"
         >
           移入
         </el-button>
         <el-button
           :disabled="selectedUserIds.length === 0"
           @click="moveToUnselected"
-          icon="ArrowLeft"
+          :icon="ArrowLeft"
         >
           移出
         </el-button>
@@ -69,7 +80,7 @@
           <el-table
             :data="unselectedUsers"
             style="width: 100%"
-            max-height="250"
+            max-height="350"
             @selection-change="handleUnselectedChange"
             ref="unselectedTableRef"
           >
@@ -77,6 +88,17 @@
             <el-table-column prop="username" label="用户名" />
             <el-table-column prop="userId" label="用户ID" />
           </el-table>
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="unselectedCurrentPage"
+              v-model:page-size="unselectedPageSize"
+              :total="unselectedTotal"
+              :page-sizes="[5, 10, 20]"
+              layout="total, prev, pager, next"
+              @size-change="handleUnselectedSizeChange"
+              @current-change="handleUnselectedCurrentChange"
+            />
+          </div>
           <div v-if="unselectedUsers.length === 0" class="empty-state">
             暂无更多人员可选
           </div>
@@ -94,10 +116,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, watch } from "vue";
 import { ElDialog, ElTable, ElInput, ElButton, ElMessage } from "element-plus";
 import { ArrowRight, ArrowLeft } from "@element-plus/icons-vue";
 import { getUserPage } from "@/api/user";
+import { getUserRolePage } from "@/api/role";
 
 // 定义用户类型
 interface User {
@@ -117,6 +140,7 @@ interface RoleUser {
 interface Props {
   modelValue: boolean;
   roleUserData?: RoleUser | null;
+  roleCode?: string;
 }
 
 interface Emits {
@@ -126,12 +150,14 @@ interface Emits {
 
 const props = withDefaults(defineProps<Props>(), {
   roleUserData: null,
+  roleCode: "",
 });
 
 const emit = defineEmits<Emits>();
 
 // 对话框显示状态
 const dialogVisible = ref(false);
+const roleCode = ref("");
 
 // 已选用户数据
 const selectedUsers = ref<User[]>([]);
@@ -154,20 +180,36 @@ const unselectedFilter = ref("");
 // 引用表格实例
 const selectedTableRef = ref();
 const unselectedTableRef = ref();
-
+// 已选用户分页参数
+const selectedCurrentPage = ref(1);
+const selectedPageSize = ref(10);
+// 未选用户分页参数
+const unselectedCurrentPage = ref(1);
+const unselectedPageSize = ref(10);
+const selectedTotal = ref(0);
+const unselectedTotal = ref(0);
 // 监听 props 的变化
 watch(
   () => props.modelValue,
   (newVal) => {
     dialogVisible.value = newVal;
     if (newVal) {
-      loadUsers();
+      loadUnselectedUsers();
     }
   }
 );
 
+watch(
+  () => props.roleCode,
+  (newVal) => {
+    console.log("newVal", newVal);
+    roleCode.value = newVal;
+    fetchSelectedUsers();
+  }
+);
+
 // 加载用户数据
-const loadUsers = async () => {
+const loadUnselectedUsers = async () => {
   try {
     // 获取所有用户
     const response = await getUserPage({
@@ -179,9 +221,29 @@ const loadUsers = async () => {
       ElMessage.error(response.message || "获取用户数据失败");
     }
     unselectedUsers.value = response.data.users || [];
+    unselectedTotal.value = response.data.total || 0;
   } catch (error) {
     console.error("获取用户数据失败:", error);
     ElMessage.error("获取用户数据失败");
+  }
+};
+
+const fetchSelectedUsers = async () => {
+  try {
+    const res = await getUserRolePage({
+      currentPage: 1,
+      pageSize: 100, // 获取所有用户
+      roleCode: roleCode.value,
+    });
+    if (res.code !== 200) {
+      ElMessage.error(res.message || "获取已选用户数据失败");
+      return;
+    }
+    selectedUsers.value = res.data.users || [];
+    selectedTotal.value = res.data.total || 0;
+  } catch (error) {
+    console.error("获取已选用户数据失败:", error);
+    ElMessage.error("获取已选用户数据失败");
   }
 };
 
@@ -200,6 +262,30 @@ const moveToSelected = () => {};
 
 // 将已选用户移出到未选列表
 const moveToUnselected = () => {};
+
+// 已选用户当前页变化
+const handleSelectedCurrentChange = (page: number) => {
+  selectedCurrentPage.value = page;
+};
+
+// 未选用户分页大小变化
+const handleUnselectedSizeChange = (size: number) => {
+  unselectedPageSize.value = size;
+  unselectedCurrentPage.value = 1;
+  loadUnselectedUsers();
+};
+
+// 未选用户当前页变化
+const handleUnselectedCurrentChange = (page: number) => {
+  unselectedCurrentPage.value = page;
+  loadUnselectedUsers();
+};
+
+// 已选用户分页大小变化
+const handleSelectedSizeChange = (size: number) => {
+  selectedPageSize.value = size;
+  selectedCurrentPage.value = 1;
+};
 
 // 关闭对话框
 const handleClose = () => {
@@ -235,7 +321,7 @@ const handleConfirm = async () => {
 <style scoped>
 .transfer-container {
   display: flex;
-  height: 350px;
+  height: 500px;
 }
 
 .transfer-panel {
@@ -263,6 +349,8 @@ const handleConfirm = async () => {
   flex: 1;
   overflow-y: auto;
   padding: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .empty-state {
@@ -278,12 +366,13 @@ const handleConfirm = async () => {
   justify-content: center;
   align-items: center;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 20px;
 }
 
 .transfer-buttons .el-button {
   display: block;
   margin: 5px 0;
+  width: 80px;
 }
 
 .dialog-footer {
@@ -291,6 +380,13 @@ const handleConfirm = async () => {
   justify-content: flex-end;
   gap: 10px;
 }
+
+.pagination-container {
+  margin-top: 10px;
+  display: flex;
+  justify-content: right;
+}
+
 :deep(.el-dialog__wrapper) {
   pointer-events: auto;
 }

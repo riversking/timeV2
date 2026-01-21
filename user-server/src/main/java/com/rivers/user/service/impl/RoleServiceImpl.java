@@ -315,8 +315,8 @@ public class RoleServiceImpl implements IRoleService {
                         return ResultVO.ok(UserRolePageRes.newBuilder().build());
                     }
                     List<TimerUserRole> records = resultPage.getRecords();
-                    List<String> userIds = records.stream()
-                            .map(TimerUserRole::getUserId)
+                    List<Long> userIds = records.stream()
+                            .map(TimerUserRole::getId)
                             .distinct()
                             .toList();
                     List<TimerUser> timerUsers = timerUserMapper.selectByIds(userIds);
