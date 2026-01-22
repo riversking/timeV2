@@ -20,5 +20,5 @@ public interface IRoleService {
 
     Mono<ResultVO<Void>> removeUserRole(RemoveUserRoleReq removeUserRoleReq);
 
-    Mono<ResultVO<UserRolePageRes>> getUserRolePage(UserRolePageReq userRolePageReq);
+    Mono<ResultVO<RoleUserPageRes>> getUserRolePage(RoleUserPageReq roleUserPageReq);
 }

@@ -279,12 +279,14 @@ public class RoleServiceImpl implements IRoleService {
     }
 
     @Override
-    public Mono<ResultVO<UserRolePageRes>> getUserRolePage(UserRolePageReq userRolePageReq) {
-        int currentPage = Math.max(1, userRolePageReq.getCurrentPage());
-        int pageSize = Math.clamp(userRolePageReq.getPageSize(), 1, 100);
-        String username = userRolePageReq.getUsername();
+    public Mono<ResultVO<RoleUserPageRes>> getUserRolePage(RoleUserPageReq roleUserPageReq) {
+        int currentPage = Math.max(1, roleUserPageReq.getCurrentPage());
+        int pageSize = Math.clamp(roleUserPageReq.getPageSize(), 1, 100);
+        String roleCode = roleUserPageReq.getRoleCode();
+        String username = roleUserPageReq.getUsername();
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerUserRole> wrapper = Wrappers.lambdaQuery();
+                    wrapper.eq(TimerUserRole::getRoleCode, roleCode);
                     // 根据 username 查 userIds
                     List<String> userIdsFromName = Lists.newArrayList();
                     if (StringUtils.isNotBlank(username)) {
@@ -292,7 +294,7 @@ public class RoleServiceImpl implements IRoleService {
                         userWrapper.like(TimerUser::getUsername, username);
                         List<TimerUser> users = timerUserMapper.selectList(userWrapper);
                         if (users.isEmpty()) {
-                            return ResultVO.ok(UserRolePageRes.newBuilder().build());
+                            return ResultVO.ok(RoleUserPageRes.newBuilder().build());
                         }
                         List<String> userIds = users.stream()
                                 .map(TimerUser::getUserId)
@@ -300,26 +302,24 @@ public class RoleServiceImpl implements IRoleService {
                         userIdsFromName.addAll(userIds);
                     }
                     // 构建查询条件
-                    if (CollectionUtils.isNotEmpty(userIdsFromName)) {
-                        wrapper.in(TimerUserRole::getUserId, userIdsFromName);
-                    }
-                    if (StringUtils.isNotBlank(userRolePageReq.getUserId())) {
-                        // 注意：如果同时传了 username 和 userId，这里会 AND，可能不符合预期
-                        // 实际业务中建议只支持一种查询方式，或改为 OR
-                        wrapper.like(TimerUserRole::getUserId, userRolePageReq.getUserId());
-                    }
+                    wrapper.in(CollectionUtils.isNotEmpty(userIdsFromName), TimerUserRole::getUserId, userIdsFromName);
+                    // 注意：如果同时传了 username 和 userId，这里会 AND，可能不符合预期
+                    // 实际业务中建议只支持一种查询方式，或改为 OR
+                    wrapper.like(StringUtils.isNotBlank(roleUserPageReq.getUserId()), TimerUserRole::getUserId, roleUserPageReq.getUserId());
                     Page<TimerUserRole> page = new Page<>(currentPage, pageSize);
                     IPage<TimerUserRole> resultPage = timerUserRoleMapper.selectPage(page, wrapper);
                     long total = resultPage.getTotal();
                     if (total == 0) {
-                        return ResultVO.ok(UserRolePageRes.newBuilder().build());
+                        return ResultVO.ok(RoleUserPageRes.newBuilder().build());
                     }
                     List<TimerUserRole> records = resultPage.getRecords();
-                    List<Long> userIds = records.stream()
-                            .map(TimerUserRole::getId)
+                    List<String> userIds = records.stream()
+                            .map(TimerUserRole::getUserId)
                             .distinct()
                             .toList();
-                    List<TimerUser> timerUsers = timerUserMapper.selectByIds(userIds);
+                    LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+                    userWrapper.in(TimerUser::getUserId, userIds);
+                    List<TimerUser> timerUsers = timerUserMapper.selectList(userWrapper);
                     Map<String, String> userMap = timerUsers
                             .stream()
                             .collect(Collectors.toMap(TimerUser::getUserId,
@@ -331,7 +331,7 @@ public class RoleServiceImpl implements IRoleService {
                                     .setUsername(userMap.getOrDefault(r.getUserId(), ""))
                                     .build())
                             .toList();
-                    return ResultVO.ok(UserRolePageRes.newBuilder()
+                    return ResultVO.ok(RoleUserPageRes.newBuilder()
                             .setTotal(total)
                             .addAllUsers(users)
                             .build());

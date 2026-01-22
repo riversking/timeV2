@@ -11,7 +11,7 @@
     <div class="transfer-container">
       <div class="transfer-panel">
         <div class="panel-header">
-          <span>已选人员 ({{ selectedUsers.length }})</span>
+          <span>已选人员 ({{ selectedTotal }})</span>
           <el-input
             v-model="selectedFilter"
             placeholder="搜索已选人员"
@@ -51,16 +51,16 @@
       <div class="transfer-buttons">
         <el-button
           type="primary"
-          :disabled="unselectedUserIds.length === 0"
+          :disabled="unselectedTotal === 0"
           @click="moveToSelected"
-          :icon="ArrowRight"
+          :icon="ArrowLeft"
         >
           移入
         </el-button>
         <el-button
-          :disabled="selectedUserIds.length === 0"
+          :disabled="selectedTotal === 0"
           @click="moveToUnselected"
-          :icon="ArrowLeft"
+          :icon="ArrowRight"
         >
           移出
         </el-button>
@@ -68,7 +68,7 @@
 
       <div class="transfer-panel">
         <div class="panel-header">
-          <span>未选人员 ({{ unselectedUsers.length }})</span>
+          <span>未选人员 ({{ unselectedTotal }})</span>
           <el-input
             v-model="unselectedFilter"
             placeholder="搜索未选人员"
@@ -120,7 +120,7 @@ import { ref, watch } from "vue";
 import { ElDialog, ElTable, ElInput, ElButton, ElMessage } from "element-plus";
 import { ArrowRight, ArrowLeft } from "@element-plus/icons-vue";
 import { getUserPage } from "@/api/user";
-import { getUserRolePage } from "@/api/role";
+import { getRoleUserPage, saveUserRole,removeUserRole } from "@/api/role";
 
 // 定义用户类型
 interface User {
@@ -149,7 +149,7 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  roleUserData: null,
+  roleUserData: null, 
   roleCode: "",
 });
 
@@ -166,10 +166,10 @@ const selectedUsers = ref<User[]>([]);
 const unselectedUsers = ref<User[]>([]);
 
 // 已选用户的 ID 数组
-const selectedUserIds = ref<number[]>([]);
+const selectedUserIds = ref<string[]>([]);
 
 // 未选用户的 ID 数组（临时存储待移入的用户）
-const unselectedUserIds = ref<number[]>([]);
+const unselectedUserIds = ref<string[]>([]);
 
 // 已选人员搜索过滤
 const selectedFilter = ref("");
@@ -213,8 +213,8 @@ const loadUnselectedUsers = async () => {
   try {
     // 获取所有用户
     const response = await getUserPage({
-      currentPage: 1,
-      pageSize: 1000, // 获取所有用户
+      currentPage: unselectedCurrentPage.value,
+      pageSize: unselectedPageSize.value, // 获取所有用户
     });
 
     if (response.code !== 200) {
@@ -230,9 +230,9 @@ const loadUnselectedUsers = async () => {
 
 const fetchSelectedUsers = async () => {
   try {
-    const res = await getUserRolePage({
-      currentPage: 1,
-      pageSize: 100, // 获取所有用户
+    const res = await getRoleUserPage({
+      currentPage: selectedCurrentPage.value,
+      pageSize: selectedPageSize.value, // 获取所有用户
       roleCode: roleCode.value,
     });
     if (res.code !== 200) {
@@ -249,19 +249,67 @@ const fetchSelectedUsers = async () => {
 
 // 处理已选表格的选择变化
 const handleSelectedChange = (selection: User[]) => {
-  selectedUserIds.value = selection.map((user) => user.id);
+  selectedUserIds.value = selection.map((user) => user.userId);
 };
 
 // 处理未选表格的选择变化
 const handleUnselectedChange = (selection: User[]) => {
-  unselectedUserIds.value = selection.map((user) => user.id);
+  unselectedUserIds.value = selection.map((user) => user.userId);
 };
 
 // 将未选用户移入已选列表
-const moveToSelected = () => {};
+const moveToSelected = async () => {
+  try {
+    const unselected = unselectedUserIds.value;
+    if (unselected.length === 0) {
+      ElMessage.warning("请选择要添加的用户");
+      return;
+    }
+    const data = {
+      roleCode: roleCode.value,
+      userIds: unselected,
+    };
+    const res = await saveUserRole(data);
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("添加用户成功");
+    await fetchSelectedUsers();
+  } catch (error) {
+    console.error("添加用户失败:", error);
+    ElMessage.error("添加用户失败");
+  } finally {
+    roleCode.value = "";
+  }
+};
 
 // 将已选用户移出到未选列表
-const moveToUnselected = () => {};
+const moveToUnselected = async() => {
+  try {
+    const selected = selectedUserIds.value;
+    if (selected.length === 0) {
+      ElMessage.warning("请选择要取消的用户");
+      return;
+    }
+    const data = {
+      roleCode: roleCode.value,
+      userIds: selected,
+    };
+    const res = await removeUserRole(data);
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("取消用户成功");
+    await fetchSelectedUsers();
+  } catch (error) {
+    console.error("取消用户失败:", error);
+    ElMessage.error("取消用户失败");
+  } finally {
+    roleCode.value = "";
+  }
+};
 
 // 已选用户当前页变化
 const handleSelectedCurrentChange = (page: number) => {

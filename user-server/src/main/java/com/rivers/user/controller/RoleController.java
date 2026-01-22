@@ -54,8 +54,8 @@ public class RoleController {
         return roleService.removeUserRole(removeUserRoleReq);
     }
 
-    @PostMapping("getUserRolePage")
-    public Mono<ResultVO<UserRolePageRes>> getUserRolePage(@RequestBody UserRolePageReq userRolePageReq) {
-        return roleService.getUserRolePage(userRolePageReq);
+    @PostMapping("getRoleUserPage")
+    public Mono<ResultVO<RoleUserPageRes>> getRoleUserPage(@RequestBody RoleUserPageReq roleUserPageReq) {
+        return roleService.getUserRolePage(roleUserPageReq);
     }
 }

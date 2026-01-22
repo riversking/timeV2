@@ -21,8 +21,26 @@ http.interceptors.request.use(config => {
 
 // 响应拦截器：统一处理错误
 http.interceptors.response.use(
-  response => response,
+  response => {
+    // 检查响应体中的code字段是否为401
+    if (response.data && response.data.code === 401) {
+      // 清除本地存储的token
+      localStorage.removeItem('token');
+      // 抛出错误，让业务代码处理跳转
+      window.location.href = '/login';
+      return Promise.reject(new Error('Unauthorized'));
+    }
+    return response;
+  },
   error => {
+    // 检查HTTP状态码是否为401
+    if (error.response && error.response.status === 401) {
+      // 清除本地存储的token
+      localStorage.removeItem('token');
+      // 直接跳转到登录页
+      window.location.href = '/login';
+    }
+    
     // 可以在这里统一弹出错误提示（如使用 ElMessage、Toast 等）
     console.error('API Error:', error)
     return Promise.reject(error)

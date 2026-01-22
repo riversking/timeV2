@@ -23,6 +23,14 @@ export async function deleteRole(data: any) {
   return http.post(`${API_PREFIX}/deleteRole`, data).then((res) => res.data);
 }
 
-export async function getUserRolePage(data: any) {
-  return http.post(`${API_PREFIX}/getUserRolePage`, data).then((res) => res.data);
+export async function getRoleUserPage(data: any) {
+  return http.post(`${API_PREFIX}/getRoleUserPage`, data).then((res) => res.data);
+}
+
+export async function saveUserRole(data: any) {
+  return http.post(`${API_PREFIX}/saveUserRole`, data).then((res) => res.data);
+}
+
+export async function removeUserRole(data: any) {
+  return http.post(`${API_PREFIX}/removeUserRole`, data).then((res) => res.data);
 }
