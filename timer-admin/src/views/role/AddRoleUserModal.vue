@@ -145,7 +145,6 @@ interface Props {
 
 interface Emits {
   (e: "update:modelValue", value: boolean): void;
-  (e: "confirm", data: { roleId: number; userIds: number[] }): void;
 }
 
 const props = withDefaults(defineProps<Props>(), {

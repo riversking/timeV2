@@ -59,6 +59,7 @@
           </span>
           <template #dropdown>
             <el-dropdown-menu>
+              <el-dropdown-item @click="showChangePasswordModal = true">修改密码</el-dropdown-item>
               <el-dropdown-item>个人中心</el-dropdown-item>
               <el-dropdown-item>设置</el-dropdown-item>
               <el-dropdown-item divided @click="logout"
@@ -178,6 +179,10 @@
         </el-main>
       </el-container>
     </el-container>
+    <ResetPasswordModal
+      v-model="showChangePasswordModal"
+      @change-success="showChangePasswordModal = false"
+    />
   </el-container>
 </template>
 
@@ -188,6 +193,7 @@ import { useUserStore } from "@/store/user";
 import { Search } from "@element-plus/icons-vue";
 import { MenuTreeVO } from "@/proto";
 import { getCurrentUser } from "@/api/user";
+import ResetPasswordModal from "@/views/users/ResetPasswordModal.vue"; // Import the new component
 
 const router = useRouter();
 const route = useRoute();
@@ -198,6 +204,8 @@ const username = ref("");
 
 // 默认展开所有菜单
 const defaultOpeneds = ref<string[]>([]);
+const showChangePasswordModal = ref(false); // Add ref for modal visibility
+
 
 // 生成面包屑
 const generateBreadcrumbs = (path: string) => {

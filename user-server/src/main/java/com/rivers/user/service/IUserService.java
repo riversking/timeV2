@@ -26,4 +26,6 @@ public interface IUserService {
     Mono<ResultVO<Void>> enableUser(EnableUserReq enableUserReq);
 
     Mono<ResultVO<Void>> disableUser(DisableUserReq disableUserReq);
+
+    Mono<ResultVO<Void>> resetPassword(ResetPasswordReq resetPasswordReq);
 }

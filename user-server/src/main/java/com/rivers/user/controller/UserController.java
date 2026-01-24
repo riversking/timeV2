@@ -66,4 +66,9 @@ public class UserController {
     public Mono<ResultVO<Void>> disableUser(@RequestBody DisableUserReq disableUserReq) {
         return userService.disableUser(disableUserReq);
     }
+
+    @PostMapping("resetPassword")
+    public Mono<ResultVO<Void>> resetPassword(@RequestBody ResetPasswordReq resetPasswordReq) {
+        return userService.resetPassword(resetPasswordReq);
+    }
 }

@@ -18,6 +18,7 @@ import com.rivers.user.mapper.TimerRoleMenuMapper;
 import com.rivers.user.mapper.TimerUserMapper;
 import com.rivers.user.mapper.TimerUserRoleMapper;
 import com.rivers.user.service.IUserService;
+import com.rivers.user.util.PasswordGenerator;
 import com.rivers.user.vo.MenuTreeVO;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -75,6 +76,7 @@ public class UserServiceImpl implements IUserService {
                     TimerUser timerUser = new TimerUser();
                     timerUser.setUsername(saveUserReq.getUsername());
                     timerUser.setUserId(userId);
+                    timerUser.setPassword(PasswordGenerator.generateComplexPassword(16));
                     timerUser.setPhone(saveUserReq.getPhone());
                     timerUser.setMail(saveUserReq.getMail());
                     timerUser.setUserCode(UUID.randomUUID().toString());
@@ -318,6 +320,38 @@ public class UserServiceImpl implements IUserService {
                 .onErrorResume(BusinessException.class,
                         e -> Mono.just(ResultVO.fail(e.getMessage()))
                 ).onErrorReturn(ResultVO.fail("禁用用户失败"));
+    }
+
+    @Override
+    public Mono<ResultVO<Void>> resetPassword(ResetPasswordReq resetPasswordReq) {
+        LoginUser loginUser = resetPasswordReq.getLoginUser();
+        String newPassword = resetPasswordReq.getNewPassword();
+        String oldPassword = resetPasswordReq.getOldPassword();
+        String userId = loginUser.getUserId();
+        if (StringUtils.isEmpty(newPassword)) {
+            return Mono.just(ResultVO.fail("新密码不能为空"));
+        }
+        if (StringUtils.isEmpty(oldPassword)) {
+            return Mono.just(ResultVO.fail("旧密码不能为空"));
+        }
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
+                    userWrapper.eq(TimerUser::getUserId, userId);
+                    TimerUser user = timerUserMapper.selectOne(userWrapper);
+                    if (user == null) {
+                        throw new BusinessException("用户不存在");
+                    }
+                    if (!user.getPassword().equals(oldPassword)) {
+                        throw new BusinessException("旧密码错误");
+                    }
+                    user.setPassword(newPassword);
+                    timerUserMapper.update(user, userWrapper);
+                    return ResultVO.<Void>ok();
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(BusinessException.class,
+                        e -> Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("重置密码失败"));
     }
 
     private @NonNull ResultVO<Void> changeUserStatus(String userId, String isDisable, LoginUser loginUser) {

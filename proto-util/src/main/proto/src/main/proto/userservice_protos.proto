@@ -310,3 +310,9 @@ message DisableUserReq {
     string userId = 1;
     LoginUser loginUser = 2;
 }
+
+message ResetPasswordReq {
+    string oldPassword = 1;
+    string newPassword = 2;
+    LoginUser loginUser = 3;
+}
