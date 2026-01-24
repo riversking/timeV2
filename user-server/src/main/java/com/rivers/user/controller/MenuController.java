@@ -59,8 +59,8 @@ public class MenuController {
         return menuService.removeRoleMenu(removeRoleMenuReq);
     }
 
-    @PostMapping("getRoleMenuTree")
-    public Mono<ResultVO<SequencedCollection<RoleMenuTreeVO>>> getRoleMenuTree(@RequestBody RoleMenuTreeReq roleMenuTreeReq) {
-        return menuService.getRoleMenuTree(roleMenuTreeReq);
+    @PostMapping("getRoleMenu")
+    public Mono<ResultVO<CheckedMenuRes>> getRoleMenu(@RequestBody CheckedMenuReq checkedMenuReq) {
+        return menuService.getRoleMenu(checkedMenuReq);
     }
 }

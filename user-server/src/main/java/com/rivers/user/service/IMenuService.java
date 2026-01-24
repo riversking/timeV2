@@ -3,11 +3,9 @@ package com.rivers.user.service;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.vo.MenuTreeVO;
-import com.rivers.user.vo.RoleMenuTreeVO;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.SequencedCollection;
 
 public interface IMenuService {
 
@@ -25,5 +23,5 @@ public interface IMenuService {
 
     Mono<ResultVO<Void>> removeRoleMenu(RemoveRoleMenuReq removeRoleMenuReq);
 
-    Mono<ResultVO<SequencedCollection<RoleMenuTreeVO>>> getRoleMenuTree(RoleMenuTreeReq roleMenuTreeReq);
+    Mono<ResultVO<CheckedMenuRes>> getRoleMenu(CheckedMenuReq checkedMenuReq);
 }

@@ -316,3 +316,12 @@ message ResetPasswordReq {
     string newPassword = 2;
     LoginUser loginUser = 3;
 }
+
+message CheckedMenuReq {
+    string roleCode = 1;
+    LoginUser loginUser = 2;
+}
+
+message CheckedMenuRes {
+    repeated string checkedMenu = 1;
+}

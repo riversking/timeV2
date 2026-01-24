@@ -77,6 +77,19 @@
       @edit="handleUpdateRole"
     />
     <AddRoleUserModal v-model="showAddRoleUserModal" :roleCode="roleCode" />
+    <el-drawer
+      v-model="showPermissionDrawer"
+      title="权限配置"
+      direction="rtl"
+      size="60%"
+      append-to-body
+    >
+      <RoleMenuModal
+        :roleCode="selectedRoleCode"
+        :roleName="selectedRoleName"
+        @cancel="showPermissionDrawer = false"
+      />
+    </el-drawer>
   </div>
 </template>
 
@@ -95,6 +108,7 @@ import { Plus, Search } from "@element-plus/icons-vue";
 import { getRoleDetail, getRolePage } from "@/api/role";
 import AddRoleModal from "./AddRoleModal.vue"; // 导入新增的组件
 import AddRoleUserModal from "./AddRoleUserModal.vue"; // 导入新增的组件
+import RoleMenuModal from "./RoleMenuModal.vue"; // 导入权限配置组件
 
 // 定义角色类型
 interface Role {
@@ -127,6 +141,9 @@ const showAddRoleModal = ref(false);
 const editingRole = ref<Role | null>(null);
 const showAddRoleUserModal = ref(false);
 const roleCode = ref("");
+const showPermissionDrawer = ref(false);
+const selectedRoleCode = ref("");
+const selectedRoleName = ref("");
 
 onMounted(async () => {
   await fetchRoles();
@@ -191,6 +208,9 @@ const handleAddRoleUser = async (row: Role) => {
 const handlePermission = (row: Role) => {
   console.log("配置权限:", row.roleCode);
   // 在实际项目中，应该跳转到权限配置页面
+  selectedRoleCode.value = row.roleCode;
+  selectedRoleName.value = row.roleName;
+  showPermissionDrawer.value = true;
 };
 
 const handleDelete = async (row: Role) => {

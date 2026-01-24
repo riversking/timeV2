@@ -15,7 +15,6 @@ import com.rivers.user.mapper.TimerRoleMapper;
 import com.rivers.user.mapper.TimerRoleMenuMapper;
 import com.rivers.user.service.IMenuService;
 import com.rivers.user.vo.MenuTreeVO;
-import com.rivers.user.vo.RoleMenuTreeVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -27,7 +26,6 @@ import reactor.core.scheduler.Schedulers;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.SequencedCollection;
 
 @Service
 @Slf4j
@@ -290,8 +288,8 @@ public class MenuServiceImpl implements IMenuService {
     }
 
     @Override
-    public Mono<ResultVO<SequencedCollection<RoleMenuTreeVO>>> getRoleMenuTree(RoleMenuTreeReq roleMenuTreeReq) {
-        String roleCode = roleMenuTreeReq.getRoleCode();
+    public Mono<ResultVO<CheckedMenuRes>> getRoleMenu(CheckedMenuReq checkedMenuReq) {
+        String roleCode = checkedMenuReq.getRoleCode();
         if (StringUtils.isBlank(roleCode)) {
             return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
@@ -309,24 +307,7 @@ public class MenuServiceImpl implements IMenuService {
                             .stream()
                             .map(TimerRoleMenu::getMenuCode)
                             .toList();
-                    // 获取所有菜单
-                    List<TimerMenu> allMenus = timerMenuMapper.selectList(Wrappers.emptyWrapper());
-                    // 构建带 checked 的 VO
-                    List<RoleMenuTreeVO> vos = allMenus.stream()
-                            .map(menu -> {
-                                RoleMenuTreeVO menuTreeVO = new RoleMenuTreeVO();
-                                menuTreeVO.setId(menu.getId());
-                                menuTreeVO.setParentId(menu.getParentId());
-                                menuTreeVO.setMenuName(menu.getMenuName());
-                                menuTreeVO.setMenuCode(menu.getMenuCode());
-                                menuTreeVO.setSortOrder(menu.getSortOrder());
-                                menuTreeVO.setChecked(assignedMenuCodes.contains(menu.getMenuCode()));
-                                return menuTreeVO;
-                            })
-                            .toList();
-                    TreeFactory<Long, RoleMenuTreeVO> factory = new TreeFactory<>();
-                    SequencedCollection<RoleMenuTreeVO> tree = factory.buildTreeOrdered(vos);
-                    return ResultVO.ok(tree);
+                    return ResultVO.ok(CheckedMenuRes.newBuilder().addAllCheckedMenu(assignedMenuCodes).build());
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(BusinessException.class, e ->
