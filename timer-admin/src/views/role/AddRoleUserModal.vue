@@ -26,6 +26,7 @@
             max-height="350"
             @selection-change="handleSelectedChange"
             ref="selectedTableRef"
+            v-loading="selectedLoading"
           >
             <el-table-column type="selection" width="55" />
             <el-table-column prop="username" label="用户名" />
@@ -41,9 +42,6 @@
               @size-change="handleSelectedSizeChange"
               @current-change="handleSelectedCurrentChange"
             />
-          </div>
-          <div v-if="selectedUsers.length === 0" class="empty-state">
-            暂无已选人员
           </div>
         </div>
       </div>
@@ -83,6 +81,7 @@
             max-height="350"
             @selection-change="handleUnselectedChange"
             ref="unselectedTableRef"
+            v-loading="unselectedLoading"
           >
             <el-table-column type="selection" width="55" />
             <el-table-column prop="username" label="用户名" />
@@ -120,7 +119,7 @@ import { ref, watch } from "vue";
 import { ElDialog, ElTable, ElInput, ElButton, ElMessage } from "element-plus";
 import { ArrowRight, ArrowLeft } from "@element-plus/icons-vue";
 import { getUserPage } from "@/api/user";
-import { getRoleUserPage, saveUserRole,removeUserRole } from "@/api/role";
+import { getRoleUserPage, saveUserRole, removeUserRole } from "@/api/role";
 
 // 定义用户类型
 interface User {
@@ -148,7 +147,7 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  roleUserData: null, 
+  roleUserData: null,
   roleCode: "",
 });
 
@@ -187,6 +186,9 @@ const unselectedCurrentPage = ref(1);
 const unselectedPageSize = ref(10);
 const selectedTotal = ref(0);
 const unselectedTotal = ref(0);
+const unselectedLoading = ref(false);
+const selectedLoading = ref(false);
+
 // 监听 props 的变化
 watch(
   () => props.modelValue,
@@ -202,6 +204,7 @@ watch(
   () => props.roleCode,
   (newVal) => {
     console.log("newVal", newVal);
+    if (!newVal) return;
     roleCode.value = newVal;
     fetchSelectedUsers();
   }
@@ -209,6 +212,7 @@ watch(
 
 // 加载用户数据
 const loadUnselectedUsers = async () => {
+  unselectedLoading.value = true;
   try {
     // 获取所有用户
     const response = await getUserPage({
@@ -224,10 +228,13 @@ const loadUnselectedUsers = async () => {
   } catch (error) {
     console.error("获取用户数据失败:", error);
     ElMessage.error("获取用户数据失败");
+  } finally {
+    unselectedLoading.value = false;
   }
 };
 
 const fetchSelectedUsers = async () => {
+  selectedLoading.value = true; 
   try {
     const res = await getRoleUserPage({
       currentPage: selectedCurrentPage.value,
@@ -243,6 +250,8 @@ const fetchSelectedUsers = async () => {
   } catch (error) {
     console.error("获取已选用户数据失败:", error);
     ElMessage.error("获取已选用户数据失败");
+  } finally {
+    selectedLoading.value = false;
   }
 };
 
@@ -284,7 +293,7 @@ const moveToSelected = async () => {
 };
 
 // 将已选用户移出到未选列表
-const moveToUnselected = async() => {
+const moveToUnselected = async () => {
   try {
     const selected = selectedUserIds.value;
     if (selected.length === 0) {

@@ -1,88 +1,99 @@
 <template>
-  <div class="permission-config-container">
-    <div class="header">
-      <h1 class="title">权限配置</h1>
-      <div class="header-actions">
-        <el-button type="primary" @click="handleSave">
-          <el-icon><Finished /></el-icon> 保存权限
-        </el-button>
-        <el-button @click="handleCancel">
-          <el-icon><Close /></el-icon> 取消
-        </el-button>
+  <el-drawer
+    v-model="showPermissionDrawer"
+    title="权限配置"
+    direction="rtl"
+    size="60%"
+    append-to-body
+  >
+    <div class="permission-config-container">
+      <div class="header">
+        <h1 class="title">权限配置</h1>
+        <div class="header-actions">
+          <el-button type="primary" @click="handleSave">
+            <el-icon><Finished /></el-icon> 保存权限
+          </el-button>
+          <el-button @click="handleCancel">
+            <el-icon><Close /></el-icon> 取消
+          </el-button>
+        </div>
+      </div>
+
+      <div class="content">
+        <el-card class="box-card">
+          <template #header>
+            <div class="card-header">
+              <span>角色：{{ roleName }}</span>
+            </div>
+          </template>
+
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <div class="tree-header">
+                <h3>菜单权限</h3>
+                <div class="tree-controls">
+                  <el-button size="small" @click="setCheckedAll()"
+                    >全选</el-button
+                  >
+                  <el-button size="small" @click="setCheckedNone()"
+                    >清空</el-button
+                  >
+                </div>
+              </div>
+              <el-tree
+                v-if="showTree"
+                ref="treeRef"
+                :data="menuTreeData"
+                show-checkbox
+                node-key="menuCode"
+                :props="treeProps"
+                :default-expanded-keys="expandedKeys"
+                :check-strictly="true"
+                :default-checked-keys="checkedKeys"
+                @check="onTreeNodeCheck"
+              />
+            </el-col>
+          </el-row>
+        </el-card>
       </div>
     </div>
-
-    <div class="content">
-      <el-card class="box-card">
-        <template #header>
-          <div class="card-header">
-            <span>角色：{{ roleName }}</span>
-          </div>
-        </template>
-
-        <el-row :gutter="20">
-          <el-col :span="8">
-            <div class="tree-header">
-              <h3>菜单权限</h3>
-              <div class="tree-controls">
-                <el-button size="small" @click="setCheckedAll()"
-                  >全选</el-button
-                >
-                <el-button size="small" @click="setCheckedNone()"
-                  >清空</el-button
-                >
-              </div>
-            </div>
-
-            <el-tree
-              ref="treeRef"
-              :data="menuTreeData"
-              show-checkbox
-              node-key="menuCode"
-              :props="treeProps"
-              :default-expanded-keys="expandedKeys"
-              :check-strictly="false"
-              :default-checked-keys="checkedKeys"
-              @check="onTreeNodeCheck"
-            />
-          </el-col>
-        </el-row>
-      </el-card>
-    </div>
-  </div>
+  </el-drawer>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, watch, nextTick } from "vue";
 import {
   ElTree,
   ElCard,
   ElRow,
   ElCol,
-  ElTag,
-  ElEmpty,
+  ElDrawer,
   ElButton,
   ElMessage,
+  ElTag,
+  ElEmpty,
 } from "element-plus";
 import { Finished, Close } from "@element-plus/icons-vue";
 import { getMenuTree, getRoleMenu } from "@/api/menu";
-import { getUserMenu } from "@/api/user";
 import { MenuTreeVO } from "@/proto";
 
 // 定义 props
 interface Props {
-  roleCode: string;
+  modelValue: boolean;
+  roleCode?: string;
   roleName: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   roleCode: "",
-  roleName: "未知角色",
+  roleName: "",
 });
 
 // 定义 emits
 const emit = defineEmits<{
-  cancel: [];
+  (e: "update:modelValue", value: boolean): void;
+  (e: "update:roleCode", value: string): void;
+  (e: "cancel", value: []): void;
 }>();
 
 // 树形控件引用
@@ -92,7 +103,10 @@ const treeRef = ref();
 const menuTreeData = ref<MenuTreeVO[]>([]);
 const checkedKeys = ref<string[]>([]);
 const expandedKeys = ref<string[]>([]);
-const checkedNodes = ref<any[]>([]);
+const roleCode = ref("");
+const showPermissionDrawer = ref(false);
+const checkedNodes = ref<MenuTreeVO[]>([]);
+const showTree = ref(true); // 控制树形组件重新渲染
 
 // 树形控件属性配置
 const treeProps = {
@@ -101,14 +115,53 @@ const treeProps = {
   disabled: "disabled",
 };
 
+watch(
+  () => props.modelValue,
+  async (newVal) => {
+    showPermissionDrawer.value = newVal;
+    if (!newVal) {
+      // 关闭时重置数据
+      treeRef.value?.setCheckedKeys([]);
+      checkedKeys.value = [];
+      expandedKeys.value = [];
+      checkedNodes.value = [];
+      menuTreeData.value = [];
+      return;
+    }
+    
+    // 打开时重新加载数据
+    await nextTick();
+    await fetchMenuTree();
+    await nextTick();
+    // 确保所有节点都展开
+    expandAll(true);
+  }
+);
+
+watch(
+  () => props.roleCode,
+  async (newVal) => {
+    console.log("newVal", newVal);
+    if (!newVal) {
+      return;
+    }
+    roleCode.value = newVal;
+    await fetchRoleMenu();
+    await nextTick();
+    // 重新渲染树形组件以确保状态正确
+    showTree.value = false;
+    await nextTick();
+    showTree.value = true;
+  }
+);
+
 // 获取所有菜单权限
 const fetchMenuTree = async () => {
   try {
     const response = await getMenuTree({ key: "" });
     if (response.code === 200) {
       menuTreeData.value = response.data;
-      // 初始化时展开所有节点
-      expandAll(true);
+      console.log("Fetched menu tree data:", menuTreeData.value);
     } else {
       ElMessage.error(response.message || "获取菜单权限失败");
     }
@@ -119,18 +172,20 @@ const fetchMenuTree = async () => {
 };
 
 // 获取角色已有权限
-const fetchRolePermissions = async () => {
+const fetchRoleMenu = async () => {
   try {
-    const response = await getRoleMenu({ roleCode: props.roleCode });
+    const response = await getRoleMenu({ roleCode: roleCode.value });
     if (response.code === 200) {
       console.log("response.data.checkedMenu", response.data.checkedMenu);
       checkedKeys.value = response.data.checkedMenu || [];
       expandedKeys.value = response.data.checkedMenu || [];
+      // 等待树形组件渲染完成后更新选中节点
+      await nextTick();
       updateCheckedNodes();
     } else {
       ElMessage.error(response.message || "获取角色权限失败");
     }
-    console.log("获取角色权限成功:", checkedKeys);
+    console.log("获取角色权限成功:", checkedKeys.value);
   } catch (error) {
     console.error("获取角色权限失败:", error);
     ElMessage.error("获取角色权限失败");
@@ -145,12 +200,12 @@ const onTreeNodeCheck = (data: any, checkedInfo: any) => {
 // 更新已选节点列表
 const updateCheckedNodes = () => {
   if (!treeRef.value) return;
-
-  const checkedNodesData = treeRef.value.getCheckedNodes(false, true);
+  
+  const checkedNodesData = treeRef.value.getCheckedNodes(false, false);
   checkedNodes.value = checkedNodesData;
-
+  
   // 更新选中的 keys
-  checkedKeys.value = treeRef.value.getCheckedKeys(true);
+  checkedKeys.value = treeRef.value.getCheckedKeys(false);
 };
 
 // 展开/收起所有节点
@@ -160,16 +215,17 @@ const expandAll = (expand: boolean) => {
   const nodesToExpand: string[] = [];
   const traverse = (nodes: MenuTreeVO[]) => {
     nodes.forEach((node) => {
-      if (node.id) {
-        if (expand) {
-          nodesToExpand.push(node.menuCode);
-        }
+      if (node.menuCode) {
+        nodesToExpand.push(node.menuCode);
         if (node.children && node.children.length) {
           traverse(node.children);
         }
       }
     });
   };
+  
+  traverse(menuTreeData.value);
+  expandedKeys.value = expand ? nodesToExpand : [];
 };
 
 // 全选
@@ -189,39 +245,30 @@ const setCheckedNone = () => {
 // 移除已选节点
 const removeCheckedNode = (node: any) => {
   if (!treeRef.value) return;
-  treeRef.value.setChecked(node.id, false, false);
+  treeRef.value.setChecked(node.menuCode, false, false);
   updateCheckedNodes();
 };
 
 // 保存权限
 const handleSave = async () => {
-  //   try {
-  //     const permissions = checkedNodes.value.map((node) => node.id);
-  //     const response = await updateRolePermissions({
-  //       roleCode: props.roleCode,
-  //       permissions,
-  //     });
-  //     if (response.code === 200) {
-  //       ElMessage.success("权限保存成功");
-  //       // 可以选择关闭页面或保持打开
-  //     } else {
-  //       ElMessage.error(response.message || "权限保存失败");
-  //     }
-  //   } catch (error) {
-  //     console.error("保存权限失败:", error);
-  //     ElMessage.error("权限保存失败");
-  //   }
+  try {
+    const permissions = checkedNodes.value.map((node) => node.menuCode);
+    console.log("Selected permissions:", permissions);
+    ElMessage.success(`权限保存成功，共选择了 ${permissions.length} 项`);
+  } catch (error) {
+    console.error("保存权限失败:", error);
+    ElMessage.error("权限保存失败");
+  }
 };
 
 // 取消操作
 const handleCancel = () => {
-  emit("cancel");
+  treeRef.value?.setCheckedKeys([]);
+  checkedNodes.value = [];
+  expandedKeys.value = [];
+  roleCode.value = "";
+  emit("cancel", []);
 };
-
-// 初始化数据
-onMounted(async () => {
-  await Promise.all([fetchMenuTree(), fetchRolePermissions()]);
-});
 </script>
 
 <style scoped>

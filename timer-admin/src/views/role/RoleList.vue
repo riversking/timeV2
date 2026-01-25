@@ -76,20 +76,14 @@
       @save="handleSaveRole"
       @edit="handleUpdateRole"
     />
-    <AddRoleUserModal v-model="showAddRoleUserModal" :roleCode="roleCode" />
-    <el-drawer
+    <AddRoleUserModal v-model="showAddRoleUserModal" :roleCode="roleCode" @close="handleRoleUserClose" />
+    <RoleMenuModal
       v-model="showPermissionDrawer"
-      title="权限配置"
-      direction="rtl"
-      size="60%"
-      append-to-body
-    >
-      <RoleMenuModal
-        :roleCode="selectedRoleCode"
-        :roleName="selectedRoleName"
-        @cancel="showPermissionDrawer = false"
-      />
-    </el-drawer>
+      :roleCode="selectedRoleCode"
+      :roleName="selectedRoleName"
+      @cancel="showPermissionDrawer = false"
+      @close="handleRoleMenuClose"
+    />
   </div>
 </template>
 
@@ -268,6 +262,16 @@ const handleUpdateRole = async (data: any) => {
   } catch (error) {
     ElMessage.error("编辑角色失败");
   }
+};
+const handleRoleMenuClose = () => {
+  showPermissionDrawer.value = false;
+  selectedRoleCode.value = "";
+  selectedRoleName.value = "";
+};
+
+const handleRoleUserClose = () => {
+  showAddRoleUserModal.value = false;
+  roleCode.value = "";
 };
 </script>
 
