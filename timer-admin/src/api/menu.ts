@@ -10,3 +10,19 @@ export async function getMenuTree(data: any) {
 export async function getRoleMenu(data: any) {
   return http.post(`${API_PREFIX}/getRoleMenu`, data).then((res) => res.data);
 }
+
+export async function saveRoleMenu(data: any) {
+  return http.post(`${API_PREFIX}/saveRoleMenu`, data).then((res) => res.data);
+}
+
+export async function saveMenu(data: any) {
+  return http.post(`${API_PREFIX}/saveMenu`, data).then((res) => res.data);
+}
+
+export async function updateMenu(data: any) {
+  return http.post(`${API_PREFIX}/updateMenu`, data).then((res) => res.data);
+}
+
+export async function deleteMenu(data: any) {
+  return http.post(`${API_PREFIX}/deleteMenu`, data).then((res) => res.data);
+}

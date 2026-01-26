@@ -20,6 +20,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -198,6 +199,7 @@ public class MenuServiceImpl implements IMenuService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> saveRoleMenu(SaveRoleMenuReq saveRoleMenuReq) {
         String roleCode = saveRoleMenuReq.getRoleCode();
         ProtocolStringList menuCodes = saveRoleMenuReq.getMenuCodesList();
@@ -207,59 +209,44 @@ public class MenuServiceImpl implements IMenuService {
         if (CollectionUtils.isEmpty(menuCodes)) {
             return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    // 检查角色是否存在
-                    LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
-                    roleWrapper.eq(TimerRole::getRoleCode, roleCode);
-                    TimerRole role = timerRoleMapper.selectOne(roleWrapper);
-                    if (role == null) {
-                        throw new BusinessException("角色不存在");
-                    }
-                    // 获取有效菜单
-                    LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
-                    menuWrapper.in(TimerMenu::getMenuCode, menuCodes);
-                    List<TimerMenu> validMenus = timerMenuMapper.selectList(menuWrapper);
-                    if (CollectionUtils.isEmpty(validMenus)) {
-                        return ResultVO.<Void>ok();
-                    }
-                    List<String> validMenuCodes = validMenus.stream()
-                            .map(TimerMenu::getMenuCode)
-                            .distinct()
-                            .toList();
-                    // 查询已存在的关联
-                    LambdaQueryWrapper<TimerRoleMenu> existWrapper = Wrappers.lambdaQuery();
-                    existWrapper.eq(TimerRoleMenu::getRoleCode, roleCode)
-                            .in(TimerRoleMenu::getMenuCode, validMenuCodes);
-                    List<TimerRoleMenu> exists = timerRoleMenuMapper.selectList(existWrapper);
-                    List<String> existCodes = exists.stream()
-                            .map(TimerRoleMenu::getMenuCode)
-                            .toList();
-                    // 构建新记录
-                    var loginUser = saveRoleMenuReq.getLoginUser();
-                    String userId = loginUser.getUserId();
-                    List<TimerRoleMenu> toInsert = validMenuCodes.stream()
-                            .filter(code -> !existCodes.contains(code))
-                            .map(code -> {
-                                TimerRoleMenu rm = new TimerRoleMenu();
-                                rm.setRoleCode(roleCode);
-                                rm.setMenuCode(code);
-                                rm.setCreateUser(userId);
-                                rm.setUpdateUser(userId);
-                                return rm;
-                            })
-                            .toList();
-                    if (!toInsert.isEmpty()) {
-                        timerRoleMenuMapper.insert(toInsert);
-                    }
-                    return ResultVO.<Void>ok();
+        LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
+        roleWrapper.eq(TimerRole::getRoleCode, roleCode);
+        TimerRole role = timerRoleMapper.selectOne(roleWrapper);
+        if (role == null) {
+            return Mono.just(ResultVO.fail("角色不存在"));
+        }
+        // 获取有效菜单
+        LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
+        menuWrapper.in(TimerMenu::getMenuCode, menuCodes);
+        List<TimerMenu> validMenus = timerMenuMapper.selectList(menuWrapper);
+        if (CollectionUtils.isEmpty(validMenus)) {
+            return Mono.just(ResultVO.ok());
+        }
+        List<String> validMenuCodes = validMenus.stream()
+                .map(TimerMenu::getMenuCode)
+                .distinct()
+                .toList();
+        // 构建新记录
+        var loginUser = saveRoleMenuReq.getLoginUser();
+        String userId = loginUser.getUserId();
+        List<TimerRoleMenu> toInsert = validMenuCodes.stream()
+                .map(code -> {
+                    TimerRoleMenu rm = new TimerRoleMenu();
+                    rm.setRoleCode(roleCode);
+                    rm.setMenuCode(code);
+                    rm.setCreateUser(userId);
+                    rm.setUpdateUser(userId);
+                    return rm;
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        e -> Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorResume(Exception.class, e -> {
-                    log.error("保存角色菜单失败", e);
-                    return Mono.just(ResultVO.fail("操作失败"));
-                });
+                .toList();
+        if (!toInsert.isEmpty()) {
+            LambdaQueryWrapper<TimerRoleMenu> roleMenuWrapper = Wrappers.lambdaQuery();
+            roleMenuWrapper.eq(TimerRoleMenu::getRoleCode, roleCode);
+            timerRoleMenuMapper.delete(roleMenuWrapper);
+            timerRoleMenuMapper.insert(toInsert);
+        }
+        // 检查角色是否存在
+        return Mono.just(ResultVO.<Void>ok());
     }
 
     @Override

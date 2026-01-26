@@ -24,7 +24,9 @@ export async function deleteRole(data: any) {
 }
 
 export async function getRoleUserPage(data: any) {
-  return http.post(`${API_PREFIX}/getRoleUserPage`, data).then((res) => res.data);
+  return http
+    .post(`${API_PREFIX}/getRoleUserPage`, data)
+    .then((res) => res.data);
 }
 
 export async function saveUserRole(data: any) {
@@ -32,5 +34,7 @@ export async function saveUserRole(data: any) {
 }
 
 export async function removeUserRole(data: any) {
-  return http.post(`${API_PREFIX}/removeUserRole`, data).then((res) => res.data);
+  return http
+    .post(`${API_PREFIX}/removeUserRole`, data)
+    .then((res) => res.data);
 }
