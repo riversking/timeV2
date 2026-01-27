@@ -1,172 +1,174 @@
 <template>
-  <div class="profile-container">
-    <!-- 个人资料卡片 -->
-    <div class="profile-card">
-      <div class="profile-header">
-        <div class="avatar-section">
-          <el-upload
-            class="avatar-uploader"
-            action="/api/upload"
-            :show-file-list="false"
-            :on-success="handleAvatarSuccess"
-            :before-upload="beforeAvatarUpload"
-          >
-            <el-avatar :size="120" :src="userProfile.avatar" class="profile-avatar" />
-            <div class="avatar-overlay">
-              <el-icon><Camera /></el-icon>
-            </div>
-          </el-upload>
-          <h2 class="username">{{ userProfile.username }}</h2>
-          <p class="user-role">{{ userProfile.role }}</p>
+  <div class="profile-wrapper">
+    <div class="profile-container">
+      <!-- 个人资料卡片 -->
+      <div class="profile-card">
+        <div class="profile-header">
+          <div class="avatar-section">
+            <el-upload
+              class="avatar-uploader"
+              action="/api/upload"
+              :show-file-list="false"
+              :on-success="handleAvatarSuccess"
+              :before-upload="beforeAvatarUpload"
+            >
+              <el-avatar :size="120" :src="userProfile.avatar" class="profile-avatar" />
+              <div class="avatar-overlay">
+                <el-icon><Camera /></el-icon>
+              </div>
+            </el-upload>
+            <h2 class="username">{{ userProfile.username }}</h2>
+            <p class="user-role">{{ userProfile.role }}</p>
+          </div>
+        </div>
+        
+        <div class="profile-content">
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="姓名">
+              <span>{{ userProfile.realName }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="工号">
+              <span>{{ userProfile.employeeId }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="邮箱">
+              <span>{{ userProfile.email }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="手机号">
+              <span>{{ userProfile.phone }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="部门">
+              <span>{{ userProfile.department }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="入职日期">
+              <span>{{ userProfile.joinDate }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="最后登录">
+              <span>{{ userProfile.lastLogin }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="账户状态">
+              <el-tag :type="userProfile.status === 'active' ? 'success' : 'info'">
+                {{ userProfile.status === 'active' ? '正常' : '禁用' }}
+              </el-tag>
+            </el-descriptions-item>
+          </el-descriptions>
         </div>
       </div>
-      
-      <div class="profile-content">
-        <el-descriptions :column="2" border>
-          <el-descriptions-item label="姓名">
-            <span>{{ userProfile.realName }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="工号">
-            <span>{{ userProfile.employeeId }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="邮箱">
-            <span>{{ userProfile.email }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="手机号">
-            <span>{{ userProfile.phone }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="部门">
-            <span>{{ userProfile.department }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="入职日期">
-            <span>{{ userProfile.joinDate }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="最后登录">
-            <span>{{ userProfile.lastLogin }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="账户状态">
-            <el-tag :type="userProfile.status === 'active' ? 'success' : 'info'">
-              {{ userProfile.status === 'active' ? '正常' : '禁用' }}
-            </el-tag>
-          </el-descriptions-item>
-        </el-descriptions>
+
+      <!-- 统计卡片 -->
+      <div class="stats-container">
+        <el-card class="stat-card" shadow="hover">
+          <div class="stat-content">
+            <div class="stat-icon bg-blue">
+              <el-icon><Document /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3>24</h3>
+              <p>本月任务数</p>
+            </div>
+          </div>
+        </el-card>
+        
+        <el-card class="stat-card" shadow="hover">
+          <div class="stat-content">
+            <div class="stat-icon bg-green">
+              <el-icon><Check /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3>22</h3>
+              <p>已完成任务</p>
+            </div>
+          </div>
+        </el-card>
+        
+        <el-card class="stat-card" shadow="hover">
+          <div class="stat-content">
+            <div class="stat-icon bg-orange">
+              <el-icon><Clock /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3>98%</h3>
+              <p>完成率</p>
+            </div>
+          </div>
+        </el-card>
+        
+        <el-card class="stat-card" shadow="hover">
+          <div class="stat-content">
+            <div class="stat-icon bg-purple">
+              <el-icon><StarFilled /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3>4.8</h3>
+              <p>平均评分</p>
+            </div>
+          </div>
+        </el-card>
       </div>
-    </div>
 
-    <!-- 统计卡片 -->
-    <div class="stats-container">
-      <el-card class="stat-card" shadow="hover">
-        <div class="stat-content">
-          <div class="stat-icon bg-blue">
-            <el-icon><Document /></el-icon>
-          </div>
-          <div class="stat-info">
-            <h3>24</h3>
-            <p>本月任务数</p>
-          </div>
-        </div>
-      </el-card>
-      
-      <el-card class="stat-card" shadow="hover">
-        <div class="stat-content">
-          <div class="stat-icon bg-green">
-            <el-icon><Check /></el-icon>
-          </div>
-          <div class="stat-info">
-            <h3>22</h3>
-            <p>已完成任务</p>
-          </div>
-        </div>
-      </el-card>
-      
-      <el-card class="stat-card" shadow="hover">
-        <div class="stat-content">
-          <div class="stat-icon bg-orange">
-            <el-icon><Clock /></el-icon>
-          </div>
-          <div class="stat-info">
-            <h3>98%</h3>
-            <p>完成率</p>
-          </div>
-        </div>
-      </el-card>
-      
-      <el-card class="stat-card" shadow="hover">
-        <div class="stat-content">
-          <div class="stat-icon bg-purple">
-            <el-icon><StarFilled /></el-icon>
-          </div>
-          <div class="stat-info">
-            <h3>4.8</h3>
-            <p>平均评分</p>
-          </div>
-        </div>
-      </el-card>
-    </div>
-
-    <!-- 活动卡片 -->
-    <div class="activity-container">
-      <el-card class="activity-card" shadow="never">
-        <template #header>
-          <div class="card-header">
-            <span>最近活动</span>
-            <el-button type="text">查看全部</el-button>
-          </div>
-        </template>
-        <div class="activity-list">
-          <div 
-            v-for="(activity, index) in activities" 
-            :key="index" 
-            class="activity-item"
-          >
-            <div class="activity-icon">
-              <el-icon :class="activity.type === 'completed' ? 'text-green' : 'text-blue'">
-                <Check v-if="activity.type === 'completed'" />
-                <Document v-else-if="activity.type === 'created'" />
-                <Clock v-else />
-              </el-icon>
+      <!-- 活动卡片 -->
+      <div class="activity-container">
+        <el-card class="activity-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <span>最近活动</span>
+              <el-button type="text">查看全部</el-button>
             </div>
-            <div class="activity-content">
-              <p>{{ activity.title }}</p>
-              <span class="activity-time">{{ activity.time }}</span>
+          </template>
+          <div class="activity-list">
+            <div 
+              v-for="(activity, index) in activities" 
+              :key="index" 
+              class="activity-item"
+            >
+              <div class="activity-icon">
+                <el-icon :class="activity.type === 'completed' ? 'text-green' : 'text-blue'">
+                  <Check v-if="activity.type === 'completed'" />
+                  <Document v-else-if="activity.type === 'created'" />
+                  <Clock v-else />
+                </el-icon>
+              </div>
+              <div class="activity-content">
+                <p>{{ activity.title }}</p>
+                <span class="activity-time">{{ activity.time }}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </el-card>
-      
-      <el-card class="activity-card" shadow="never">
-        <template #header>
-          <div class="card-header">
-            <span>快速设置</span>
-            <el-button type="text">更多</el-button>
+        </el-card>
+        
+        <el-card class="activity-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <span>快速设置</span>
+              <el-button type="text">更多</el-button>
+            </div>
+          </template>
+          <div class="settings-grid">
+            <el-button type="primary" plain @click="openChangePasswordModal">
+              <el-icon><Key /></el-icon>
+              修改密码
+            </el-button>
+            <el-button type="success" plain @click="openNotificationSettings">
+              <el-icon><Bell /></el-icon>
+              通知设置
+            </el-button>
+            <el-button type="warning" plain @click="openProfileEdit">
+              <el-icon><Edit /></el-icon>
+              编辑资料
+            </el-button>
+            <el-button type="info" plain @click="openSecuritySettings">
+              <el-icon><Lock /></el-icon>
+              安全设置
+            </el-button>
           </div>
-        </template>
-        <div class="settings-grid">
-          <el-button type="primary" plain @click="openChangePasswordModal">
-            <el-icon><Key /></el-icon>
-            修改密码
-          </el-button>
-          <el-button type="success" plain @click="openNotificationSettings">
-            <el-icon><Bell /></el-icon>
-            通知设置
-          </el-button>
-          <el-button type="warning" plain @click="openProfileEdit">
-            <el-icon><Edit /></el-icon>
-            编辑资料
-          </el-button>
-          <el-button type="info" plain @click="openSecuritySettings">
-            <el-icon><Lock /></el-icon>
-            安全设置
-          </el-button>
-        </div>
-      </el-card>
+        </el-card>
+      </div>
+      
+      <!-- 修改密码模态框 -->
+      <ChangePasswordModal
+        v-model="showChangePasswordModal"
+        @change-success="handlePasswordChanged"
+      />
     </div>
-    
-    <!-- 修改密码模态框 -->
-    <ChangePasswordModal
-      v-model="showChangePasswordModal"
-      @change-success="handlePasswordChanged"
-    />
   </div>
 </template>
 
@@ -267,6 +269,7 @@ onMounted(async () => {
   // 强制浏览器重新计算布局
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
+    document.body.dispatchEvent(new Event('resize'));
   }, 100);
 });
 
@@ -275,18 +278,26 @@ onUpdated(async () => {
   await nextTick();
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
+    document.body.dispatchEvent(new Event('resize'));
   }, 100);
 });
 </script>
 
 <style scoped>
+.profile-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 .profile-container {
+  flex: 1;
   padding: 20px;
   background: linear-gradient(135deg, #0f172a, #1e293b);
-  min-height: 100vh;
   color: #e2e8f0;
   padding-bottom: 20px;
   overflow-x: hidden;
+  width: 100%;
 }
 
 .profile-card {

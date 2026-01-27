@@ -426,10 +426,10 @@ body {
 /* 主内容区域 - 修复撑满问题 */
 .el-main {
   border-radius: 16px;
-  overflow: hidden;
+  overflow: auto; /* Changed from hidden to auto */
   transition: all 0.3s ease;
   min-height: 100%;
-  height: 100%;
+  height: auto; /* Changed from 100% to auto */
   position: relative;
   flex: 1;
 }
