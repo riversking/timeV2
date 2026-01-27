@@ -40,6 +40,7 @@
         :tree-props="{
           children: 'children',
           hasChildren: 'hasChildren',
+          checkStrictly: true,
         }"
         :header-cell-style="{ background: '#f5f7fa', color: '#333' }"
         :cell-style="{ backgroundColor: '#ffffff', color: '#333' }"
@@ -55,10 +56,13 @@
         </el-table-column>
         <el-table-column prop="menuCode" label="菜单编码" />
         <el-table-column prop="routePath" label="路由路径" />
-        <el-table-column prop="orderNum" label="排序" />
+        <el-table-column prop="sortOrder" label="排序" />
         <el-table-column label="操作">
           <template #default="{ row, $index }">
             <el-button size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button size="small" type="primary" @click="handleSaveChild(row)"
+              >新增子菜单</el-button
+            >
             <el-button
               size="small"
               type="danger"
@@ -69,37 +73,47 @@
         </el-table-column>
       </el-table>
     </div>
+    <AddMenuModal
+      v-model="showAddMenuModal"
+      :menuData="editingMenuData"
+      @save="handleSaveMenu"
+      @edit="handleEditMenu"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted } from "vue";
 import {
   ElTable,
   ElTableColumn,
-  ElPagination,
   ElInput,
   ElButton,
   ElMessage,
   ElMessageBox,
-  ElDialog,
-  ElForm,
-  ElFormItem,
-  ElInputNumber,
-  ElCascader,
   ElIcon,
 } from "element-plus";
 import { Plus, Search, Delete, CircleCheck } from "@element-plus/icons-vue";
-import { getMenuTree, saveMenu, deleteMenu } from "@/api/menu";
-import { MenuTreeVO } from "@/proto";
+import {
+  getMenuTree,
+  deleteMenu,
+  getMenuDetail,
+  saveMenu,
+  updateMenu,
+  deleteMenus,
+} from "@/api/menu";
+import AddMenuModal from "./AddMenuModal.vue";
 
 // 定义菜单类型
 interface Menu {
+  id?: number;
   menuCode: string;
   menuName: string;
   routePath: string;
-  orderNum: number;
-  parentId?: string;
+  sortOrder: number;
+  parentId?: number;
+  icon?: string;
+  component?: string;
   children?: Menu[];
 }
 
@@ -117,20 +131,18 @@ const checkAll = ref(false);
 const isIndeterminate = ref(false);
 
 // 弹窗相关
-const showMenuModal = ref(false);
-const editingMenu = ref<Menu>({
+const showAddMenuModal = ref(false);
+const parentId = ref(0);
+const editingMenuData = ref<Menu>({
+  id: 0,
+  parentId: 0,
   menuCode: "",
   menuName: "",
   routePath: "",
-  orderNum: 0,
+  sortOrder: 0,
+  icon: "",
+  component: "",
 });
-const menuFormRef = ref();
-
-// 表单验证规则
-const menuFormRules = {
-  menuName: [{ required: true, message: "请输入菜单名称", trigger: "blur" }],
-  menuCode: [{ required: true, message: "请输入菜单编码", trigger: "blur" }],
-};
 
 // 级联选择器配置
 const cascaderProps = {
@@ -139,22 +151,10 @@ const cascaderProps = {
   checkStrictly: true,
 };
 
-// 计算所有菜单的数量（包含子菜单）
-const getAllMenuCount = (menuList: Menu[]): number => {
-  let count = 0;
-  menuList.forEach(menu => {
-    count++;
-    if (menu.children && menu.children.length) {
-      count += getAllMenuCount(menu.children);
-    }
-  });
-  return count;
-};
-
 // 获取所有菜单项（包含子菜单）
 const getAllMenuItems = (menuList: Menu[]): Menu[] => {
   let items: Menu[] = [];
-  menuList.forEach(menu => {
+  menuList.forEach((menu) => {
     items.push(menu);
     if (menu.children && menu.children.length) {
       items = items.concat(getAllMenuItems(menu.children));
@@ -183,72 +183,121 @@ const fetchMenus = async () => {
 };
 
 // 搜索菜单
-const handleSearch = () => {
-  // 过滤菜单数据
-  if (!searchQuery.value) {
-    filteredMenus.value = menus.value;
-  } else {
-    const filterFunction = (menuList: Menu[]): Menu[] => {
-      return menuList
-        .filter((menu) => {
-          const match =
-            menu.menuName.includes(searchQuery.value) ||
-            menu.menuCode.includes(searchQuery.value);
-          if (menu.children && menu.children.length) {
-            const filteredChildren = filterFunction(menu.children);
-            if (filteredChildren.length) {
-              // 如果子菜单匹配，也要包含父菜单
-              return true;
-            }
-          }
-          return match;
-        })
-        .map((menu) => {
-          // 保留匹配的子菜单
-          if (menu.children && menu.children.length) {
-            return {
-              ...menu,
-              children: filterFunction(menu.children),
-            };
-          }
-          return menu;
-        });
-    };
-
-    filteredMenus.value = filterFunction(menus.value);
-  }
-};
+const handleSearch = () => {};
 
 // 添加菜单
 const handleAddMenu = () => {
-  editingMenu.value = {
+  editingMenuData.value = {
     menuCode: "",
     menuName: "",
     routePath: "",
-    orderNum: 0,
+    sortOrder: 0,
+    icon: "",
+    component: "",
   };
-  showMenuModal.value = true;
+  parentId.value = 0;
+  showAddMenuModal.value = true;
+};
+
+const handleSaveChild = (row: Menu) => {
+  console.log("保存子菜单:", row.id);
+  editingMenuData.value = {
+    menuCode: "",
+    menuName: "",
+    routePath: "",
+    sortOrder: 0,
+    parentId: 0,
+    icon: "",
+    component: "",
+  };
+  parentId.value = row.id || 0;
+  showAddMenuModal.value = true;
 };
 
 // 编辑菜单
-const handleEdit = (row: Menu) => {
-  editingMenu.value = { ...row };
-  showMenuModal.value = true;
+const handleEdit = async (row: Menu) => {
+  try {
+    const response = await getMenuDetail({ menuCode: row.menuCode });
+    if (response.code !== 200) {
+      ElMessage.error(response.message || "获取菜单详情失败");
+      return;
+    }
+    editingMenuData.value = { ...row };
+  } catch (error: any) {
+    console.error("获取菜单详情失败:", error);
+    ElMessage.error(error.message || "获取菜单详情失败");
+  } finally {
+    showAddMenuModal.value = true;
+  }
+};
+
+const handleSaveMenu = async (data: any) => {
+  try {
+    console.log("保存菜单数据:", data);
+    // 调用保存菜单接口
+    const param = {
+      menuCode: data.menuCode,
+      menuName: data.menuName,
+      routePath: data.routePath,
+      sortOrder: data.sortOrder,
+      parentId: parentId.value,
+      icon: data.icon,
+      component: data.component,
+    };
+    const res = await saveMenu(param);
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("菜单保存成功");
+    fetchMenus(); // 重新加载数据
+  } catch (error) {
+    console.error("保存菜单失败:", error);
+    ElMessage.error("保存菜单失败");
+  } finally {
+    showAddMenuModal.value = false;
+  }
+};
+
+const handleEditMenu = async (data: any) => {
+  try {
+    const param = {
+      id: data.id,
+      menuCode: data.menuCode,
+      menuName: data.menuName,
+      routePath: data.routePath,
+      sortOrder: data.sortOrder,
+      parentId: data.parentId,
+      icon: data.icon,
+      component: data.component,
+    };
+    const res = await updateMenu(param);
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("菜单更新成功");
+    fetchMenus(); // 重新加载数据
+  } catch (error) {
+    console.error("更新菜单失败:", error);
+    ElMessage.error("更新菜单失败");
+  } finally {
+    showAddMenuModal.value = false;
+  }
 };
 
 // 删除菜单
 const handleDelete = async (row: Menu, index: number) => {
+  await ElMessageBox.confirm(
+    `确定要删除菜单 "${row.menuName}" 吗？`,
+    "确认删除",
+    {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      type: "warning",
+    }
+  );
   try {
-    await ElMessageBox.confirm(
-      `确定要删除菜单 "${row.menuName}" 吗？`,
-      "确认删除",
-      {
-        confirmButtonText: "确定",
-        cancelButtonText: "取消",
-        type: "warning",
-      }
-    );
-
     const response = await deleteMenu({ menuCode: row.menuCode });
     if (response.code === 200) {
       ElMessage.success("菜单删除成功");
@@ -267,57 +316,39 @@ const handleBatchDelete = async () => {
     ElMessage.warning("请至少选择一项");
     return;
   }
-
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除选中的 ${multipleSelection.value.length} 项吗？`,
-      "确认删除",
-      {
-        confirmButtonText: "确定",
-        cancelButtonText: "取消",
-        type: "warning",
-      }
-    );
-
-    // 批量删除逻辑
-    for (const menu of multipleSelection.value) {
-      await deleteMenu({ menuCode: menu.menuCode });
+  await ElMessageBox.confirm(
+    `确定要删除选中的 ${multipleSelection.value.length} 项吗？`,
+    "确认删除",
+    {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      type: "warning",
     }
-
+  );
+  try {
+    // 批量删除逻辑
+    const res = await deleteMenus({
+      menuCodes: multipleSelection.value.map((item) => item.menuCode),
+    });
+    if (res.code !== 200) {
+      ElMessage.error("批量删除失败");
+      return;
+    }
     ElMessage.success("批量删除成功");
     fetchMenus(); // 重新加载数据
   } catch (error) {
     console.log("取消批量删除");
-  }
-};
-
-// 保存菜单
-const handleSaveMenu = async () => {
-  try {
-    await menuFormRef.value.validate();
-
-    const response = await saveMenu(editingMenu.value);
-    if (response.code === 200) {
-      ElMessage.success("保存成功");
-      showMenuModal.value = false;
-      fetchMenus(); // 重新加载数据
-    } else {
-      ElMessage.error(response.message || "保存失败");
-    }
-  } catch (error) {
-    console.error("保存菜单失败:", error);
-    ElMessage.error("请检查输入信息");
+    ElMessage.error("批量删除失败");
   }
 };
 
 // 表格选中状态变化
 const handleSelectionChange = (val: Menu[]) => {
   multipleSelection.value = val;
-
+  console.log("表格选中状态变化", multipleSelection.value[0]);
   const selectedCount = multipleSelection.value.length;
   const allMenuItems = getAllMenuItems(filteredMenus.value);
   const totalCount = allMenuItems.length;
-
   checkAll.value = selectedCount === totalCount && totalCount > 0;
   isIndeterminate.value = selectedCount > 0 && selectedCount < totalCount;
 };
@@ -325,7 +356,6 @@ const handleSelectionChange = (val: Menu[]) => {
 // 全选/取消全选
 const toggleSelection = () => {
   const allMenuItems = getAllMenuItems(filteredMenus.value);
-  
   if (checkAll.value) {
     // 取消全选
     multipleTableRef.value.clearSelection();
@@ -333,7 +363,7 @@ const toggleSelection = () => {
     isIndeterminate.value = false;
   } else {
     // 全选
-    allMenuItems.forEach(item => {
+    allMenuItems.forEach((item) => {
       multipleTableRef.value.toggleRowSelection(item, true);
     });
     checkAll.value = true;

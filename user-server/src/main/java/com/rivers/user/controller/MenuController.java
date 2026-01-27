@@ -4,7 +4,6 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.service.IMenuService;
 import com.rivers.user.vo.MenuTreeVO;
-import com.rivers.user.vo.RoleMenuTreeVO;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,7 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.SequencedCollection;
 
 @RestController
 @RequestMapping("menu")
@@ -25,13 +23,13 @@ public class MenuController {
     }
 
     @PostMapping("saveMenu")
-    public Mono<ResultVO<Void>> saveMenu(@RequestBody SaveMenuReq req) {
-        return menuService.saveMenu(req);
+    public Mono<ResultVO<Void>> saveMenu(@RequestBody SaveMenuReq saveMenuReq) {
+        return menuService.saveMenu(saveMenuReq);
     }
 
     @PostMapping("updateMenu")
-    public Mono<ResultVO<Void>> updateMenu(@RequestBody UpdateMenuReq req) {
-        return menuService.updateMenu(req);
+    public Mono<ResultVO<Void>> updateMenu(@RequestBody UpdateMenuReq updateMenuReq) {
+        return menuService.updateMenu(updateMenuReq);
     }
 
     @PostMapping("getMenuTree")
@@ -62,5 +60,10 @@ public class MenuController {
     @PostMapping("getRoleMenu")
     public Mono<ResultVO<CheckedMenuRes>> getRoleMenu(@RequestBody CheckedMenuReq checkedMenuReq) {
         return menuService.getRoleMenu(checkedMenuReq);
+    }
+
+    @PostMapping("deleteMenus")
+    public Mono<ResultVO<Void>> deleteMenus(@RequestBody DeleteMenusReq deleteMenusReq) {
+        return menuService.deleteMenus(deleteMenusReq);
     }
 }

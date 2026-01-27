@@ -24,4 +24,6 @@ public interface IMenuService {
     Mono<ResultVO<Void>> removeRoleMenu(RemoveRoleMenuReq removeRoleMenuReq);
 
     Mono<ResultVO<CheckedMenuRes>> getRoleMenu(CheckedMenuReq checkedMenuReq);
+
+    Mono<ResultVO<Void>> deleteMenus(DeleteMenusReq deleteMenusReq);
 }

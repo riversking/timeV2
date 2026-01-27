@@ -2,7 +2,6 @@ import http from "@/services/http";
 
 const API_PREFIX = "/api/user-server/menu";
 
-
 export async function getMenuTree(data: any) {
   return http.post(`${API_PREFIX}/getMenuTree`, data).then((res) => res.data);
 }
@@ -25,4 +24,12 @@ export async function updateMenu(data: any) {
 
 export async function deleteMenu(data: any) {
   return http.post(`${API_PREFIX}/deleteMenu`, data).then((res) => res.data);
+}
+
+export async function getMenuDetail(data: any) {
+  return http.post(`${API_PREFIX}/getMenuDetail`, data).then((res) => res.data);
+}
+
+export async function deleteMenus(data: any) {
+  return http.post(`${API_PREFIX}/deleteMenus`, data).then((res) => res.data);
 }

@@ -301,4 +301,21 @@ public class MenuServiceImpl implements IMenuService {
                         Mono.just(ResultVO.fail(e.getMessage())))
                 .onErrorReturn(ResultVO.fail("系统异常"));
     }
+
+    @Override
+    public Mono<ResultVO<Void>> deleteMenus(DeleteMenusReq deleteMenusReq) {
+        ProtocolStringList menuCodesList = deleteMenusReq.getMenuCodesList();
+        if (CollectionUtils.isEmpty(menuCodesList)) {
+            return Mono.just(ResultVO.fail(MENU_EMPTY));
+        }
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
+                    menuWrapper.in(TimerMenu::getMenuCode, menuCodesList);
+                    timerMenuMapper.delete(menuWrapper);
+                    return ResultVO.<Void>ok();
+                })
+                .onErrorResume(BusinessException.class, e ->
+                        Mono.just(ResultVO.fail(e.getMessage())))
+                .onErrorReturn(ResultVO.fail("系统异常"));
+    }
 }

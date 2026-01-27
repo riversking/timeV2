@@ -60,7 +60,7 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="showChangePasswordModal = true">修改密码</el-dropdown-item>
-              <el-dropdown-item>个人中心</el-dropdown-item>
+              <el-dropdown-item @click="showUserCenter">个人中心</el-dropdown-item>
               <el-dropdown-item>设置</el-dropdown-item>
               <el-dropdown-item divided @click="logout"
                 >退出登录</el-dropdown-item
@@ -287,6 +287,9 @@ onMounted(() => {
   fetchCurrenntUser();
 });
 
+const showUserCenter = () => {
+  router.push('/users/userCenter');
+};
 const logout = async () => {
   try {
     localStorage.removeItem("token");

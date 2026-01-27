@@ -325,3 +325,8 @@ message CheckedMenuReq {
 message CheckedMenuRes {
     repeated string checkedMenu = 1;
 }
+
+message DeleteMenusReq {
+    repeated string menuCodes = 1;
+    LoginUser loginUser = 2;
+}

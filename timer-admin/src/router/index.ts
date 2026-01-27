@@ -16,17 +16,23 @@ const router = createRouter({
       component: () => import("@/views/Home.vue"),
       meta: { requiresAuth: true },
     },
-     {
+    {
       path: "/",
       name: "首页",
       component: () => import("@/views/Home.vue"),
       meta: { requiresAuth: true },
     },
     {
+      path: "/users/userCenter",
+      name: "个人中心",
+      component: () => import("@/views/users/UserCenter.vue"), // 个人中心页面
+      meta: { title: "个人中心" },
+    },
+    {
       path: "/:dynamicPath(.*)",
       name: "DynamicRouteLoader",
       component: () => import("@/views/404.vue"), // 临时组件，将在路由守卫中被替换
-      meta: { requiresAuth: true, isDynamicLoader: true }, 
+      meta: { requiresAuth: true, isDynamicLoader: true },
     },
   ],
 });
