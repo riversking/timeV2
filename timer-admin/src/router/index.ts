@@ -24,9 +24,13 @@ const router = createRouter({
     },
     {
       path: "/users/userCenter",
-      name: "个人中心",
-      component: () => import("@/views/users/UserCenter.vue"), // 个人中心页面
-      meta: { title: "个人中心" },
+      name: "UserCenter",
+      component: () => import("@/views/users/UserCenter.vue"),
+      meta: {
+        title: "个人中心",
+        hideSidebar: true, // 这个标记告诉Home.vue不显示侧边栏
+        hideBreadcrumbs: true, // 可选：也可以隐藏面包屑
+      },
     },
     {
       path: "/:dynamicPath(.*)",
@@ -64,8 +68,8 @@ export async function setupDynamicRoutes() {
             item.routePath && item.routePath.startsWith("/")
               ? item.routePath
               : item.routePath
-              ? `/${item.routePath}`
-              : undefined,
+                ? `/${item.routePath}`
+                : undefined,
         };
       })
       .filter((item: any) => item.routePath);
