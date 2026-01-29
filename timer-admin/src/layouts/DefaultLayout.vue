@@ -55,13 +55,16 @@
               :size="32"
               src="https://cube.elemecdn.com/0/88/03d0d0c4d8ab6e68bf7534a7c8164.png"
             />
-            <span style="margin-left: 8px; color: #e2e8f0">Admin</span>
+            <span style="margin-left: 8px; color: #e2e8f0">{{ username }}</span>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item>个人中心</el-dropdown-item>
+              <el-dropdown-item @click="showChangePasswordModal = true">修改密码</el-dropdown-item>
+              <el-dropdown-item @click="showUserCenter">个人中心</el-dropdown-item>
               <el-dropdown-item>设置</el-dropdown-item>
-              <el-dropdown-item divided>退出登录</el-dropdown-item>
+              <el-dropdown-item divided @click="logout"
+                >退出登录</el-dropdown-item
+              >
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -146,31 +149,127 @@
               opacity: 0.4;
             "
           ></div>
-          <router-view v-slot="{ Component }">
+
+          <!-- 面包屑 -->
+          <el-breadcrumb separator="/" style="margin-bottom: 20px">
+            <el-breadcrumb-item
+              v-for="(crumb, index) in breadcrumbs"
+              :key="index"
+              :to="crumb.path ? { path: crumb.path } : undefined"
+            >
+              {{ crumb.title }}
+            </el-breadcrumb-item>
+          </el-breadcrumb>
+
+          <router-view v-slot="{ Component, route }">
+            <!-- 注意  v-if="route.meta.isKeepAlive"放在keep-alive标签上不会生效 -->
             <keep-alive>
-              <component :is="Component" v-if="route.meta.keepAlive" />
+              <component
+                :is="Component"
+                :key="route.name"
+                v-if="route.meta.isKeepAlive"
+              ></component>
             </keep-alive>
+            <component
+              :is="Component"
+              :key="route.name"
+              v-if="!route.meta.isKeepAlive"
+            ></component>
           </router-view>
         </el-main>
       </el-container>
     </el-container>
+    <ResetPasswordModal
+      v-model="showChangePasswordModal"
+      @change-success="showChangePasswordModal = false"
+    />
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { Search } from "@element-plus/icons-vue";
 import { MenuTreeVO } from "@/proto";
+import { getCurrentUser } from "@/api/user";
+import ResetPasswordModal from "@/views/users/ResetPasswordModal.vue"; // Import the new component
 
 const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 const menuList = ref<MenuTreeVO[]>([]);
+const breadcrumbs = ref<{ title: string; path?: string }[]>([]);
+const username = ref("");
 
 // 默认展开所有菜单
 const defaultOpeneds = ref<string[]>([]);
+const showChangePasswordModal = ref(false); // Add ref for modal visibility
+
+
+// 生成面包屑
+const generateBreadcrumbs = (path: string) => {
+  breadcrumbs.value = [];
+
+  // 添加首页
+  breadcrumbs.value.push({ title: "", path: "/" });
+
+  // 递归获取父级菜单路径
+  const buildBreadcrumbTrail = (
+    menuItems: MenuTreeVO[],
+    targetPath: string,
+    trail: MenuTreeVO[] = []
+  ): MenuTreeVO[] | null => {
+    for (const item of menuItems) {
+      const currentTrail = [...trail, item];
+
+      if (item.routePath === targetPath) {
+        return currentTrail;
+      }
+
+      if (item.children) {
+        const result = buildBreadcrumbTrail(
+          item.children,
+          targetPath,
+          currentTrail
+        );
+        if (result) return result;
+      }
+    }
+    return null;
+  };
+
+  const trail = buildBreadcrumbTrail(userStore.menuList, path);
+
+  if (trail) {
+    trail.forEach((item) => {
+      // 使用 breadcrumbTitle 如果存在，否则使用 menuName
+      const title = item.meta?.breadcrumbTitle || item.menuName;
+      breadcrumbs.value.push({ title, path: item.routePath });
+    });
+  } else if (path !== "/") {
+    // 如果没找到对应菜单，直接使用路径名作为面包屑
+    const pathSegments = path.split("/").filter((segment) => segment);
+    let currentPath = "";
+
+    pathSegments.forEach((segment) => {
+      currentPath += "/" + segment;
+      breadcrumbs.value.push({
+        title: "首页",
+        path: currentPath,
+      });
+    });
+  }
+};
+
+// 监听路由变化生成面包屑
+watch(
+  () => route.path,
+  (newPath) => {
+    generateBreadcrumbs(newPath);
+  },
+  { immediate: true }
+);
 
 // 获取菜单数据后设置默认展开
 onMounted(() => {
@@ -185,8 +284,32 @@ onMounted(() => {
     }, 100);
   }
   console.log(userStore.menuList);
+  fetchCurrenntUser();
 });
 
+const showUserCenter = () => {
+  router.push('/users/userCenter');
+};
+const logout = async () => {
+  try {
+    localStorage.removeItem("token");
+    userStore.setToken("");
+    userStore.setMenuRoutes([]);
+    await router.replace("/login");
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const fetchCurrenntUser = async () => {
+  try {
+    const res = await getCurrentUser();
+    console.log("current", res);
+    username.value = res.data.username;
+  } catch (error) {
+    console.error(error);
+  }
+};
 
 const searchQuery = ref("");
 </script>
@@ -303,10 +426,10 @@ body {
 /* 主内容区域 - 修复撑满问题 */
 .el-main {
   border-radius: 16px;
-  overflow: hidden;
+  overflow: hidden; /* Changed from hidden to auto */
   transition: all 0.3s ease;
   min-height: 100%;
-  height: 100%;
+  height: 100; /* Changed from 100% to auto */
   position: relative;
   flex: 1;
 }

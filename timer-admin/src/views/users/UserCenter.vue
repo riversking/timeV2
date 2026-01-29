@@ -286,12 +286,12 @@ onUpdated(async () => {
 .profile-container {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 60px); /* 减去头部高度 */
+  height: 100%;
   padding: 20px;
   background: linear-gradient(135deg, #0f172a, #1e293b);
   color: #e2e8f0;
   box-sizing: border-box;
-  overflow: hidden; /* Prevent scrolling */
+  overflow-y: auto; /* 允许垂直滚动 */
 }
 
 .profile-card {
@@ -358,7 +358,9 @@ onUpdated(async () => {
 }
 
 .profile-content {
-  padding: 20px 0;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 60vh;
 }
 
 .stats-container {
@@ -435,6 +437,7 @@ onUpdated(async () => {
   margin-bottom: 20px;
   flex: 1; /* 让活动容器占用剩余空间 */
   min-height: 0; /* 允许内容溢出时滚动 */
+  overflow-y: auto;
 }
 
 .activity-card {
@@ -443,6 +446,7 @@ onUpdated(async () => {
   border: 1px solid rgba(76, 201, 240, 0.1);
   display: flex;
   flex-direction: column;
+  height: 100%; /* 让卡片填满容器高度 */
 }
 
 .card-header {
