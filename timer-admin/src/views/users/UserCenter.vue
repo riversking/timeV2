@@ -81,7 +81,7 @@
       
       <el-card class="stat-card" shadow="hover">
         <div class="stat-content">
-          <div class="stat-icon bg-orange">
+          <div class="stat-icon bg-red">
             <el-icon><Clock /></el-icon>
           </div>
           <div class="stat-info">
