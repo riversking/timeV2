@@ -321,15 +321,20 @@ const searchQuery = ref("");
   padding: 0;
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
   padding: 0;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  height: auto;
+  overflow-y: auto;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
 }
+
 #app {
-  height: 100%;
+  min-height: 100vh;
+  height: auto;
 }
 
 /* 深蓝色科技感主题样式 */
@@ -426,12 +431,16 @@ body {
 /* 主内容区域 - 修复撑满问题 */
 .el-main {
   border-radius: 16px;
-  overflow: hidden; /* Changed from hidden to auto */
+  overflow: auto; /* 改为 auto 允许滚动 */
   transition: all 0.3s ease;
-  min-height: 100%;
-  height: 100; /* Changed from 100% to auto */
+  min-height: calc(100vh - 60px);
+  height: auto;
   position: relative;
   flex: 1;
+  background: #ffffff;
+  color: #333333;
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
 .el-main:hover {
@@ -459,8 +468,8 @@ span.timer-admin-text {
   text-shadow: 0 0 15px rgba(76, 201, 240, 0.7),
     0 0 30px rgba(106, 137, 247, 0.5);
   background: linear-gradient(90deg, #4cc9f0, #6a89f7);
-  background-clip: text; /* ✅ 标准属性 (关键修复!) */
-  color: transparent; /* ✅ 标准属性 (关键修复!) */
+  background-clip: text;
+  color: transparent;
   -webkit-text-fill-color: transparent;
   margin-right: 12px;
   line-height: 36px;

@@ -160,7 +160,15 @@
               {{ crumb.title }}
             </el-breadcrumb-item>
           </el-breadcrumb>
-
+             <div 
+            style="
+              height: 8px;
+              background: linear-gradient(90deg, #4cc9f0, #6a89f7, #4cc9f0);
+              margin: 20px -20px;
+              opacity: 0.3;
+              box-shadow: 0 0 10px rgba(76, 201, 240, 0.3);
+            "
+          ></div>
           <router-view v-slot="{ Component, route }">
             <!-- 注意  v-if="route.meta.isKeepAlive"放在keep-alive标签上不会生效 -->
             <keep-alive>

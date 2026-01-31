@@ -1,6 +1,6 @@
 <template>
   <div id="app">
-    <router-view/>
+    <router-view />
   </div>
 </template>
 
@@ -17,15 +17,17 @@ const route = useRoute();
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   min-height: 100vh;
   overflow-y: auto;
+  background-color: #0f172a; /* 设置默认背景色为深蓝 */
 }
 
 #app {
   min-height: 100vh;
   height: auto;
-  background-color: #f5f7fa;
+  background: linear-gradient(135deg, #0f172a, #1e293b); /* 统一背景 */
 }
 </style>
