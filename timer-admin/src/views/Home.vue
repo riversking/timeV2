@@ -1,10 +1,7 @@
 <template>
-  <el-container
-    style="height: 100vh; background: linear-gradient(135deg, #0f172a, #1e293b)"
-  >
-    <!-- 顶部头部 - 深蓝色科技感主题 -->
-    <el-header
-      style="
+  <el-container style="height: 100vh; background: linear-gradient(135deg, #0f172a, #1e293b)">
+    <!-- 顶部头部 - 深蓝色科技感主题 (固定不动) -->
+    <el-header style="
         background: linear-gradient(135deg, #0f172a, #1e293b);
         color: #e2e8f0;
         display: flex;
@@ -14,47 +11,36 @@
         border-bottom: 1px solid #2d3748;
         position: relative;
         height: 60px;
-      "
-    >
+        flex-shrink: 0;
+      ">
       <div style="display: flex; align-items: center; flex: 1">
         <el-icon style="font-size: 24px; margin-right: 15px; color: #4cc9f0">
         </el-icon>
-        <span
-          style="
+        <span style="
             font-family: 'Orbitron', 'Arial', sans-serif;
             font-size: 20px;
             font-weight: 700;
             letter-spacing: 1px;
-            text-shadow: 0 0 15px rgba(76, 201, 240, 0.7),
+            text-shadow:
+              0 0 15px rgba(76, 201, 240, 0.7),
               0 0 30px rgba(106, 137, 247, 0.5);
             background: linear-gradient(90deg, #4cc9f0, #6a89f7);
-            background-clip: text; /* ✅ 标准属性 (Firefox/Edge/Chrome) */
-            color: transparent; /* ✅ 标准属性 (所有浏览器) */
+            background-clip: text;
+            color: transparent;
             margin-right: 12px;
             line-height: 36px;
             height: 36px;
-          "
-          >timer admin</span
-        >
+          ">timer admin</span>
       </div>
 
       <div style="display: flex; align-items: center; gap: 15px">
         <el-tooltip content="搜索" placement="bottom">
-          <el-input
-            v-model="searchQuery"
-            placeholder="搜索..."
-            size="small"
-            style="width: 200px"
-            :suffix-icon="Search"
-          />
+          <el-input v-model="searchQuery" placeholder="搜索..." size="small" style="width: 200px" :suffix-icon="Search" />
         </el-tooltip>
 
         <el-dropdown>
           <span style="cursor: pointer; display: flex; align-items: center">
-            <el-avatar
-              :size="32"
-              src="https://cube.elemecdn.com/0/88/03d0d0c4d8ab6e68bf7534a7c8164.png"
-            />
+            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03d0d0c4d8ab6e68bf7534a7c8164.png" />
             <span style="margin-left: 8px; color: #e2e8f0">{{ username }}</span>
           </span>
           <template #dropdown>
@@ -62,17 +48,14 @@
               <el-dropdown-item @click="showChangePasswordModal = true">修改密码</el-dropdown-item>
               <el-dropdown-item @click="showUserCenter">个人中心</el-dropdown-item>
               <el-dropdown-item>设置</el-dropdown-item>
-              <el-dropdown-item divided @click="logout"
-                >退出登录</el-dropdown-item
-              >
+              <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
 
       <!-- 科技感光效 -->
-      <div
-        style="
+      <div style="
           position: absolute;
           top: 0;
           left: 0;
@@ -81,94 +64,71 @@
           background: linear-gradient(90deg, #4cc9f0, #6a89f7, #4cc9f0);
           opacity: 0.7;
           box-shadow: 0 0 15px rgba(76, 201, 240, 0.5);
-        "
-      ></div>
+        "></div>
     </el-header>
 
-    <el-container>
+    <el-container style="flex: 1; min-height: 0;">
       <!-- 侧边菜单 - 深蓝色科技感主题 -->
-      <el-aside
-        width="200px"
-        style="border-right: 1px solid #2d3748; height: calc(100vh - 60px)"
-      >
-        <el-menu
-          :default-active="route.path"
-          class="el-menu-vertical"
-          background-color="linear-gradient(135deg, #0f172a, #1e293b)"
-          text-color="#e2e8f0"
-          active-text-color="#4cc9f0"
-          :router="true"
-        >
-          <template v-for="item in menuList" :key="item.routePath">
-            <el-menu-item v-if="!item.children" :index="item.routePath">
-              {{ item.menuName }}
-            </el-menu-item>
-            <el-sub-menu v-else :index="item.routePath">
-              <template #title>{{ item.menuName }}</template>
-              <el-menu-item
-                v-for="child in item.children"
-                :key="child.routePath"
-                :index="child.routePath"
-              >
-                {{ child.menuName }}
+      <el-aside width="200px" style="border-right: 1px solid #2d3748; display: flex; flex-direction: column;">
+        <div style="flex: 1; overflow-y: auto;">
+          <el-menu :default-active="route.path" class="el-menu-vertical"
+            background-color="linear-gradient(135deg, #0f172a, #1e293b)" text-color="#e2e8f0"
+            active-text-color="#4cc9f0" :router="true" style="border-right: none;">
+            <template v-for="item in menuList" :key="item.routePath">
+              <el-menu-item v-if="!item.children || item.children.length === 0" :index="item.routePath">
+                {{ item.menuName }}
               </el-menu-item>
-            </el-sub-menu>
-          </template>
-        </el-menu>
+              <el-sub-menu v-else :index="item.routePath">
+                <template #title>{{ item.menuName }}</template>
+                <el-menu-item v-for="child in item.children" :key="child.routePath" :index="child.routePath">
+                  {{ child.menuName }}
+                </el-menu-item>
+              </el-sub-menu>
+            </template>
+          </el-menu>
+        </div>
       </el-aside>
 
-      <!-- 主内容区域 - 修复撑满问题 -->
-      <el-container
-        style="
-          height: calc(100vh - 60px);
-          display: flex;
-          flex-direction: column;
-        "
-      >
+      <!-- 主内容区域容器 (固定面包屑) -->
+      <el-container style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <!-- 固定的面包屑区域 -->
+        <div 
+          style="
+            background: #ffffff;
+            padding: 15px 20px;
+            border-bottom: 2px solid #409eff;
+            flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          "
+        >
+          <el-breadcrumb separator="/" style="margin: 0;">
+            <el-breadcrumb-item
+              v-for="(crumb, index) in breadcrumbs"
+              :key="index"
+              :to="crumb.path ? { path: crumb.path } : undefined"
+              style="color: #666;"
+            >
+              <span style="color: #333;">{{ crumb.title }}</span>
+            </el-breadcrumb-item>
+          </el-breadcrumb>
+        </div>
+
+        <!-- 可滚动的内容区域 -->
         <el-main
           style="
             background: #ffffff;
             color: #333333;
             padding: 20px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-            border-radius: 16px;
-            min-height: 100%;
-            height: 100%;
-            position: relative;
+            box-shadow: none;
+            border-radius: 0;
             flex: 1;
+            overflow: auto;
+            position: relative;
           "
         >
-          <div
-            style="
-              position: absolute;
-              top: 0;
-              left: 0;
-              right: 0;
-              height: 2px;
-              background: linear-gradient(90deg, #4cc9f0, #6a89f7, #4cc9f0);
-              opacity: 0.4;
-            "
-          ></div>
-
-          <!-- 面包屑 -->
-          <el-breadcrumb separator="/" style="margin-bottom: 20px">
-            <el-breadcrumb-item
-              v-for="(crumb, index) in breadcrumbs"
-              :key="index"
-              :to="crumb.path ? { path: crumb.path } : undefined"
-            >
-              {{ crumb.title }}
-            </el-breadcrumb-item>
-          </el-breadcrumb>
-             <div 
-            style="
-              height: 8px;
-              background: linear-gradient(90deg, #4cc9f0, #6a89f7, #4cc9f0);
-              margin: 20px -20px;
-              opacity: 0.3;
-              box-shadow: 0 0 10px rgba(76, 201, 240, 0.3);
-            "
-          ></div>
           <router-view v-slot="{ Component, route }">
             <!-- 注意  v-if="route.meta.isKeepAlive"放在keep-alive标签上不会生效 -->
             <keep-alive>
@@ -187,10 +147,7 @@
         </el-main>
       </el-container>
     </el-container>
-    <ResetPasswordModal
-      v-model="showChangePasswordModal"
-      @change-success="showChangePasswordModal = false"
-    />
+    <ResetPasswordModal v-model="showChangePasswordModal" @change-success="showChangePasswordModal = false" />
   </el-container>
 </template>
 
@@ -213,7 +170,6 @@ const username = ref("");
 // 默认展开所有菜单
 const defaultOpeneds = ref<string[]>([]);
 const showChangePasswordModal = ref(false); // Add ref for modal visibility
-
 
 // 生成面包屑
 const generateBreadcrumbs = (path: string) => {
@@ -296,7 +252,7 @@ onMounted(() => {
 });
 
 const showUserCenter = () => {
-  router.push('/users/userCenter');
+  router.push("/users/userCenter");
 };
 const logout = async () => {
   try {
@@ -329,13 +285,16 @@ const searchQuery = ref("");
   padding: 0;
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
   padding: 0;
   height: 100vh;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
+
 #app {
   height: 100%;
 }
@@ -346,18 +305,6 @@ body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   border-bottom: 1px solid #2d3748;
   height: 60px;
-}
-
-.el-aside {
-  border-right: 1px solid #2d3748;
-  height: calc(100vh - 60px);
-}
-
-.el-menu {
-  border-right: none;
-  border-radius: 0;
-  overflow: hidden;
-  height: 100%;
 }
 
 .el-menu-item {
@@ -434,10 +381,12 @@ body {
 /* 主内容区域 - 修复撑满问题 */
 .el-main {
   border-radius: 16px;
-  overflow: hidden; /* Changed from hidden to auto */
+  overflow: hidden;
+  /* Changed from hidden to auto */
   transition: all 0.3s ease;
   min-height: 100%;
-  height: auto; /* Changed from 100% to auto */
+  height: auto;
+  /* Changed from 100% to auto */
   position: relative;
   flex: 1;
 }
@@ -464,11 +413,14 @@ span.timer-admin-text {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 1px;
-  text-shadow: 0 0 15px rgba(76, 201, 240, 0.7),
+  text-shadow:
+    0 0 15px rgba(76, 201, 240, 0.7),
     0 0 30px rgba(106, 137, 247, 0.5);
   background: linear-gradient(90deg, #4cc9f0, #6a89f7);
-  background-clip: text; /* ✅ 标准属性 (关键修复!) */
-  color: transparent; /* ✅ 标准属性 (关键修复!) */
+  background-clip: text;
+  /* ✅ 标准属性 (关键修复!) */
+  color: transparent;
+  /* ✅ 标准属性 (关键修复!) */
   -webkit-text-fill-color: transparent;
   margin-right: 12px;
   line-height: 36px;
