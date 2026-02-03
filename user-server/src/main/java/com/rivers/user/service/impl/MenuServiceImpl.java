@@ -68,6 +68,7 @@ public class MenuServiceImpl implements IMenuService {
                     menu.setParentId(saveMenuReq.getParentId() == 0 ? -1L : saveMenuReq.getParentId());
                     menu.setRoutePath(saveMenuReq.getRoutePath());
                     menu.setPermissionCode(saveMenuReq.getPermissionCode());
+                    menu.setComponent(saveMenuReq.getComponent());
                     menu.setSortOrder(saveMenuReq.getSortOrder());
                     menu.setCreateUser(user.getUserId());
                     menu.setUpdateUser(user.getUserId());
@@ -106,6 +107,7 @@ public class MenuServiceImpl implements IMenuService {
                     menu.setParentId(updateMenuReq.getParentId());
                     menu.setRoutePath(updateMenuReq.getRoutePath());
                     menu.setPermissionCode(updateMenuReq.getPermissionCode());
+                    menu.setComponent(updateMenuReq.getComponent());
                     menu.setSortOrder(updateMenuReq.getSortOrder());
                     menu.setUpdateUser(updateMenuReq.getLoginUser().getUserId());
                     menu.updateById();

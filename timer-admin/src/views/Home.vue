@@ -125,7 +125,6 @@
             box-shadow: none;
             border-radius: 0;
             flex: 1;
-            overflow: auto;
             position: relative;
           "
         >

@@ -126,7 +126,7 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return 0;
+        return -1000;
     }
 
 
