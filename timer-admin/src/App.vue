@@ -21,7 +21,6 @@ html,
 body {
   height: 100%;
   min-height: 100vh;
-  overflow-y: auto;
   background-color: #0f172a; /* 设置默认背景色为深蓝 */
 }
 

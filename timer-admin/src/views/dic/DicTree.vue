@@ -49,7 +49,10 @@
                   <component :is="getNodeIcon(data.type)" />
                 </el-icon>
                 <span class="node-label">{{ node.label }}</span>
-                <span class="node-badge" v-if="data.children && data.children.length">
+                <span
+                  class="node-badge"
+                  v-if="data.children && data.children.length"
+                >
                   {{ data.children.length }}
                 </span>
               </div>
@@ -57,68 +60,98 @@
           </el-tree-v2>
         </div>
       </el-col>
-      
       <el-col :span="18">
-        <el-card v-if="selectedDictionary" class="box-card">
+        <el-card v-if="selectedDictionary" class="box-card" style="overflow: hidden;">
           <template #header>
             <div class="card-header">
               <span>{{ selectedDictionary.name }}</span>
-              <el-tag :type="getStatusType(selectedDictionary.status)" effect="dark">
-                {{ selectedDictionary.status === 1 ? '启用' : '禁用' }}
+              <el-tag
+                :type="getStatusType(selectedDictionary.status)"
+                effect="dark"
+              >
+                {{ selectedDictionary.status === 1 ? "启用" : "禁用" }}
               </el-tag>
             </div>
           </template>
-          
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="字典编码">
-              <span class="code-field">{{ selectedDictionary.code }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="字典类型">
-              <el-tag>{{ getTypeLabel(selectedDictionary.type) }}</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="创建时间">
-              {{ formatDate(selectedDictionary.createTime) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="更新时间">
-              {{ formatDate(selectedDictionary.updateTime) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="排序">
-              {{ selectedDictionary.sort }}
-            </el-descriptions-item>
-            <el-descriptions-item label="备注" :span="2">
-              {{ selectedDictionary.remark || '无' }}
-            </el-descriptions-item>
-          </el-descriptions>
 
-          <div v-if="selectedDictionary.children" style="margin-top: 20px">
-            <h3>字典子项列表</h3>
-            <el-table :data="selectedDictionary.children" style="width: 100%" stripe>
-              <el-table-column prop="name" label="名称" width="180" />
-              <el-table-column prop="code" label="编码" width="180" />
-              <el-table-column prop="value" label="值" />
-              <el-table-column prop="status" label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="row.status === 1 ? 'success' : 'info'">
-                    {{ row.status === 1 ? '启用' : '禁用' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="150">
-                <template #default="{ row }">
-                  <el-button type="primary" link size="small">编辑</el-button>
-                  <el-button type="danger" link size="small">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
+          <el-tabs type="border-card">
+            <el-tab-pane label="基础信息" name="basic">
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="字典编码">
+                  <span class="code-field">{{ selectedDictionary.code }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="字典类型">
+                  <el-tag>{{ getTypeLabel(selectedDictionary.type) }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="创建时间">
+                  {{ formatDate(selectedDictionary.createTime) }}
+                </el-descriptions-item>
+                <el-descriptions-item label="更新时间">
+                  {{ formatDate(selectedDictionary.updateTime) }}
+                </el-descriptions-item>
+                <el-descriptions-item label="排序">
+                  {{ selectedDictionary.sort }}
+                </el-descriptions-item>
+                <el-descriptions-item label="备注" :span="2">
+                  {{ selectedDictionary.remark || "无" }}
+                </el-descriptions-item>
+              </el-descriptions>
+            </el-tab-pane>
+
+            <el-tab-pane
+              label="子项列表"
+              name="children"
+              v-if="
+                selectedDictionary.children &&
+                selectedDictionary.children.length > 0
+              "
+            >
+              <div class="tab-content">
+                <div class="items-header">
+                  <h3>字典子项列表</h3>
+                  <el-button type="primary" size="small">
+                    <el-icon><Plus /></el-icon>
+                    新增子项
+                  </el-button>
+                </div>
+                <div class="table-container">
+                  <el-table
+                    :data="selectedDictionary.children"
+                      style="width: 100%" 
+                    stripe
+                    height="100%"
+                  >
+                    <el-table-column prop="name" label="名称" width="180" />
+                    <el-table-column prop="code" label="编码" width="180" />
+                    <el-table-column prop="value" label="值" />
+                    <el-table-column prop="status" label="状态" width="100">
+                      <template #default="{ row }">
+                        <el-tag :type="row.status === 1 ? 'success' : 'info'">
+                          {{ row.status === 1 ? "启用" : "禁用" }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="150">
+                      <template #default="{ row }">
+                        <el-button type="primary" link size="small"
+                          >编辑</el-button
+                        >
+                        <el-button type="danger" link size="small"
+                          >删除</el-button
+                        >
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
         </el-card>
-        
         <el-empty v-else description="请选择字典项查看详情" />
       </el-col>
     </el-row>
   </div>
 </template>
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from "vue";
 import {
@@ -295,7 +328,7 @@ const formatDate = (dateString: string) => {
 }
 
 .code-field {
-  font-family: 'Monaco', 'Consolas', monospace;
+  font-family: "Monaco", "Consolas", monospace;
   background: #f5f7fa;
   padding: 4px 8px;
   border-radius: 4px;
@@ -311,5 +344,97 @@ const formatDate = (dateString: string) => {
 
 .box-card {
   min-height: 300px;
+  height: calc(100vh - 200px); /* 与左侧树形区域保持相同高度 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 使用深度选择器覆盖 Element Plus 默认样式 */
+.box-card :deep(.el-card__body) {
+  flex: 1;
+  overflow: hidden;
+  padding: var(--el-card-padding);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 确保 tab 组件填满整个卡片 */
+.box-card :deep(.el-tabs) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* tab 内容区域填满剩余空间 */
+.box-card :deep(.el-tabs__content) {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 确保每个 tab 面板填满内容区域 */
+.box-card :deep(.el-tab-pane) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 20px 0;
+}
+
+.items-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-shrink: 0; /* 防止头部被压缩 */
+}
+
+.items-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+/* 为表格容器添加滚动条 */
+.table-container {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  min-height: 0; /* 允许容器收缩 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 确保表格填满容器 */
+.table-container :deep(.el-table) {
+  flex: 1;
+}
+
+/* 自定义滚动条样式 */
+.table-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 </style>
