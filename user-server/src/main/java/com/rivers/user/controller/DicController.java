@@ -1,10 +1,7 @@
 package com.rivers.user.controller;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.DicDataReq;
-import com.rivers.proto.DicDataRes;
-import com.rivers.proto.SaveDicReq;
-import com.rivers.proto.UpdateDicReq;
+import com.rivers.proto.*;
 import com.rivers.user.service.IDicService;
 import com.rivers.user.vo.DicTreeVO;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,6 +41,11 @@ public class DicController {
     @PostMapping("getDicData")
     public Mono<ResultVO<DicDataRes>> getDicData(@RequestBody DicDataReq dicDataReq) {
         return dicService.getDicData(dicDataReq);
+    }
+
+    @PostMapping("getDicDataDetail")
+    public Mono<ResultVO<DicDataDetailRes>> getDicDataDetail(@RequestBody DicDataReq dicDataReq) {
+        return dicService.getDicDataDetail(dicDataReq);
     }
 }
 

@@ -16,7 +16,10 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.SequencedCollection;
 
 @Service
@@ -177,5 +180,65 @@ public class DicServiceImpl implements IDicService {
                     log.error("查询字典数据失败", e);
                     return Mono.just(ResultVO.fail("查询失败"));
                 });
+    }
+
+    @Override
+    public Mono<ResultVO<DicDataDetailRes>> getDicDataDetail(DicDataReq dicDataReq) {
+        String dicKey = dicDataReq.getDicKey();
+        if (StringUtils.isBlank(dicKey)) {
+            return Mono.just(ResultVO.fail("字典key不能为空"));
+        }
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
+                    dicWrapper.eq(TimerDic::getDicKey, dicKey);
+                    TimerDic dic = timerDicMapper.selectOne(dicWrapper);
+                    if (dic == null) {
+                        throw new BusinessException("字典不存在");
+                    }
+                    Long id = dic.getId();
+                    dicWrapper.clear();
+                    dicWrapper.eq(TimerDic::getParentId, id);
+                    List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
+                    DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    List<DicDataDetailRes> list = timerDictionaries.stream()
+                            .map(i ->
+                                    DicDataDetailRes.newBuilder()
+                                            .setId(i.getId())
+                                            .setDicKey(i.getDicKey())
+                                            .setDicValue(i.getDicValue())
+                                            .setDicDesc(i.getDicDesc())
+                                            .setSort(i.getSort())
+                                            .setParentId(i.getParentId())
+                                            .setCreateTime(Optional.ofNullable(i.getCreateTime())
+                                                    .map(dateTimeFormatter::format)
+                                                    .orElse(""))
+                                            .setUpdateTime(Optional.ofNullable(i.getUpdateTime())
+                                                    .map(dateTimeFormatter::format)
+                                                    .orElse(""))
+                                            .build())
+                            .toList();
+                    LocalDateTime createTime = dic.getCreateTime();
+                    LocalDateTime updateTime = dic.getUpdateTime();
+                    return ResultVO.ok(DicDataDetailRes.newBuilder()
+                            .setDicKey(dic.getDicKey())
+                            .setDicValue(dic.getDicValue())
+                            .setDicDesc(dic.getDicDesc())
+                            .setSort(dic.getSort())
+                            .setParentId(dic.getParentId())
+                            .setCreateTime(Optional.ofNullable(createTime)
+                                    .map(dateTimeFormatter::format)
+                                    .orElse(""))
+                            .setUpdateTime(Optional.ofNullable(updateTime)
+                                    .map(dateTimeFormatter::format)
+                                    .orElse(""))
+                            .addAllChildren(list)
+                            .build());
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(Exception.class, e -> {
+                    log.error("查询字典数据失败", e);
+                    return Mono.just(ResultVO.fail("查询失败"));
+                })
+                .onErrorReturn(ResultVO.fail("查询字典数据失败"));
     }
 }

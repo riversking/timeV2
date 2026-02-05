@@ -1,10 +1,7 @@
 package com.rivers.user.service;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.DicDataReq;
-import com.rivers.proto.DicDataRes;
-import com.rivers.proto.SaveDicReq;
-import com.rivers.proto.UpdateDicReq;
+import com.rivers.proto.*;
 import com.rivers.user.vo.DicTreeVO;
 import reactor.core.publisher.Mono;
 
@@ -19,4 +16,6 @@ public interface IDicService {
     Mono<ResultVO<SequencedCollection<DicTreeVO>>> getDicTree();
 
     Mono<ResultVO<DicDataRes>> getDicData(DicDataReq dicDataReq);
+
+    Mono<ResultVO<DicDataDetailRes>> getDicDataDetail(DicDataReq dicDataReq);
 }

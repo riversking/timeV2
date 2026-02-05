@@ -330,3 +330,15 @@ message DeleteMenusReq {
     repeated string menuCodes = 1;
     LoginUser loginUser = 2;
 }
+
+message DicDataDetailRes {
+    int64 id = 1;
+    string dicKey = 2;
+    string dicValue = 3;
+    string dicDesc = 4;
+    int64 parentId = 5;
+    int32 sort = 8;
+    string createTime = 6;
+    string updateTime = 7;
+    repeated DicDataDetailRes children = 9;
+}

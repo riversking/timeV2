@@ -61,7 +61,11 @@
         </div>
       </el-col>
       <el-col :span="18">
-        <el-card v-if="selectedDictionary" class="box-card" style="overflow: hidden;">
+        <el-card
+          v-if="selectedDictionary"
+          class="box-card"
+          style="overflow: hidden"
+        >
           <template #header>
             <div class="card-header">
               <span>{{ selectedDictionary.name }}</span>
@@ -74,14 +78,20 @@
             </div>
           </template>
 
-          <el-tabs type="border-card">
+          <el-tabs
+            v-model="activeTab"
+            type="border-card"
+            @tab-change="handleTabChange"
+          >
             <el-tab-pane label="基础信息" name="basic">
               <el-descriptions :column="2" border>
                 <el-descriptions-item label="字典编码">
-                  <span class="code-field">{{ selectedDictionary.code }}</span>
+                  <span class="code-field">{{
+                    selectedDictionary.dicKey
+                  }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="字典类型">
-                  <el-tag>{{ getTypeLabel(selectedDictionary.type) }}</el-tag>
+                <el-descriptions-item label="字典名称">
+                  <el-tag>{{ selectedDictionary.dicValue }}</el-tag>
                 </el-descriptions-item>
                 <el-descriptions-item label="创建时间">
                   {{ formatDate(selectedDictionary.createTime) }}
@@ -109,7 +119,7 @@
               <div class="tab-content">
                 <div class="items-header">
                   <h3>字典子项列表</h3>
-                  <el-button type="primary" size="small">
+                  <el-button type="primary" size="small" @click="handleAddChild">
                     <el-icon><Plus /></el-icon>
                     新增子项
                   </el-button>
@@ -117,23 +127,16 @@
                 <div class="table-container">
                   <el-table
                     :data="selectedDictionary.children"
-                      style="width: 100%" 
+                    style="width: 100%"
                     stripe
                     height="100%"
                   >
-                    <el-table-column prop="name" label="名称" width="180" />
-                    <el-table-column prop="code" label="编码" width="180" />
-                    <el-table-column prop="value" label="值" />
-                    <el-table-column prop="status" label="状态" width="100">
-                      <template #default="{ row }">
-                        <el-tag :type="row.status === 1 ? 'success' : 'info'">
-                          {{ row.status === 1 ? "启用" : "禁用" }}
-                        </el-tag>
-                      </template>
-                    </el-table-column>
+                    <el-table-column prop="dicValue" label="名称" />
+                    <el-table-column prop="dicKey" label="编码" />
+                    <el-table-column prop="dicDesc" label="描述" />
                     <el-table-column label="操作" width="150">
                       <template #default="{ row }">
-                        <el-button type="primary" link size="small"
+                        <el-button type="primary" link size="small" @click="handleEditDic(row)"
                           >编辑</el-button
                         >
                         <el-button type="danger" link size="small"
@@ -150,6 +153,13 @@
         <el-empty v-else description="请选择字典项查看详情" />
       </el-col>
     </el-row>
+    <AddDicModal
+      v-model="showAddDicModal"
+      :dic-data="editingDic"
+      :parent-id="selectedParentId"
+      @save="handleSaveDic"
+      @edit="handleEditDicSubmit"
+    />
   </div>
 </template>
 <script setup lang="ts">
@@ -164,7 +174,8 @@ import {
   MessageBox,
 } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
-import { getDicTree } from "@/api/dic";
+import { getDicTree, getDicData, getDicDataDetail } from "@/api/dic";
+import AddDicModal from "./AddDicModal.vue"; // 引入新增字典弹框组件
 
 interface DicTree {
   id: number;
@@ -180,6 +191,10 @@ const searchKeyword = ref("");
 const dictionaryTree = ref<DicTree[]>([]);
 const selectedDictionary = ref<any>(null);
 const expandedKeys = ref([1]);
+const activeTab = ref("basic"); // 添加 tab 活动状态
+const showAddDicModal = ref(false); // 控制新增字典弹框显示
+const editingDic = ref<any>(null); // 编辑的字典数据
+const selectedParentId = ref<number | null>(null); // 选中的父级ID
 
 const treeProps = {
   label: "dicKey",
@@ -203,6 +218,10 @@ const calculateContainerHeight = () => {
 
 const handleResize = () => {
   calculateContainerHeight();
+};
+
+const handleTabChange = (tabName: string) => {
+  activeTab.value = tabName || "basic";
 };
 
 onMounted(async () => {
@@ -233,12 +252,19 @@ const handleFilter = () => {
   fetchDicTree();
 };
 
-const handleCreate = () => {
-  console.log("添加字典");
-};
-
-const handleNodeClick = (data: any) => {
-  selectedDictionary.value = data;
+const handleNodeClick = async (data: any) => {
+  try {
+    const dicKey = data.dicKey;
+    const res = await getDicDataDetail({ dicKey: dicKey });
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    selectedDictionary.value = res.data;
+  } catch (error) {
+    console.log(error);
+    ElMessage.error("获取字典树失败");
+  }
 };
 
 // 获取节点图标
@@ -269,6 +295,38 @@ const getTypeLabel = (type: string) => {
 // 格式化日期
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleString("zh-CN");
+};
+
+const handleCreate = () => {
+  editingDic.value = null;
+  selectedParentId.value = selectedDictionary.value?.id || null;
+  showAddDicModal.value = true;
+};
+
+const handleAddChild =()=>{
+  editingDic.value = null;
+  selectedParentId.value = selectedDictionary.value?.id || null;
+  showAddDicModal.value = true;
+}
+
+const handleEditDic = (dicData: any) => {
+  editingDic.value = dicData;
+  selectedParentId.value = dicData.parentId;
+  showAddDicModal.value = true;
+};
+
+const handleSaveDic = (dicData: any) => {
+  console.log("保存字典:", dicData);
+  // 这里调用 API 保存字典
+  ElMessage.success("字典保存成功");
+  fetchDicTree(); // 重新加载树形数据
+};
+
+const handleEditDicSubmit = (dicData: any) => {
+  console.log("编辑字典:", dicData);
+  // 这里调用 API 更新字典
+  ElMessage.success("字典更新成功");
+  fetchDicTree(); // 重新加载树形数据
 };
 </script>
 
