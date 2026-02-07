@@ -195,31 +195,11 @@ public class DicServiceImpl implements IDicService {
                     if (dic == null) {
                         throw new BusinessException("字典不存在");
                     }
-                    Long id = dic.getId();
-                    dicWrapper.clear();
-                    dicWrapper.eq(TimerDic::getParentId, id);
-                    List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
                     DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                    List<DicDataDetailRes> list = timerDictionaries.stream()
-                            .map(i ->
-                                    DicDataDetailRes.newBuilder()
-                                            .setId(i.getId())
-                                            .setDicKey(i.getDicKey())
-                                            .setDicValue(i.getDicValue())
-                                            .setDicDesc(i.getDicDesc())
-                                            .setSort(i.getSort())
-                                            .setParentId(i.getParentId())
-                                            .setCreateTime(Optional.ofNullable(i.getCreateTime())
-                                                    .map(dateTimeFormatter::format)
-                                                    .orElse(""))
-                                            .setUpdateTime(Optional.ofNullable(i.getUpdateTime())
-                                                    .map(dateTimeFormatter::format)
-                                                    .orElse(""))
-                                            .build())
-                            .toList();
                     LocalDateTime createTime = dic.getCreateTime();
                     LocalDateTime updateTime = dic.getUpdateTime();
                     return ResultVO.ok(DicDataDetailRes.newBuilder()
+                            .setId(dic.getId())
                             .setDicKey(dic.getDicKey())
                             .setDicValue(dic.getDicValue())
                             .setDicDesc(dic.getDicDesc())
@@ -231,7 +211,6 @@ public class DicServiceImpl implements IDicService {
                             .setUpdateTime(Optional.ofNullable(updateTime)
                                     .map(dateTimeFormatter::format)
                                     .orElse(""))
-                            .addAllChildren(list)
                             .build());
                 })
                 .subscribeOn(Schedulers.boundedElastic())

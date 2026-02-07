@@ -11,5 +11,15 @@ export async function getDicData(data: any) {
 }
 
 export async function getDicDataDetail(data: any) {
-  return http.post(`${API_PREFIX}/getDicDataDetail`, data).then((res) => res.data);
+  return http
+    .post(`${API_PREFIX}/getDicDataDetail`, data)
+    .then((res) => res.data);
+}
+
+export async function saveDic(data: any) {
+  return http.post(`${API_PREFIX}/saveDic`, data).then((res) => res.data);
+}
+
+export async function updateDic(data: any) {
+  return http.post(`${API_PREFIX}/updateDic`, data).then((res) => res.data);
 }

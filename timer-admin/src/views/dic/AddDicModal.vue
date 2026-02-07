@@ -13,22 +13,13 @@
       :rules="formRules"
       label-width="100px"
     >
-      <el-form-item label="字典名称" prop="name">
-        <el-input v-model="formData.name" placeholder="请输入字典名称" />
+      <el-form-item label="字典名称" prop="dicValue">
+        <el-input v-model="formData.dicValue" placeholder="请输入字典名称" />
       </el-form-item>
 
-      <el-form-item label="字典编码" prop="code">
-        <el-input v-model="formData.code" placeholder="请输入字典编码" />
+      <el-form-item label="字典编码" prop="dicKey">
+        <el-input v-model="formData.dicKey" placeholder="请输入字典编码" />
       </el-form-item>
-
-      <el-form-item label="字典类型" prop="type">
-        <el-select v-model="formData.type" placeholder="请选择字典类型" style="width: 100%">
-          <el-option label="分类" value="folder" />
-          <el-option label="字典" value="document" />
-          <el-option label="配置项" value="setting" />
-        </el-select>
-      </el-form-item>
-
       <el-form-item label="排序" prop="sort">
         <el-input-number
           v-model="formData.sort"
@@ -40,7 +31,7 @@
       </el-form-item>
       <el-form-item label="备注">
         <el-input
-          v-model="formData.remark"
+          v-model="formData.dicDesc"
           type="textarea"
           placeholder="请输入备注信息"
           :rows="3"
@@ -71,23 +62,17 @@ import {
   ElFormItem,
   ElInput,
   ElInputNumber,
-  ElSelect,
-  ElOption,
-  ElSwitch,
   ElButton,
-  ElMessage,
 } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 
 // 定义字典类型
 interface Dictionary {
   id?: number;
-  name: string;
-  code: string;
-  type: string;
+  dicKey: string;
+  dicValue: string;
   sort: number;
-  status: number;
-  remark?: string;
+  dicDesc?: string;
   parentId?: number | null;
 }
 
@@ -121,12 +106,10 @@ const dicFormRef = ref<FormInstance>();
 
 // 表单数据
 const formData = reactive<Dictionary>({
-  name: "",
-  code: "",
-  type: "document",
+  dicKey: "",
+  dicValue: "",
   sort: 0,
-  status: 1,
-  remark: "",
+  dicDesc: "",
   parentId: null,
 });
 
@@ -176,12 +159,10 @@ watch(
 // 重置表单
 const resetForm = () => {
   Object.assign(formData, {
-    name: "",
-    code: "",
-    type: "document",
+    dicKey: "",
+    dicValue: "",
     sort: 0,
-    status: 1,
-    remark: "",
+    dicDesc: "",
     parentId: props.parentId || null,
   });
   
@@ -214,8 +195,6 @@ const handleSubmit = async () => {
     } else {
       emit("save", { ...formData });
     }
-    
-    ElMessage.success(`${isEditMode.value ? '更新' : '保存'}成功`);
     handleClose();
   } catch (error) {
     console.error("表单验证失败:", error);

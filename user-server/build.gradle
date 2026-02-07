@@ -31,7 +31,7 @@ dependencies {
     implementation 'com.google.guava:guava:33.4.0-jre'
     implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
-    implementation ('io.github.riversking:rivers-core:1.0.19')
+    implementation ('io.github.riversking:rivers-core:1.0.20')
     implementation 'com.fasterxml.jackson.core:jackson-core'
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     compileOnly 'org.projectlombok:lombok'

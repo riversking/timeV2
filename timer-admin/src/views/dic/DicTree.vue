@@ -78,11 +78,7 @@
             </div>
           </template>
 
-          <el-tabs
-            v-model="activeTab"
-            type="border-card"
-            @tab-change="handleTabChange"
-          >
+          <el-tabs v-model="activeTab" type="border-card">
             <el-tab-pane label="基础信息" name="basic">
               <el-descriptions :column="2" border>
                 <el-descriptions-item label="字典编码">
@@ -100,7 +96,7 @@
                   {{ formatDate(selectedDictionary.updateTime) }}
                 </el-descriptions-item>
                 <el-descriptions-item label="排序">
-                  {{ selectedDictionary.sort }}
+                  {{ selectedDictionary.sort || 0 }}
                 </el-descriptions-item>
                 <el-descriptions-item label="备注" :span="2">
                   {{ selectedDictionary.remark || "无" }}
@@ -111,15 +107,15 @@
             <el-tab-pane
               label="子项列表"
               name="children"
-              v-if="
-                selectedDictionary.children &&
-                selectedDictionary.children.length > 0
-              "
             >
               <div class="tab-content">
                 <div class="items-header">
                   <h3>字典子项列表</h3>
-                  <el-button type="primary" size="small" @click="handleAddChild">
+                  <el-button
+                    type="primary"
+                    size="small"
+                    @click="handleAddChild"
+                  >
                     <el-icon><Plus /></el-icon>
                     新增子项
                   </el-button>
@@ -136,7 +132,11 @@
                     <el-table-column prop="dicDesc" label="描述" />
                     <el-table-column label="操作" width="150">
                       <template #default="{ row }">
-                        <el-button type="primary" link size="small" @click="handleEditDic(row)"
+                        <el-button
+                          type="primary"
+                          link
+                          size="small"
+                          @click="handleEditDic(row)"
                           >编辑</el-button
                         >
                         <el-button type="danger" link size="small"
@@ -158,7 +158,7 @@
       :dic-data="editingDic"
       :parent-id="selectedParentId"
       @save="handleSaveDic"
-      @edit="handleEditDicSubmit"
+      @edit="handleEdit"
     />
   </div>
 </template>
@@ -174,7 +174,7 @@ import {
   MessageBox,
 } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
-import { getDicTree, getDicData, getDicDataDetail } from "@/api/dic";
+import { getDicTree, saveDic, updateDic, getDicDataDetail } from "@/api/dic";
 import AddDicModal from "./AddDicModal.vue"; // 引入新增字典弹框组件
 
 interface DicTree {
@@ -220,10 +220,6 @@ const handleResize = () => {
   calculateContainerHeight();
 };
 
-const handleTabChange = (tabName: string) => {
-  activeTab.value = tabName || "basic";
-};
-
 onMounted(async () => {
   await fetchDicTree();
   calculateContainerHeight();
@@ -261,9 +257,12 @@ const handleNodeClick = async (data: any) => {
       return;
     }
     selectedDictionary.value = res.data;
+    selectedParentId.value = data.id;
   } catch (error) {
     console.log(error);
     ElMessage.error("获取字典树失败");
+  } finally {
+    activeTab.value = "basic";
   }
 };
 
@@ -282,16 +281,6 @@ const getStatusType = (status: number) => {
   return status === 1 ? "success" : "info";
 };
 
-// 获取类型标签
-const getTypeLabel = (type: string) => {
-  const labelMap: Record<string, string> = {
-    folder: "分类",
-    document: "字典",
-    setting: "配置项",
-  };
-  return labelMap[type] || "未知";
-};
-
 // 格式化日期
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleString("zh-CN");
@@ -299,15 +288,16 @@ const formatDate = (dateString: string) => {
 
 const handleCreate = () => {
   editingDic.value = null;
-  selectedParentId.value = selectedDictionary.value?.id || null;
   showAddDicModal.value = true;
 };
 
-const handleAddChild =()=>{
+const handleAddChild = () => {
   editingDic.value = null;
   selectedParentId.value = selectedDictionary.value?.id || null;
+  console.log("selectedDictionary.value", selectedDictionary.value);
+  console.log("selectedParentId.value", selectedParentId.value);
   showAddDicModal.value = true;
-}
+};
 
 const handleEditDic = (dicData: any) => {
   editingDic.value = dicData;
@@ -315,18 +305,43 @@ const handleEditDic = (dicData: any) => {
   showAddDicModal.value = true;
 };
 
-const handleSaveDic = (dicData: any) => {
+const handleSaveDic = async(dicData: any) => {
   console.log("保存字典:", dicData);
   // 这里调用 API 保存字典
-  ElMessage.success("字典保存成功");
-  fetchDicTree(); // 重新加载树形数据
+  try {
+    const param = { ...dicData, parentId: selectedParentId.value };
+    const res = await saveDic(param);
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("字典保存成功");
+    fetchDicTree();
+  } catch (error) {
+    console.error("保存字典失败:", error);
+    ElMessage.error("保存字典失败");
+  } finally {
+    showAddDicModal.value = false;
+  }
 };
 
-const handleEditDicSubmit = (dicData: any) => {
+const handleEdit = async (dicData: any) => {
   console.log("编辑字典:", dicData);
   // 这里调用 API 更新字典
-  ElMessage.success("字典更新成功");
-  fetchDicTree(); // 重新加载树形数据
+  try {
+    const res = await updateDic(dicData);
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("字典更新成功");
+    fetchDicTree();
+  } catch (error) {
+    console.error("更新字典失败:", error);
+    ElMessage.error("更新字典失败");
+  } finally {
+    showAddDicModal.value = false;
+  } 
 };
 </script>
 
