@@ -23,3 +23,7 @@ export async function saveDic(data: any) {
 export async function updateDic(data: any) {
   return http.post(`${API_PREFIX}/updateDic`, data).then((res) => res.data);
 }
+
+export async function deleteDic(data: any) {
+  return http.post(`${API_PREFIX}/deleteDic`, data).then((res) => res.data);
+}

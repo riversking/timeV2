@@ -26,6 +26,8 @@ import java.util.SequencedCollection;
 @Slf4j
 public class DicServiceImpl implements IDicService {
 
+    public static final String CHECK_DIC_FAIL = "查询字典数据失败";
+    public static final String DIC_KEY_EMPTY = "字典key不能为空";
     private final TimerDicMapper timerDicMapper;
 
     public DicServiceImpl(TimerDicMapper timerDicMapper) {
@@ -36,7 +38,7 @@ public class DicServiceImpl implements IDicService {
     public Mono<ResultVO<Void>> saveDic(SaveDicReq saveDicReq) {
         // 参数校验（非阻塞，可提前返回）
         if (StringUtils.isBlank(saveDicReq.getDicKey())) {
-            return Mono.just(ResultVO.fail("字典key不能为空"));
+            return Mono.just(ResultVO.fail(DIC_KEY_EMPTY));
         }
         if (StringUtils.isBlank(saveDicReq.getDicValue())) {
             return Mono.just(ResultVO.fail("字典值不能为空"));
@@ -80,7 +82,7 @@ public class DicServiceImpl implements IDicService {
     @Override
     public Mono<ResultVO<Void>> updateDic(UpdateDicReq updateDicReq) {
         if (StringUtils.isBlank(updateDicReq.getDicKey())) {
-            return Mono.just(ResultVO.fail("字典key不能为空"));
+            return Mono.just(ResultVO.fail(DIC_KEY_EMPTY));
         }
         if (StringUtils.isBlank(updateDicReq.getDicValue())) {
             return Mono.just(ResultVO.fail("字典值不能为空"));
@@ -156,14 +158,22 @@ public class DicServiceImpl implements IDicService {
         String dicKey = dicDataReq.getDicKey();
         // ⚠️ 原逻辑有 bug：应该是 isBlank 才报错！
         if (StringUtils.isBlank(dicKey)) {
-            return Mono.just(ResultVO.fail("字典key不能为空"));
+            return Mono.just(ResultVO.fail(DIC_KEY_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
                     dicWrapper.eq(TimerDic::getDicKey, dicKey)
                             .orderByAsc(TimerDic::getSort)
+                            .select(TimerDic::getId);
+                    TimerDic timerDic = timerDicMapper.selectOne(dicWrapper);
+                    if (timerDic == null) {
+                        throw new BusinessException("字典不存在");
+                    }
+                    dicWrapper.clear();
+                    dicWrapper.eq(TimerDic::getParentId, timerDic.getId())
+                            .orderByAsc(TimerDic::getSort)
                             .select(TimerDic::getId, TimerDic::getParentId,
-                                    TimerDic::getDicKey, TimerDic::getDicValue, TimerDic::getSort);
+                                    TimerDic::getDicKey, TimerDic::getDicValue,TimerDic::getDicDesc, TimerDic::getSort);
                     List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
                     List<Dic> dicList = timerDictionaries.stream()
                             .map(i -> Dic.newBuilder()
@@ -171,13 +181,15 @@ public class DicServiceImpl implements IDicService {
                                     .setDicKey(i.getDicKey())
                                     .setDicValue(i.getDicValue())
                                     .setParentId(i.getParentId())
+                                    .setDicDesc(i.getDicDesc())
+                                    .setSort(i.getSort())
                                     .build())
                             .toList();
                     return ResultVO.ok(DicDataRes.newBuilder().addAllDicData(dicList).build());
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(Exception.class, e -> {
-                    log.error("查询字典数据失败", e);
+                    log.error(CHECK_DIC_FAIL, e);
                     return Mono.just(ResultVO.fail("查询失败"));
                 });
     }
@@ -186,7 +198,7 @@ public class DicServiceImpl implements IDicService {
     public Mono<ResultVO<DicDataDetailRes>> getDicDataDetail(DicDataReq dicDataReq) {
         String dicKey = dicDataReq.getDicKey();
         if (StringUtils.isBlank(dicKey)) {
-            return Mono.just(ResultVO.fail("字典key不能为空"));
+            return Mono.just(ResultVO.fail(DIC_KEY_EMPTY));
         }
         return Mono.fromCallable(() -> {
                     LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
@@ -215,9 +227,30 @@ public class DicServiceImpl implements IDicService {
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(Exception.class, e -> {
-                    log.error("查询字典数据失败", e);
+                    log.error(CHECK_DIC_FAIL, e);
                     return Mono.just(ResultVO.fail("查询失败"));
                 })
-                .onErrorReturn(ResultVO.fail("查询字典数据失败"));
+                .onErrorReturn(ResultVO.fail(CHECK_DIC_FAIL));
+    }
+
+    @Override
+    public Mono<ResultVO<Void>> deleteDic(DicDataReq dicDataReq) {
+        String dicKey = dicDataReq.getDicKey();
+        if (StringUtils.isBlank(dicKey)) {
+            return Mono.just(ResultVO.fail(DIC_KEY_EMPTY));
+        }
+        return Mono.fromCallable(() -> {
+            LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
+            dicWrapper.eq(TimerDic::getDicKey, dicKey);
+            TimerDic timerDic = timerDicMapper.selectOne(dicWrapper);
+            if (timerDic == null) {
+                throw new BusinessException("字典不存在");
+            }
+            timerDic.deleteById();
+            return ResultVO.<Void>ok();
+        }).onErrorResume(Exception.class, e -> {
+            log.error("删除字典失败", e);
+            return Mono.just(ResultVO.fail("删除失败"));
+        }).onErrorReturn(ResultVO.fail("删除字典失败"));
     }
 }

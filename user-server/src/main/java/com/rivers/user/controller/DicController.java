@@ -47,5 +47,10 @@ public class DicController {
     public Mono<ResultVO<DicDataDetailRes>> getDicDataDetail(@RequestBody DicDataReq dicDataReq) {
         return dicService.getDicDataDetail(dicDataReq);
     }
+
+    @PostMapping("deleteDic")
+    public Mono<ResultVO<Void>> deleteDic(@RequestBody DicDataReq dicDataReq) {
+        return dicService.deleteDic(dicDataReq);
+    }
 }
 

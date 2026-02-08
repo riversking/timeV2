@@ -18,4 +18,6 @@ public interface IDicService {
     Mono<ResultVO<DicDataRes>> getDicData(DicDataReq dicDataReq);
 
     Mono<ResultVO<DicDataDetailRes>> getDicDataDetail(DicDataReq dicDataReq);
+
+    Mono<ResultVO<Void>> deleteDic(DicDataReq dicDataReq);
 }

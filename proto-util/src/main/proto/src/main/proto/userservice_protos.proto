@@ -286,6 +286,7 @@ message Dic {
     string dicValue = 3;
     string dicDesc = 4;
     int64 parentId = 5;
+    int32 sort = 6;
 }
 
 message DicDataReq {

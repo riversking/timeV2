@@ -104,10 +104,7 @@
               </el-descriptions>
             </el-tab-pane>
 
-            <el-tab-pane
-              label="子项列表"
-              name="children"
-            >
+            <el-tab-pane label="子项列表" name="children">
               <div class="tab-content">
                 <div class="items-header">
                   <h3>字典子项列表</h3>
@@ -139,7 +136,11 @@
                           @click="handleEditDic(row)"
                           >编辑</el-button
                         >
-                        <el-button type="danger" link size="small"
+                        <el-button
+                          type="danger"
+                          link
+                          size="small"
+                          @click="handleDeleteDic(row)"
                           >删除</el-button
                         >
                       </template>
@@ -173,8 +174,15 @@ import {
   Plus,
   MessageBox,
 } from "@element-plus/icons-vue";
-import { ElMessage } from "element-plus";
-import { getDicTree, saveDic, updateDic, getDicDataDetail } from "@/api/dic";
+import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  getDicTree,
+  saveDic,
+  updateDic,
+  getDicDataDetail,
+  getDicData,
+  deleteDic,
+} from "@/api/dic";
 import AddDicModal from "./AddDicModal.vue"; // 引入新增字典弹框组件
 
 interface DicTree {
@@ -195,7 +203,7 @@ const activeTab = ref("basic"); // 添加 tab 活动状态
 const showAddDicModal = ref(false); // 控制新增字典弹框显示
 const editingDic = ref<any>(null); // 编辑的字典数据
 const selectedParentId = ref<number | null>(null); // 选中的父级ID
-
+const newDicKey = ref("");
 const treeProps = {
   label: "dicKey",
   children: "children",
@@ -257,7 +265,15 @@ const handleNodeClick = async (data: any) => {
       return;
     }
     selectedDictionary.value = res.data;
-    selectedParentId.value = data.id;
+    const children = await getDicData({ dicKey: dicKey });
+    if (children.code !== 200) {
+      ElMessage.error(children.message);
+      return;
+    }
+    console.log("children", children);
+    selectedDictionary.value.children = children.data.dicData;
+    newDicKey.value = res.data.dicKey;
+    console.log("selectedDictionary", selectedDictionary.value);
   } catch (error) {
     console.log(error);
     ElMessage.error("获取字典树失败");
@@ -288,24 +304,33 @@ const formatDate = (dateString: string) => {
 
 const handleCreate = () => {
   editingDic.value = null;
+  selectedParentId.value = null;
   showAddDicModal.value = true;
 };
 
 const handleAddChild = () => {
   editingDic.value = null;
   selectedParentId.value = selectedDictionary.value?.id || null;
-  console.log("selectedDictionary.value", selectedDictionary.value);
-  console.log("selectedParentId.value", selectedParentId.value);
   showAddDicModal.value = true;
 };
 
-const handleEditDic = (dicData: any) => {
-  editingDic.value = dicData;
-  selectedParentId.value = dicData.parentId;
-  showAddDicModal.value = true;
+const handleEditDic = async (dicData: any) => {
+  try {
+    const res = await getDicDataDetail({ dicKey: dicData.dicKey });
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    editingDic.value = { ...res.data };
+    selectedParentId.value = dicData.parentId;
+  } catch (error) {
+    console.log(error);
+  } finally {
+    showAddDicModal.value = true;
+  }
 };
 
-const handleSaveDic = async(dicData: any) => {
+const handleSaveDic = async (dicData: any) => {
   console.log("保存字典:", dicData);
   // 这里调用 API 保存字典
   try {
@@ -317,6 +342,7 @@ const handleSaveDic = async(dicData: any) => {
     }
     ElMessage.success("字典保存成功");
     fetchDicTree();
+    fetchDicData();
   } catch (error) {
     console.error("保存字典失败:", error);
     ElMessage.error("保存字典失败");
@@ -341,7 +367,52 @@ const handleEdit = async (dicData: any) => {
     ElMessage.error("更新字典失败");
   } finally {
     showAddDicModal.value = false;
-  } 
+  }
+};
+
+const fetchDicData = async () => {
+  try {
+    const res = await getDicData({ dicKey: newDicKey.value });
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    selectedDictionary.value = res.data;
+    const children = await getDicData({ dicKey: newDicKey.value });
+    if (children.code !== 200) {
+      ElMessage.error(children.message);
+      return;
+    }
+    console.log("children", children);
+    selectedDictionary.value.children = children.data.dicData;
+  } catch (error) {
+    ElMessage.error("获取字典数据失败");
+  }
+};
+
+const handleDeleteDic = async (dicData: any) => {
+  await ElMessageBox.confirm(
+    `确定要删除菜单 "${dicData.dicValue}" 吗？`,
+    "确认删除",
+    {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      type: "warning",
+    }
+  );
+  try {
+    const res = await deleteDic(dicData);
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    ElMessage.success("字典删除成功");
+    fetchDicTree();
+    fetchDicData();
+  } catch (error) {
+    console.error("删除字典失败:", error);
+    ElMessage.error("删除字典失败");
+  }
 };
 </script>
 
