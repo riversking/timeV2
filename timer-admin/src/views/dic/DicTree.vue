@@ -68,13 +68,18 @@
         >
           <template #header>
             <div class="card-header">
-              <span>{{ selectedDictionary.name }}</span>
-              <el-tag
-                :type="getStatusType(selectedDictionary.status)"
-                effect="dark"
-              >
-                {{ selectedDictionary.status === 1 ? "启用" : "禁用" }}
-              </el-tag>
+              <span>{{ selectedDictionary.dicValue }}</span>
+              <div class="header-actions">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :icon="Edit"
+                  @click="handleEditCurrentDic"
+                  style="margin-left: 10px"
+                >
+                  编辑
+                </el-button>
+              </div>
             </div>
           </template>
 
@@ -173,6 +178,7 @@ import {
   Setting,
   Plus,
   MessageBox,
+  Edit,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -282,6 +288,27 @@ const handleNodeClick = async (data: any) => {
   }
 };
 
+const handleEditCurrentDic = async () => {
+  try {
+    const res = await getDicDataDetail({ dicKey: newDicKey.value });
+    if (res.code != 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    selectedDictionary.value = res.data;
+    const children = await getDicData({ dicKey: newDicKey.value });
+    if (children.code !== 200) {
+      ElMessage.error(children.message);
+      return;
+    }
+    editingDic.value = { ...res.data };
+  } catch (error) {
+    ElMessage.error("获取字典数据失败");
+  } finally {
+    showAddDicModal.value = true;
+  }
+};
+
 // 获取节点图标
 const getNodeIcon = (type: string) => {
   const iconMap: Record<string, any> = {
@@ -290,11 +317,6 @@ const getNodeIcon = (type: string) => {
     setting: Setting,
   };
   return iconMap[type] || Document;
-};
-
-// 获取标签类型
-const getStatusType = (status: number) => {
-  return status === 1 ? "success" : "info";
 };
 
 // 格式化日期
@@ -355,13 +377,15 @@ const handleEdit = async (dicData: any) => {
   console.log("编辑字典:", dicData);
   // 这里调用 API 更新字典
   try {
-    const res = await updateDic(dicData);
+    const param = { ...dicData, parentId: selectedParentId.value };
+    const res = await updateDic(param);
     if (res.code != 200) {
       ElMessage.error(res.message);
       return;
     }
     ElMessage.success("字典更新成功");
     fetchDicTree();
+    fetchDicData();
   } catch (error) {
     console.error("更新字典失败:", error);
     ElMessage.error("更新字典失败");
@@ -383,7 +407,6 @@ const fetchDicData = async () => {
       ElMessage.error(children.message);
       return;
     }
-    console.log("children", children);
     selectedDictionary.value.children = children.data.dicData;
   } catch (error) {
     ElMessage.error("获取字典数据失败");
@@ -423,6 +446,18 @@ const handleDeleteDic = async (dicData: any) => {
 
 .filter-container {
   margin-bottom: 20px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .tree-container {
