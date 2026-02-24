@@ -22,13 +22,13 @@ import java.util.Optional;
 
 @Service
 @Slf4j
-public class TaskInfoService implements ITaskInfoService {
+public class TaskInfoServiceImpl implements ITaskInfoService {
 
     private final TaskInfoMapper taskInfoMapper;
 
     private final Scheduler scheduler;
 
-    public TaskInfoService(TaskInfoMapper taskInfoMapper, Scheduler scheduler) {
+    public TaskInfoServiceImpl(TaskInfoMapper taskInfoMapper, Scheduler scheduler) {
         this.taskInfoMapper = taskInfoMapper;
         this.scheduler = scheduler;
     }
