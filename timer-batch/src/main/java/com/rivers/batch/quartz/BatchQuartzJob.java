@@ -33,12 +33,7 @@ public class BatchQuartzJob extends QuartzJobBean {
             JobDataMap jobDataMap = context.getJobDetail().getJobDataMap();
             log.info("Starting batch job execution: {}", jobName);
             // 获取动态创建的Job
-            Job dynamicJob = batchFactory.getDynamicJob(jobName);
-            if (dynamicJob == null) {
-                log.warn("Dynamic job not found: {}, falling back to default businessJob", dynamicJob);
-                // 如果找不到动态Job，使用默认的businessJob
-                dynamicJob = batchFactory.getOrCreateDynamicJob(jobName);
-            }
+            Job dynamicJob = batchFactory.createDynamicJob(jobName);
             JobParameters jobParameters = new JobParametersBuilder()
                     .addLong("timestamp", System.currentTimeMillis())
                     .addString("jobName", jobName)

@@ -1,6 +1,6 @@
 package com.rivers.batch.factory;
 
-
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.rivers.batch.entity.TaskInfo;
 import com.rivers.batch.mapper.TaskInfoMapper;
@@ -17,147 +17,113 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 动态批处理任务工厂，支持从数据库动态加载和管理任务
+ */
 @Service
 @EnableBatchProcessing
 @Slf4j
 public class BatchFactory {
 
     private final BusinessTasklet businessTasklet;
-
+    private final JobRepository jobRepository;
+    private final TaskInfoMapper taskInfoMapper;
     private final PlatformTransactionManager transactionManager;
 
-    private final JobRepository jobRepository;
+    // 存储动态创建的Job实例 (key: taskName)
+    private final Map<String, Job> dynamicJobs = new ConcurrentHashMap<>();
+    // 存储动态创建的Step实例 (key: taskName + "Step")
+    private final Map<String, Step> dynamicSteps = new ConcurrentHashMap<>();
 
-    private final TaskInfoMapper taskInfoMapper;
-
-    // 存储动态创建的Job实例
-    private final ConcurrentHashMap<String, Job> dynamicJobs = new ConcurrentHashMap<>();
-
-    // 存储动态创建的Step实例
-    private final ConcurrentHashMap<String, Step> dynamicSteps = new ConcurrentHashMap<>();
-
-
-    public BatchFactory(BusinessTasklet businessTasklet, PlatformTransactionManager transactionManager, JobRepository jobRepository, TaskInfoMapper taskInfoMapper) {
+    public BatchFactory(
+            BusinessTasklet businessTasklet,
+            JobRepository jobRepository,
+            TaskInfoMapper taskInfoMapper,
+            PlatformTransactionManager transactionManager) {
         this.businessTasklet = businessTasklet;
-        this.transactionManager = transactionManager;
         this.jobRepository = jobRepository;
         this.taskInfoMapper = taskInfoMapper;
+        this.transactionManager = transactionManager;
     }
 
     @PostConstruct
     public void initDynamicJobs() {
-        log.info("Initializing dynamic jobs...");
-        loadDynamicJobs();
-    }
-
-    /**
-     * 加载数据库中的所有任务并创建对应的Job和Step
-     */
-    public void loadDynamicJobs() {
+        log.info("Initializing dynamic batch jobs...");
         try {
-            // 这里需要从数据库查询所有启用的任务
-            // 由于ITaskInfoService没有提供查询所有任务的方法，我们需要添加一个方法
-            List<TaskInfo> taskInfos = taskInfoMapper.selectList(Wrappers.emptyWrapper());
-            for (TaskInfo taskInfo : taskInfos) {
-                createDynamicJobAndStep(taskInfo.getTaskName());
-            }
-            log.info("Loaded {} dynamic jobs", taskInfos.size());
+            loadDynamicJobs();
+            log.info("Successfully loaded {} dynamic batch jobs", dynamicJobs.size());
         } catch (Exception e) {
-            log.error("Failed to load dynamic jobs", e);
+            log.error("Failed to initialize dynamic batch jobs", e);
+            throw new IllegalStateException("Batch job initialization failed", e);
         }
     }
 
     /**
-     * 根据TaskInfo创建动态Job和Step
+     * 从数据库加载所有启用的任务并创建对应的Job和Step
      */
-    public void createDynamicJobAndStep(String taskName) {
+    private void loadDynamicJobs() {
+        LambdaQueryWrapper<TaskInfo> taskWrapper = Wrappers.lambdaQuery(TaskInfo.class)
+                .eq(TaskInfo::getStatus, 1); // 仅加载启用状态的任务
+        List<TaskInfo> taskInfos = taskInfoMapper.selectList(taskWrapper);
+        log.info("Found {} enabled tasks in database", taskInfos.size());
+        for (TaskInfo taskInfo : taskInfos) {
+            createDynamicJob(taskInfo.getTaskName());
+        }
+    }
+
+    /**
+     * 创建动态Job (确保Step只创建一次)
+     */
+    public Job createDynamicJob(String taskName) {
         String stepName = taskName + "Step";
-        // 创建Step
-        Step step = new StepBuilder(stepName, jobRepository)
-                .tasklet(businessTasklet, transactionManager)
-                .build();
-        dynamicSteps.put(stepName, step);
-        // 创建Job
-        Job job = new JobBuilder(taskName, jobRepository)
-                .start(step)
-                .build();
-        dynamicJobs.put(taskName, job);
-        log.info("Created dynamic job: {} and step: {}", taskName, stepName);
+        // Step 创建方式 (Spring Batch 5.0.0 新方式)
+        Step step = dynamicSteps.computeIfAbsent(stepName, name ->
+                new StepBuilder(name, jobRepository)
+                        .tasklet(businessTasklet)
+                        .build()
+        );
+        // Job 创建方式 (Spring Batch 5.0.0 新方式)
+        return dynamicJobs.computeIfAbsent(taskName, name ->
+                new JobBuilder(name, jobRepository)
+                        .start(step)
+                        .build()
+        );
     }
 
     /**
      * 获取指定名称的动态Job
      */
-    public Job getDynamicJob(String jobName) {
-        return dynamicJobs.get(jobName);
+    public Job getDynamicJob(String taskName) {
+        return dynamicJobs.get(taskName);
     }
 
     /**
-     * 获取指定名称的动态Step
-     */
-    public Step getDynamicStep(String stepName) {
-        return dynamicSteps.get(stepName);
-    }
-
-    /**
-     * 重新加载所有动态Job（当任务信息发生变化时调用）
+     * 重新加载所有动态Job (当任务配置变更时调用)
      */
     public void reloadDynamicJobs() {
         dynamicJobs.clear();
         dynamicSteps.clear();
-        loadDynamicJobs();
+        initDynamicJobs(); // 重新初始化
     }
 
     /**
-     * 添加新的动态Job
+     * 添加新的动态Job (原子操作)
      */
-    public void addDynamicJob(String taskName) {
-        createDynamicJobAndStep(taskName);
+    public boolean addDynamicJob(String taskName) {
+        return dynamicJobs.putIfAbsent(taskName, createDynamicJob(taskName)) == null;
     }
 
     /**
      * 移除动态Job
      */
-    public void removeDynamicJob(String jobName) {
-        String stepName = jobName + "Step";
-        dynamicJobs.remove(jobName);
+    public void removeDynamicJob(String taskName) {
+        String stepName = taskName + "Step";
+        // 移除Job和对应的Step
+        dynamicJobs.remove(taskName);
         dynamicSteps.remove(stepName);
-        log.info("Removed dynamic job: {} and step: {}", jobName, stepName);
+        log.info("Removed dynamic job: {} and step: {}", taskName, stepName);
     }
-
-    // 添加同步辅助方法
-    public boolean addDynamicJobIfAbsent(TaskInfo taskInfo) {
-        String jobName = taskInfo.getJobName();
-        String stepName = jobName + "Step";
-        // 使用原子操作避免竞态条件
-        return dynamicJobs.putIfAbsent(jobName, createJob(taskInfo, stepName)) == null;
-    }
-
-    public Job getOrCreateDynamicJob( String taskName) {
-        Job job = dynamicJobs.get(taskName);
-        if (job == null) {
-            // 双重检查锁定模式
-            synchronized (this) {
-                job = dynamicJobs.get(taskName);
-                if (job == null) {
-                    createDynamicJobAndStep(taskName);
-                    job = dynamicJobs.get(taskName);
-                }
-            }
-        }
-        return job;
-    }
-
-    private Job createJob(TaskInfo taskInfo, String stepName) {
-        Step step = dynamicSteps.computeIfAbsent(stepName,
-                k -> new StepBuilder(k, jobRepository)
-                        .tasklet(businessTasklet, transactionManager)
-                        .build());
-        return new JobBuilder(taskInfo.getTaskName(), jobRepository)
-                .start(step)
-                .build();
-    }
-
 }
