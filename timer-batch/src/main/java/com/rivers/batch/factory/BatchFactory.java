@@ -82,7 +82,7 @@ public class BatchFactory {
         // Step 创建方式 (Spring Batch 5.0.0 新方式)
         Step step = dynamicSteps.computeIfAbsent(stepName, name ->
                 new StepBuilder(name, jobRepository)
-                        .tasklet(businessTasklet)
+                        .tasklet(businessTasklet,transactionManager)
                         .build()
         );
         // Job 创建方式 (Spring Batch 5.0.0 新方式)
