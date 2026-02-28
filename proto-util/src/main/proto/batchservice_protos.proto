@@ -35,7 +35,7 @@ message CommonTaskReq {
 }
 
 message JobExecutionCount {
-    string jobName = 1;
+    string status = 1;
     int64 count = 2;
 }
 
