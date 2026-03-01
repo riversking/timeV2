@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.job.parameters.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
@@ -82,12 +83,13 @@ public class BatchFactory {
         // Step 创建方式 (Spring Batch 5.0.0 新方式)
         Step step = dynamicSteps.computeIfAbsent(stepName, name ->
                 new StepBuilder(name, jobRepository)
-                        .tasklet(businessTasklet,transactionManager)
+                        .tasklet(businessTasklet, transactionManager)
                         .build()
         );
         // Job 创建方式 (Spring Batch 5.0.0 新方式)
         return dynamicJobs.computeIfAbsent(taskName, name ->
                 new JobBuilder(name, jobRepository)
+                        .incrementer(new RunIdIncrementer())
                         .start(step)
                         .build()
         );

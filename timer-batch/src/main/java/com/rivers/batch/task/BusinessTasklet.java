@@ -10,7 +10,6 @@ import org.springframework.batch.core.step.StepContribution;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.infrastructure.item.ExecutionContext;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -47,6 +46,7 @@ public class BusinessTasklet implements Tasklet {
             log.info("Execution context: {}", executionContext);
         } catch (Exception e) {
             log.error("Error executing business tasklet", e);
+            return RepeatStatus.FINISHED;
         }
         return RepeatStatus.FINISHED;
     }

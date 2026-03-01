@@ -53,7 +53,6 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
             String sql = "SELECT STATUS, COUNT(*) AS count FROM BATCH_JOB_EXECUTION " +
                     "WHERE JOB_INSTANCE_ID IN (:jobInstanceIds) " +
                     "GROUP BY STATUS";
-
             MapSqlParameterSource params = new MapSqlParameterSource("jobInstanceIds", jobInstanceIds);
             NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
             // 使用RowMapper映射到自定义对象
