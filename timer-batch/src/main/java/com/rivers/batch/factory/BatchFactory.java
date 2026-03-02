@@ -25,7 +25,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * 动态批处理任务工厂，支持从数据库动态加载和管理任务
  */
 @Service
-@EnableBatchProcessing
 @Slf4j
 public class BatchFactory {
 

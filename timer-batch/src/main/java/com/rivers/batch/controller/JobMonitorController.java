@@ -3,6 +3,7 @@ package com.rivers.batch.controller;
 import com.rivers.batch.service.IJobMonitorService;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.JobExecutionRes;
+import com.rivers.proto.SchedulesRes;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,5 +22,10 @@ public class JobMonitorController {
     @PostMapping("getJobExecutionCounts")
     public Mono<ResultVO<JobExecutionRes>> getJobExecutionCounts() {
         return jobMonitorService.getJobExecutionCounts();
+    }
+
+    @PostMapping("getSchedules")
+    public Mono<ResultVO<SchedulesRes>> getSchedules() {
+        return jobMonitorService.getSchedules();
     }
 }

@@ -1,8 +1,11 @@
 package com.rivers.batch.task;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.rivers.core.client.DynamicServiceClient;
 import com.rivers.core.entity.JobParamReq;
+import com.rivers.core.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NullMarked;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.scope.context.ChunkContext;
@@ -29,25 +32,27 @@ public class BusinessTasklet implements Tasklet {
     @Override
     @NullMarked
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) {
-        try {
-            JobParameters jobParameters = contribution.getStepExecution().getJobParameters();
-            String taskName = jobParameters.getString("taskName");
-            String serviceName = jobParameters.getString("serviceName");
-            log.info("Executing business task for job: {}", taskName);
-            log.info("Executing business task for service: {}", serviceName);
-            Map<String, Object> parameters = chunkContext.getStepContext().getJobParameters();
-            JobParamReq jobParamReq = new JobParamReq();
-            jobParamReq.setTaskName(taskName);
-            jobParamReq.setParams(parameters);
-            dynamicServiceClient.post(serviceName, "/job/execute", jobParamReq, String.class)
-                    .subscribe(i -> log.info("Business task executed successfully: {}", i));
-            ExecutionContext executionContext = contribution.getStepExecution().getExecutionContext();
-            executionContext.put("jobParameters", jobParameters);
-            log.info("Execution context: {}", executionContext);
-        } catch (Exception e) {
-            log.error("Error executing business tasklet", e);
-            return RepeatStatus.FINISHED;
+        JobParameters jobParameters = contribution.getStepExecution().getJobParameters();
+        String taskName = jobParameters.getString("taskName");
+        String serviceName = jobParameters.getString("serviceName");
+        log.info("Executing business task for job: {}", taskName);
+        log.info("Executing business task for service: {}", serviceName);
+        Map<String, Object> parameters = chunkContext.getStepContext().getJobParameters();
+        JobParamReq jobParamReq = new JobParamReq();
+        jobParamReq.setTaskName(taskName);
+        jobParamReq.setParams(parameters);
+        String res = dynamicServiceClient.post(serviceName, "/job/execute", jobParamReq, String.class).block();
+        log.info("Result: {}", res);
+        if (StringUtils.isBlank(res)) {
+            throw new BusinessException("Result is null");
         }
+        JSONObject resultJson = JSONObject.parseObject(res);
+        if (resultJson.getInteger("code") != 200) {
+            throw new BusinessException("Result is error");
+        }
+        ExecutionContext executionContext = contribution.getStepExecution().getExecutionContext();
+        executionContext.put("jobParameters", jobParameters);
+        log.info("Execution context: {}", executionContext);
         return RepeatStatus.FINISHED;
     }
 }

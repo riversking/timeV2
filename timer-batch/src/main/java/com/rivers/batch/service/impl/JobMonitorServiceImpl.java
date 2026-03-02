@@ -1,10 +1,15 @@
 package com.rivers.batch.service.impl;
 
+import com.google.common.collect.Lists;
 import com.rivers.batch.service.IJobMonitorService;
 import com.rivers.batch.vo.StatusCountVO;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.JobExecutionCount;
 import com.rivers.proto.JobExecutionRes;
+import com.rivers.proto.SchedulerStatusRes;
+import com.rivers.proto.SchedulesRes;
+import lombok.SneakyThrows;
+import org.quartz.Scheduler;
 import org.springframework.batch.core.job.JobInstance;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,10 +32,12 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
 
     private final JobRepository jobRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final Scheduler scheduler;
 
-    public JobMonitorServiceImpl(JobRepository jobRepository, JdbcTemplate jdbcTemplate) {
+    public JobMonitorServiceImpl(JobRepository jobRepository, JdbcTemplate jdbcTemplate, Scheduler scheduler) {
         this.jobRepository = jobRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.scheduler = scheduler;
     }
 
     @Override
@@ -76,6 +83,18 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                         .toList())
                 .build();
         return Mono.just(ResultVO.ok(response));
+    }
+
+    @SneakyThrows
+    @Override
+    public Mono<ResultVO<SchedulesRes>> getSchedules() {
+        SchedulerStatusRes schedulerStatusRes = SchedulerStatusRes.newBuilder()
+                .setSchedulerName(scheduler.getSchedulerName())
+                .setStatus(scheduler.isStarted() ? "STARTED" : "STOPPED")
+                .build();
+        return Mono.just(ResultVO.ok(SchedulesRes.newBuilder()
+                .addAllSchedulerStatusRes(Lists.newArrayList(schedulerStatusRes))
+                .build()));
     }
 
     // RowMapper实现

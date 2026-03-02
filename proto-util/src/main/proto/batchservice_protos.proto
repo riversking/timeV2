@@ -42,3 +42,13 @@ message JobExecutionCount {
 message JobExecutionRes {
     repeated JobExecutionCount jobExecutionCounts = 1;
 }
+
+message SchedulerStatusRes {
+    string status = 1;
+    string schedulerName = 2;
+}
+
+
+message SchedulesRes {
+    repeated SchedulerStatusRes schedulerStatusRes = 1;
+}
