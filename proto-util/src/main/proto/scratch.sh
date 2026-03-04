@@ -103,5 +103,5 @@ if [ $? -ne 0 ]; then
     echo "错误: JAR 包创建失败。"
     exit 1
 fi
-
+rm -rf /Users/riversking/Desktop/timeV2/proto-util/src/main/proto/build/classes
 echo "构建完成！JAR 包已创建: ${BUILD_DIR}/${PROTO_FILE}.jar"

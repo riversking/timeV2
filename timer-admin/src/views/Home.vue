@@ -1,7 +1,10 @@
 <template>
-  <el-container style="height: 100vh; background: linear-gradient(135deg, #0f172a, #1e293b)">
+  <el-container
+    style="height: 100vh; background: linear-gradient(135deg, #0f172a, #1e293b)"
+  >
     <!-- 顶部头部 - 深蓝色科技感主题 (固定不动) -->
-    <el-header style="
+    <el-header
+      style="
         background: linear-gradient(135deg, #0f172a, #1e293b);
         color: #e2e8f0;
         display: flex;
@@ -12,7 +15,8 @@
         position: relative;
         height: 60px;
         flex-shrink: 0;
-      ">
+      "
+    >
       <div style="display: flex; align-items: center; flex: 1">
         <el-icon style="font-size: 24px; margin-right: 15px; color: #4cc9f0">
         </el-icon>
@@ -30,32 +34,50 @@
             margin-right: 12px;
             line-height: 36px;
             height: 36px;
-          ">timer admin</span>
+          "
+          >timer admin</span
+        >
       </div>
 
       <div style="display: flex; align-items: center; gap: 15px">
         <el-tooltip content="搜索" placement="bottom">
-          <el-input v-model="searchQuery" placeholder="搜索..." size="small" style="width: 200px" :suffix-icon="Search" />
+          <el-input
+            v-model="searchQuery"
+            placeholder="搜索..."
+            size="small"
+            style="width: 200px"
+            :suffix-icon="Search"
+          />
         </el-tooltip>
 
         <el-dropdown>
           <span style="cursor: pointer; display: flex; align-items: center">
-            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03d0d0c4d8ab6e68bf7534a7c8164.png" />
+            <el-avatar
+              :size="32"
+              src="https://cube.elemecdn.com/0/88/03d0d0c4d8ab6e68bf7534a7c8164.png"
+            />
             <span style="margin-left: 8px; color: #e2e8f0">{{ username }}</span>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="showChangePasswordModal = true">修改密码</el-dropdown-item>
-              <el-dropdown-item @click="showUserCenter">个人中心</el-dropdown-item>
+              <el-dropdown-item @click="showChangePasswordModal = true"
+                >修改密码</el-dropdown-item
+              >
+              <el-dropdown-item @click="showUserCenter"
+                >个人中心</el-dropdown-item
+              >
               <el-dropdown-item>设置</el-dropdown-item>
-              <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item divided @click="logout"
+                >退出登录</el-dropdown-item
+              >
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
 
       <!-- 科技感光效 -->
-      <div style="
+      <div
+        style="
           position: absolute;
           top: 0;
           left: 0;
@@ -64,23 +86,44 @@
           background: linear-gradient(90deg, #4cc9f0, #6a89f7, #4cc9f0);
           opacity: 0.7;
           box-shadow: 0 0 15px rgba(76, 201, 240, 0.5);
-        "></div>
+        "
+      ></div>
     </el-header>
 
-    <el-container style="flex: 1; min-height: 0;">
+    <el-container style="flex: 1; min-height: 0">
       <!-- 侧边菜单 - 深蓝色科技感主题 -->
-      <el-aside width="200px" style="border-right: 1px solid #2d3748; display: flex; flex-direction: column;">
-        <div style="flex: 1; overflow-y: auto;">
-          <el-menu :default-active="route.path" class="el-menu-vertical"
-            background-color="linear-gradient(135deg, #0f172a, #1e293b)" text-color="#e2e8f0"
-            active-text-color="#4cc9f0" :router="true" style="border-right: none;">
+      <el-aside
+        width="200px"
+        style="
+          border-right: 1px solid #2d3748;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <div style="flex: 1; overflow-y: auto">
+          <el-menu
+            :default-active="route.path"
+            class="el-menu-vertical"
+            background-color="linear-gradient(135deg, #0f172a, #1e293b)"
+            text-color="#e2e8f0"
+            active-text-color="#4cc9f0"
+            :router="true"
+            style="border-right: none"
+          >
             <template v-for="item in menuList" :key="item.routePath">
-              <el-menu-item v-if="!item.children || item.children.length === 0" :index="item.routePath">
+              <el-menu-item
+                v-if="!item.children || item.children.length === 0"
+                :index="item.routePath"
+              >
                 {{ item.menuName }}
               </el-menu-item>
               <el-sub-menu v-else :index="item.routePath">
                 <template #title>{{ item.menuName }}</template>
-                <el-menu-item v-for="child in item.children" :key="child.routePath" :index="child.routePath">
+                <el-menu-item
+                  v-for="child in item.children"
+                  :key="child.routePath"
+                  :index="child.routePath"
+                >
                   {{ child.menuName }}
                 </el-menu-item>
               </el-sub-menu>
@@ -90,9 +133,11 @@
       </el-aside>
 
       <!-- 主内容区域容器 (固定面包屑) -->
-      <el-container style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
-                <!-- 固定的面包屑区域 -->
-        <div 
+      <el-container
+        style="flex: 1; display: flex; flex-direction: column; min-height: 0"
+      >
+        <!-- 固定的面包屑区域 -->
+        <div
           style="
             background: #ffffff;
             padding: 15px 20px;
@@ -104,14 +149,14 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           "
         >
-          <el-breadcrumb separator="/" style="margin: 0;">
+          <el-breadcrumb separator="/" style="margin: 0">
             <el-breadcrumb-item
               v-for="(crumb, index) in breadcrumbs"
               :key="index"
               :to="crumb.path ? { path: crumb.path } : undefined"
-              style="color: #666;"
+              style="color: #666"
             >
-              <span style="color: #333;">{{ crumb.title }}</span>
+              <span style="color: #333">{{ crumb.title }}</span>
             </el-breadcrumb-item>
           </el-breadcrumb>
         </div>
@@ -126,6 +171,8 @@
             border-radius: 0;
             flex: 1;
             position: relative;
+            min-height: 0;
+            overflow-y: auto;
           "
         >
           <router-view v-slot="{ Component, route }">
@@ -146,7 +193,10 @@
         </el-main>
       </el-container>
     </el-container>
-    <ResetPasswordModal v-model="showChangePasswordModal" @change-success="showChangePasswordModal = false" />
+    <ResetPasswordModal
+      v-model="showChangePasswordModal"
+      @change-success="showChangePasswordModal = false"
+    />
   </el-container>
 </template>
 
@@ -181,7 +231,7 @@ const generateBreadcrumbs = (path: string) => {
   const buildBreadcrumbTrail = (
     menuItems: MenuTreeVO[],
     targetPath: string,
-    trail: MenuTreeVO[] = []
+    trail: MenuTreeVO[] = [],
   ): MenuTreeVO[] | null => {
     for (const item of menuItems) {
       const currentTrail = [...trail, item];
@@ -194,7 +244,7 @@ const generateBreadcrumbs = (path: string) => {
         const result = buildBreadcrumbTrail(
           item.children,
           targetPath,
-          currentTrail
+          currentTrail,
         );
         if (result) return result;
       }
@@ -231,7 +281,7 @@ watch(
   (newPath) => {
     generateBreadcrumbs(newPath);
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 // 获取菜单数据后设置默认展开
@@ -295,6 +345,7 @@ body {
 }
 
 #app {
+  min-height: 100vh;
   height: 100%;
 }
 
@@ -380,12 +431,10 @@ body {
 /* 主内容区域 - 修复撑满问题 */
 .el-main {
   border-radius: 16px;
-  overflow: hidden;
-  /* Changed from hidden to auto */
+  overflow-y: auto;
   transition: all 0.3s ease;
-  min-height: 100%;
+  min-height: 0;
   height: auto;
-  /* Changed from 100% to auto */
   position: relative;
   flex: 1;
 }

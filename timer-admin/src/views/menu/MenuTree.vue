@@ -36,6 +36,7 @@
         ref="multipleTableRef"
         :data="filteredMenus"
         style="width: 100%"
+        height="450"
         row-key="menuCode"
         :tree-props="{
           children: 'children',
@@ -382,7 +383,7 @@ onMounted(() => {
 <style scoped>
 .menu-list-container {
   background: #ffffff;
-  min-height: 100vh;
+  min-height: 0;
   padding: 20px;
   color: #333333;
 }
@@ -423,6 +424,7 @@ onMounted(() => {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-height: 0;
 }
 
 .pagination {

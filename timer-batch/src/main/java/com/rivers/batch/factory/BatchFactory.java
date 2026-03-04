@@ -88,7 +88,6 @@ public class BatchFactory {
         // Job 创建方式 (Spring Batch 5.0.0 新方式)
         return dynamicJobs.computeIfAbsent(taskName, name ->
                 new JobBuilder(name, jobRepository)
-                        .incrementer(new RunIdIncrementer())
                         .start(step)
                         .build()
         );

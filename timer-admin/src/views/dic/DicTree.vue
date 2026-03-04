@@ -461,7 +461,7 @@ const handleDeleteDic = async (dicData: any) => {
 }
 
 .tree-container {
-  height: calc(100vh - 200px);
+  height: calc(100vh - 250px);
   overflow: auto;
   border: 1px solid #e0e0e0;
   border-radius: 4px;

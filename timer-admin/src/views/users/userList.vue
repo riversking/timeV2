@@ -295,7 +295,7 @@ const handleUpdateUser = async (data: any) => {
 .user-list-container {
   /* Changed from dark gradient to white background */
   background: #ffffff;
-  min-height: 100vh;
+  min-height: 0;
   padding: 20px;
   color: #333333; /* Changed text color to dark for contrast */
 }

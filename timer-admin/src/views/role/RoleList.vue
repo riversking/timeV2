@@ -278,7 +278,7 @@ const handleRoleUserClose = () => {
 <style scoped>
 .role-list-container {
   background: #ffffff;
-  min-height: 100vh;
+  min-height: 0;
   padding: 20px;
   color: #333333;
 }

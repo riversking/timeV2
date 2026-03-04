@@ -33,6 +33,7 @@ public class BusinessTasklet implements Tasklet {
     @NullMarked
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) {
         JobParameters jobParameters = contribution.getStepExecution().getJobParameters();
+        log.info("Job parameters: {}", jobParameters);
         String taskName = jobParameters.getString("taskName");
         String serviceName = jobParameters.getString("serviceName");
         log.info("Executing business task for job: {}", taskName);

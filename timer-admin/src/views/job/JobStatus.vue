@@ -51,7 +51,7 @@
           <div class="stat-content">
             <div class="stat-icon">
               <el-icon :size="40" color="#1890ff">
-                <ListFilled />
+                <List />
               </el-icon>
             </div>
             <div class="stat-info">
@@ -297,16 +297,15 @@ import { ref, reactive, onMounted } from "vue";
 import {
   CircleCheckFilled,
   CircleCloseFilled,
-  Grid,
   TrendCharts,
   Monitor,
-  Close,
   Top,
   Bottom,
   Clock,
   Refresh,
   Document,
   ArrowRight,
+  List,
 } from "@element-plus/icons-vue";
 import {
   ElCard,
@@ -322,13 +321,14 @@ import {
   ElEmpty,
   ElMessage,
 } from "element-plus";
+import { getJobExecutionCounts } from "@/api/job";
 
 // 统计数据
-const totalSuccess = ref(1234);
-const totalFailure = ref(56);
-const totalCount = ref(1290);
-const successRate = ref(95.66);
-const failureRate = ref(4.34);
+const totalSuccess = ref(0);
+const totalFailure = ref(0);
+const totalCount = ref(0);
+const successRate = ref(0);
+const failureRate = ref(0);
 
 // 时间范围选择
 const timeRange = ref("7d");
@@ -524,10 +524,38 @@ const viewAllTasks = () => {
   console.log("跳转到任务列表页面");
 };
 
+const handleJobExecutionCounts = async () => {
+  try {
+    const res = await getJobExecutionCounts();
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    console.log(res.data);
+    const list = res.data.jobExecutionCounts;
+    if (list.length === 0) {
+      return;
+    }
+    list.forEach((item: any) => {
+      if (item.status === "COMPLETED") {
+        totalSuccess.value = item.count;
+        successRate.value = item.rate;
+      } else if (item.status === "FAILED") {
+        totalFailure.value = item.count;
+        failureRate.value = item.rate;
+      }
+    });
+    totalCount.value = res.data.totalCount;
+  } catch (error) {
+    ElMessage.error("获取任务执行次数失败");
+  }
+};
+
 // 加载数据
 onMounted(() => {
   // TODO: 调用 API 加载实际数据
   console.log("任务仪表板已加载");
+  handleJobExecutionCounts();
 });
 </script>
 
@@ -611,7 +639,6 @@ onMounted(() => {
   color: #666;
   font-weight: 500;
 }
-
 
 .stat-trend {
   margin-top: 16px;

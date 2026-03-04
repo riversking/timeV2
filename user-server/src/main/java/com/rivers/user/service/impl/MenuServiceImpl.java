@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -133,6 +134,7 @@ public class MenuServiceImpl implements IMenuService {
                                 BeanUtils.copyProperties(menu, vo);
                                 return vo;
                             })
+                            .sorted(Comparator.comparing(MenuTreeVO::getSortOrder))
                             .toList();
                     TreeFactory<Long, MenuTreeVO> factory = new TreeFactory<>();
                     List<MenuTreeVO> tree = factory.buildTree(menuTrees);

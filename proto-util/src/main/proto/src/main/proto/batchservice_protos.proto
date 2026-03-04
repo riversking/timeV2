@@ -37,10 +37,13 @@ message CommonTaskReq {
 message JobExecutionCount {
     string status = 1;
     int64 count = 2;
+    string rate = 3;
+    string monthDay = 4;
 }
 
 message JobExecutionRes {
     repeated JobExecutionCount jobExecutionCounts = 1;
+    int64 totalCount = 2;
 }
 
 message SchedulerStatusRes {
@@ -48,7 +51,21 @@ message SchedulerStatusRes {
     string schedulerName = 2;
 }
 
-
 message SchedulesRes {
     repeated SchedulerStatusRes schedulerStatusRes = 1;
+}
+
+message JobDateExecutionReq {
+    string time = 1;
+    LoginUser loginUser = 2;
+}
+
+message JobDateExecutionRes {
+    int64 successCount = 1;
+    int64 failureCount = 2;
+    string monthDay = 3;
+}
+
+message JobDateExecutionsRes {
+    repeated JobDateExecutionRes jobDateExecutionsRes = 1;
 }
