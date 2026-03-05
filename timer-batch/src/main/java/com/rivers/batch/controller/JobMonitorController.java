@@ -2,7 +2,8 @@ package com.rivers.batch.controller;
 
 import com.rivers.batch.service.IJobMonitorService;
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.JobExecutionReq;
+import com.rivers.proto.JobDateExecutionReq;
+import com.rivers.proto.JobDateExecutionsRes;
 import com.rivers.proto.JobExecutionRes;
 import com.rivers.proto.SchedulesRes;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,17 +23,17 @@ public class JobMonitorController {
     }
 
     @PostMapping("getJobExecutionCounts")
-    public Mono<ResultVO<JobExecutionRes>> getJobExecutionCounts() {
+    public ResultVO<JobExecutionRes> getJobExecutionCounts() {
         return jobMonitorService.getJobExecutionCounts();
     }
 
     @PostMapping("getSchedules")
-    public Mono<ResultVO<SchedulesRes>> getSchedules() {
+    public ResultVO<SchedulesRes> getSchedules() {
         return jobMonitorService.getSchedules();
     }
 
     @PostMapping("getJobExecutionByDate")
-    public Mono<ResultVO<JobExecutionRes>> getJobExecutionByDate(@RequestBody JobExecutionReq jobExecutionReq) {
+    public ResultVO<JobDateExecutionsRes> getJobExecutionByDate(@RequestBody JobDateExecutionReq jobExecutionReq) {
         return jobMonitorService.getJobExecutionByDate(jobExecutionReq);
     }
 }

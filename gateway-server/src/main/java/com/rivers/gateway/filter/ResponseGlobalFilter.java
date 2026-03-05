@@ -1,8 +1,9 @@
 package com.rivers.gateway.filter;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NullMarked;
 import org.reactivestreams.Publisher;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -14,14 +15,12 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Objects;
 
 @Component
 @Slf4j
@@ -31,17 +30,15 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
     public static final String DEFAULT_RES = "{\"code\": 500, \"message\": \"Internal Server Error\"}";
 
     @Override
+    @NullMarked
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpResponse originalResponse = exchange.getResponse();
         DataBufferFactory bufferFactory = originalResponse.bufferFactory();
         ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(originalResponse) {
             @Override
-            @NonNull
-            public Mono<Void> writeWith(@NonNull Publisher<? extends DataBuffer> body) {
+            @NullMarked
+            public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
                 if (exchange.getRequest().getPath().value().contains(EXPORT_PATH)) {
-                    return super.writeWith(body);
-                }
-                if (Objects.equals(getStatusCode(), HttpStatus.OK)) {
                     return super.writeWith(body);
                 }
                 Flux<DataBuffer> flux = Flux.from(body).cast(DataBuffer.class);
@@ -49,7 +46,6 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
                 return allDataBufferMono.flatMap(originalBuffer -> {
                     byte[] originalBytes = new byte[originalBuffer.readableByteCount()];
                     originalBuffer.read(originalBytes);
-                    // 不手动释放 originalBuffer
                     String originalBody = new String(originalBytes, StandardCharsets.UTF_8);
                     log.info("Original Response Body: {}", originalBody);
                     byte[] modifiedBytes = switch (getStatusCode()) {
@@ -58,25 +54,11 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
                             yield originalBytes;
                         }
                         case HttpStatus.OK, HttpStatus.UNAUTHORIZED -> originalBytes;
-                        default -> {
-                            try {
-                                JSONObject jsonObject = JSON.parseObject(originalBody);
-                                if (jsonObject != null) {
-                                    jsonObject.put("code", jsonObject.get("status"));
-                                    jsonObject.remove("status");
-                                    yield jsonObject.toJSONString().getBytes(StandardCharsets.UTF_8);
-                                } else {
-                                    log.warn("Failed to parse JSON, response is null.");
-                                    yield DEFAULT_RES.getBytes(StandardCharsets.UTF_8);
-                                }
-                            } catch (Exception e) {
-                                log.error("Failed to parse or modify JSON response", e);
-                                yield DEFAULT_RES.getBytes(StandardCharsets.UTF_8);
-                            }
-                        }
+                        default -> DEFAULT_RES.getBytes(StandardCharsets.UTF_8);
                     };
-                    // 使用 usingWhen 管理资源，包括异常情况
+                    getHeaders().setContentLength(modifiedBytes.length);
                     DataBuffer modifiedBuffer = bufferFactory.wrap(modifiedBytes);
+                    setStatusCode(HttpStatus.OK);
                     return Mono.usingWhen(
                             Mono.just(modifiedBuffer),
                             mb -> {
@@ -104,6 +86,6 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1;
+        return NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER;
     }
 }

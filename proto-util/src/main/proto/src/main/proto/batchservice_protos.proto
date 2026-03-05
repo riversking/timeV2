@@ -61,11 +61,11 @@ message JobDateExecutionReq {
 }
 
 message JobDateExecutionRes {
-    int64 successCount = 1;
-    int64 failureCount = 2;
+    string successCount = 1;
+    string failureCount = 2;
     string monthDay = 3;
 }
 
 message JobDateExecutionsRes {
-    repeated JobDateExecutionRes jobDateExecutionsRes = 1;
+    repeated JobDateExecutionRes jobDateExecutions = 1;
 }

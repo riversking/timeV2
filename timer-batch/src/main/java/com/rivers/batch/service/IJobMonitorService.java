@@ -1,14 +1,16 @@
 package com.rivers.batch.service;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.*;
-import reactor.core.publisher.Mono;
+import com.rivers.proto.JobDateExecutionReq;
+import com.rivers.proto.JobDateExecutionsRes;
+import com.rivers.proto.JobExecutionRes;
+import com.rivers.proto.SchedulesRes;
 
 public interface IJobMonitorService {
 
-    Mono<ResultVO<JobExecutionRes>> getJobExecutionCounts();
+    ResultVO<JobExecutionRes> getJobExecutionCounts();
 
-    Mono<ResultVO<SchedulesRes>> getSchedules();
+    ResultVO<SchedulesRes> getSchedules();
 
-    Mono<ResultVO<JobDateExecutionsRes>> getJobExecutionByDate(JobDateExecutionReq jobExecutionReq);
+    ResultVO<JobDateExecutionsRes> getJobExecutionByDate(JobDateExecutionReq jobExecutionReq);
 }
