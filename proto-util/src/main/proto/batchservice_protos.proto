@@ -49,6 +49,12 @@ message JobExecutionRes {
 message SchedulerStatusRes {
     string status = 1;
     string schedulerName = 2;
+    string maxMemory = 3;
+    string totalMemory = 4;
+    string freeMemory = 5;
+    string usedMemory = 6;
+    string cpuCores = 7;
+    string cpuUsage = 8;
 }
 
 message SchedulesRes {
@@ -64,6 +70,8 @@ message JobDateExecutionRes {
     string successCount = 1;
     string failureCount = 2;
     string monthDay = 3;
+    string successPercent = 4;
+    string failurePercent = 5;
 }
 
 message JobDateExecutionsRes {

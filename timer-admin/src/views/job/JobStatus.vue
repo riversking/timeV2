@@ -81,9 +81,9 @@
                 任务执行趋势
               </span>
               <el-select v-model="timeRange" size="small" style="width: 120px">
-                <el-option label="最近 7 天" value="7d" />
-                <el-option label="最近 30 天" value="30d" />
-                <el-option label="最近 90 天" value="90d" />
+                <el-option label="最近 7 天" value="7" />
+                <el-option label="最近 30 天" value="30" />
+                <el-option label="最近 90 天" value="90" />
               </el-select>
             </div>
           </template>
@@ -95,19 +95,19 @@
                 :key="index"
                 class="bar-item"
               >
-                <div class="bar-label">{{ item.date }}</div>
+                <div class="bar-label">{{ item.monthDay }}</div>
                 <div class="bar-wrapper">
                   <div
                     class="bar-success"
                     :style="{ height: item.successPercent + '%' }"
                   >
-                    <span class="bar-value">{{ item.success }}</span>
+                    <span class="bar-value">{{ item.successCount }}</span>
                   </div>
                   <div
                     class="bar-failure"
                     :style="{ height: item.failurePercent + '%' }"
                   >
-                    <span class="bar-value">{{ item.failure }}</span>
+                    <span class="bar-value">{{ item.failureCount }}</span>
                   </div>
                 </div>
               </div>
@@ -158,22 +158,24 @@
                   <el-icon
                     :size="18"
                     :color="
-                      executor.status === 'online' ? '#52c41a' : '#ff4d4f'
+                      executor.status === 'COMPLATED' ? '#52c41a' : '#ff4d4f'
                     "
                   >
-                    <Monitor v-if="executor.status === 'online'" />
+                    <Monitor v-if="executor.status === 'COMPLATED'" />
                     <Disconnect v-else />
                   </el-icon>
-                  <span>{{ executor.name }}</span>
+                  <span>{{ executor.schedulerName }}</span>
                 </div>
                 <div class="executor-detail">
                   <span class="executor-ip">{{ executor.ip }}</span>
                   <el-tag
-                    :type="executor.status === 'online' ? 'success' : 'danger'"
+                    :type="
+                      executor.status === 'COMPLATED' ? 'success' : 'danger'
+                    "
                     size="small"
                     effect="plain"
                   >
-                    {{ executor.status === "online" ? "在线" : "离线" }}
+                    {{ executor.status === "COMPLATED" ? "在线" : "离线" }}
                   </el-tag>
                 </div>
               </div>
@@ -214,11 +216,11 @@
                   <div class="progress-bar">
                     <div
                       class="progress-fill"
-                      :style="{ width: executor.memoryUsage + '%' }"
-                      :class="getMemoryUsageClass(executor.memoryUsage)"
+                      :style="{ width: executor.usedMemory + '%' }"
+                      :class="getMemoryUsageClass(executor.usedMemory)"
                     ></div>
                     <span class="progress-text"
-                      >{{ executor.memoryUsage }}%</span
+                      >{{ executor.usedMemory }}%</span
                     >
                   </div>
                 </div>
@@ -321,7 +323,11 @@ import {
   ElEmpty,
   ElMessage,
 } from "element-plus";
-import { getJobExecutionCounts } from "@/api/job";
+import {
+  getJobExecutionCounts,
+  getJobExecutionByDate,
+  getSchedules,
+} from "@/api/job";
 
 // 统计数据
 const totalSuccess = ref(0);
@@ -331,115 +337,36 @@ const successRate = ref(0);
 const failureRate = ref(0);
 
 // 时间范围选择
-const timeRange = ref("7d");
+const timeRange = ref("7");
+
+interface JobExecution {
+  successCount: string;
+  failureCount: string;
+  monthDay: string;
+  successPercent: string;
+  failurePercent: string;
+}
 
 // 趋势图数据
-const trendData = reactive([
-  {
-    date: "12-26",
-    success: 180,
-    failure: 8,
-    successPercent: 90,
-    failurePercent: 4,
-  },
-  {
-    date: "12-27",
-    success: 165,
-    failure: 12,
-    successPercent: 82,
-    failurePercent: 6,
-  },
-  {
-    date: "12-28",
-    success: 195,
-    failure: 5,
-    successPercent: 97,
-    failurePercent: 2,
-  },
-  {
-    date: "12-29",
-    success: 172,
-    failure: 10,
-    successPercent: 86,
-    failurePercent: 5,
-  },
-  {
-    date: "12-30",
-    success: 188,
-    failure: 7,
-    successPercent: 94,
-    failurePercent: 3,
-  },
-  {
-    date: "12-31",
-    success: 176,
-    failure: 9,
-    successPercent: 88,
-    failurePercent: 4,
-  },
-  {
-    date: "01-01",
-    success: 163,
-    failure: 5,
-    successPercent: 81,
-    failurePercent: 2,
-  },
-]);
+const trendData = ref<JobExecution[]>();
 
 // 执行器数据
 interface Executor {
   id: number;
-  name: string;
+  schedulerName: string;
   ip: string;
-  status: "online" | "offline";
-  processedTasks: number;
+  status: "COMPLATED" | "FAUILURE" | "RUNNING";
+  maxMemory: string;
+  usedMemory: string;
+  totalMemory: string;
+  freeMemory: string;
+  cpuCores: string;
+  cpuUsage: string;
+  processedTasks: string;
   successRate: number;
-  cpuUsage: number;
-  memoryUsage: number;
 }
 
-const executorData = ref<Executor[]>([
-  {
-    id: 1,
-    name: "执行器 -01",
-    ip: "192.168.1.101",
-    status: "online",
-    processedTasks: 456,
-    successRate: 98.5,
-    cpuUsage: 45,
-    memoryUsage: 62,
-  },
-  {
-    id: 2,
-    name: "执行器 -02",
-    ip: "192.168.1.102",
-    status: "online",
-    processedTasks: 389,
-    successRate: 96.2,
-    cpuUsage: 68,
-    memoryUsage: 75,
-  },
-  {
-    id: 3,
-    name: "执行器 -03",
-    ip: "192.168.1.103",
-    status: "offline",
-    processedTasks: 278,
-    successRate: 94.8,
-    cpuUsage: 0,
-    memoryUsage: 0,
-  },
-  {
-    id: 4,
-    name: "执行器 -04",
-    ip: "192.168.1.104",
-    status: "online",
-    processedTasks: 412,
-    successRate: 97.1,
-    cpuUsage: 52,
-    memoryUsage: 58,
-  },
-]);
+const executorData = ref<Executor[]>([]);
 
 // 最近任务数据
 interface TaskRecord {
@@ -451,48 +378,7 @@ interface TaskRecord {
   message: string;
 }
 
-const recentTasks = ref<TaskRecord[]>([
-  {
-    taskName: "数据同步任务",
-    executor: "执行器 -01",
-    startTime: "2026-03-02 23:45:00",
-    duration: "2m 15s",
-    status: "success",
-    message: "成功同步 1,234 条数据",
-  },
-  {
-    taskName: "日志清理任务",
-    executor: "执行器 -02",
-    startTime: "2026-03-02 23:30:00",
-    duration: "5m 32s",
-    status: "success",
-    message: "清理过期日志 567MB",
-  },
-  {
-    taskName: "报表生成任务",
-    executor: "执行器 -03",
-    startTime: "2026-03-02 23:15:00",
-    duration: "-",
-    status: "failure",
-    message: "数据库连接超时",
-  },
-  {
-    taskName: "消息推送任务",
-    executor: "执行器 -04",
-    startTime: "2026-03-02 23:00:00",
-    duration: "1m 48s",
-    status: "success",
-    message: "成功推送 2,345 条消息",
-  },
-  {
-    taskName: "备份任务",
-    executor: "执行器 -01",
-    startTime: "2026-03-02 22:45:00",
-    duration: "15m 20s",
-    status: "success",
-    message: "完成全量备份，大小 3.2GB",
-  },
-]);
+const recentTasks = ref<TaskRecord[]>([]);
 
 // 刷新执行器状态
 const refreshExecutorStatus = async () => {
@@ -505,14 +391,14 @@ const refreshExecutorStatus = async () => {
 };
 
 // 获取 CPU 使用率样式类
-const getCpuUsageClass = (usage: number) => {
+const getCpuUsageClass = (usage: any) => {
   if (usage >= 80) return "progress-danger";
   if (usage >= 60) return "progress-warning";
   return "progress-success";
 };
 
 // 获取内存使用率样式类
-const getMemoryUsageClass = (usage: number) => {
+const getMemoryUsageClass = (usage: any) => {
   if (usage >= 80) return "progress-danger";
   if (usage >= 60) return "progress-warning";
   return "progress-success";
@@ -551,11 +437,40 @@ const handleJobExecutionCounts = async () => {
   }
 };
 
+const handleJobExecutionByDate = async () => {
+  try {
+    const res = await getJobExecutionByDate({
+      time: timeRange.value,
+    });
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    trendData.value = res.data.jobDateExecutions;
+  } catch (error) {
+    ElMessage.error("获取任务执行次数失败");
+  }
+};
+
+const handleSchedules = async () => {
+  try {
+    const res = await getSchedules();
+    if (res.code !== 200) {
+      ElMessage.error(res.message);
+      return;
+    }
+    executorData.value = res.data.schedules;
+  } catch (error) {
+    ElMessage.error("获取执行器列表失败");
+  }
+};
+
 // 加载数据
 onMounted(() => {
   // TODO: 调用 API 加载实际数据
   console.log("任务仪表板已加载");
   handleJobExecutionCounts();
+  handleJobExecutionByDate();
 });
 </script>
 

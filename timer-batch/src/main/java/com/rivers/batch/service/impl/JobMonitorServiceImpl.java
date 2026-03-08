@@ -2,6 +2,7 @@ package com.rivers.batch.service.impl;
 
 import cn.hutool.core.util.NumberUtil;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.rivers.batch.service.IJobMonitorService;
 import com.rivers.batch.vo.StatusCountVO;
 import com.rivers.core.vo.ResultVO;
@@ -89,9 +90,20 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
     @SneakyThrows
     @Override
     public ResultVO<SchedulesRes> getSchedules() {
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        int cpuCores = runtime.availableProcessors();
         SchedulerStatusRes schedulerStatusRes = SchedulerStatusRes.newBuilder()
                 .setSchedulerName(scheduler.getSchedulerName())
                 .setStatus(scheduler.isStarted() ? "STARTED" : "STOPPED")
+                .setMaxMemory(String.valueOf(maxMemory))
+                .setTotalMemory(String.valueOf(totalMemory))
+                .setFreeMemory(String.valueOf(freeMemory))
+                .setUsedMemory(String.valueOf(usedMemory))
+                .setCpuCores(String.valueOf(cpuCores))
                 .build();
         return ResultVO.ok(SchedulesRes.newBuilder()
                 .addAllSchedulerStatusRes(Lists.newArrayList(schedulerStatusRes))
@@ -123,13 +135,31 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                                 k.getCreateTime().getMonthValue() + "-" + k.getCreateTime().getDayOfMonth(),
                         Collectors.groupingBy(StatusCountVO::getStatus,
                                 Collectors.summingInt(StatusCountVO::getCount))));
-        List<JobDateExecutionRes> list = dateStatusMap.entrySet().stream()
-                .map(i ->
-                        JobDateExecutionRes.newBuilder()
-                                .setSuccessCount(String.valueOf(i.getValue().getOrDefault("COMPLETED", 0)))
-                                .setFailureCount(String.valueOf(i.getValue().getOrDefault("FAILED", 0)))
-                                .setMonthDay(i.getKey())
-                                .build())
+        List<String> allDates = startDate.datesUntil(endDate.plusDays(1))
+                .map(date -> date.getMonthValue() + "-" + date.getDayOfMonth())
+                .toList();
+        List<JobDateExecutionRes> list = allDates.stream()
+                .map(date -> {
+                    Map<String, Integer> statusMap = dateStatusMap.getOrDefault(date, Maps.newHashMap());
+                    Integer completed = statusMap.getOrDefault("COMPLETED", 0);
+                    Integer failed = statusMap.getOrDefault("FAILED", 0);
+                    int sum = completed + failed;
+                    BigDecimal successPercent = sum > 0
+                            ? BigDecimal.valueOf(completed).multiply(BigDecimal.valueOf(100))
+                            .divide(BigDecimal.valueOf(sum), 2, RoundingMode.HALF_UP)
+                            : BigDecimal.ZERO;
+                    BigDecimal failurePercent = sum > 0
+                            ? BigDecimal.valueOf(failed).multiply(BigDecimal.valueOf(100))
+                            .divide(BigDecimal.valueOf(sum), 2, RoundingMode.HALF_UP)
+                            : BigDecimal.ZERO;
+                    return JobDateExecutionRes.newBuilder()
+                            .setSuccessCount(String.valueOf(completed))
+                            .setFailureCount(String.valueOf(failed))
+                            .setSuccessPercent(String.valueOf(successPercent))
+                            .setFailurePercent(String.valueOf(failurePercent))
+                            .setMonthDay(date)
+                            .build();
+                })
                 .toList();
         return ResultVO.ok(JobDateExecutionsRes.newBuilder().addAllJobDateExecutions(list).build());
     }
