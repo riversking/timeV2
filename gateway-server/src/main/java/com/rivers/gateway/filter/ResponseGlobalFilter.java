@@ -66,7 +66,7 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
                                 return getDelegate().writeWith(Flux.just(mb));
                             },
                             mb -> Mono.fromCallable(() -> DataBufferUtils.release(mb)),
-                            (mb, error) -> Mono.fromRunnable(() -> DataBufferUtils.release(mb)),
+                            (mb, _) -> Mono.fromRunnable(() -> DataBufferUtils.release(mb)),
                             mb -> Mono.fromRunnable(() -> DataBufferUtils.release(mb))
                     );
                 }).onErrorResume(e -> {

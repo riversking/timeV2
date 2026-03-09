@@ -150,7 +150,7 @@
           <div class="executor-list">
             <div
               v-for="executor in executorData"
-              :key="executor.id"
+              :key="executor.schedulerName"
               class="executor-item"
             >
               <div class="executor-info">
@@ -182,12 +182,6 @@
 
               <div class="executor-stats">
                 <div class="executor-stat">
-                  <div class="stat-label-small">处理任务</div>
-                  <div class="stat-value-small">
-                    {{ executor.processedTasks }}
-                  </div>
-                </div>
-                <div class="executor-stat">
                   <div class="stat-label-small">成功率</div>
                   <div
                     class="stat-value-small"
@@ -198,17 +192,6 @@
                     "
                   >
                     {{ executor.successRate }}%
-                  </div>
-                </div>
-                <div class="executor-stat">
-                  <div class="stat-label-small">CPU</div>
-                  <div class="progress-bar">
-                    <div
-                      class="progress-fill"
-                      :style="{ width: executor.cpuUsage + '%' }"
-                      :class="getCpuUsageClass(executor.cpuUsage)"
-                    ></div>
-                    <span class="progress-text">{{ executor.cpuUsage }}%</span>
                   </div>
                 </div>
                 <div class="executor-stat">
@@ -471,6 +454,7 @@ onMounted(() => {
   console.log("任务仪表板已加载");
   handleJobExecutionCounts();
   handleJobExecutionByDate();
+  handleSchedules();
 });
 </script>
 

@@ -1,16 +1,19 @@
 package com.rivers.batch.service.impl;
 
 import cn.hutool.core.util.NumberUtil;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.rivers.batch.entity.QrtzTriggers;
+import com.rivers.batch.mapper.QrtzTriggersMapper;
 import com.rivers.batch.service.IJobMonitorService;
 import com.rivers.batch.vo.StatusCountVO;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import lombok.SneakyThrows;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.quartz.Scheduler;
-import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -30,14 +33,17 @@ import java.util.stream.Collectors;
 @Service
 public class JobMonitorServiceImpl implements IJobMonitorService {
 
-    private final JobRepository jobRepository;
     private final JdbcTemplate jdbcTemplate;
+
     private final Scheduler scheduler;
 
-    public JobMonitorServiceImpl(JobRepository jobRepository, JdbcTemplate jdbcTemplate, Scheduler scheduler) {
-        this.jobRepository = jobRepository;
+    private final QrtzTriggersMapper qrtzTriggersMapper;
+
+    public JobMonitorServiceImpl(JdbcTemplate jdbcTemplate, Scheduler scheduler,
+                                 QrtzTriggersMapper qrtzTriggersMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.scheduler = scheduler;
+        this.qrtzTriggersMapper = qrtzTriggersMapper;
     }
 
     @Override
@@ -90,23 +96,32 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
     @SneakyThrows
     @Override
     public ResultVO<SchedulesRes> getSchedules() {
-        Runtime runtime = Runtime.getRuntime();
-        long maxMemory = runtime.maxMemory();
-        long totalMemory = runtime.totalMemory();
-        long freeMemory = runtime.freeMemory();
-        long usedMemory = totalMemory - freeMemory;
-        int cpuCores = runtime.availableProcessors();
-        SchedulerStatusRes schedulerStatusRes = SchedulerStatusRes.newBuilder()
-                .setSchedulerName(scheduler.getSchedulerName())
-                .setStatus(scheduler.isStarted() ? "STARTED" : "STOPPED")
-                .setMaxMemory(String.valueOf(maxMemory))
-                .setTotalMemory(String.valueOf(totalMemory))
-                .setFreeMemory(String.valueOf(freeMemory))
-                .setUsedMemory(String.valueOf(usedMemory))
-                .setCpuCores(String.valueOf(cpuCores))
-                .build();
+        List<QrtzTriggers> qrtzTriggers = qrtzTriggersMapper.selectList(Wrappers.emptyWrapper());
+        if (CollectionUtils.isEmpty(qrtzTriggers)) {
+            return ResultVO.fail("没有任务");
+        }
+        List<SchedulerStatusRes> list = qrtzTriggers.stream()
+                .map(i -> {
+                    Runtime runtime = Runtime.getRuntime();
+                    long maxMemory = runtime.maxMemory();
+                    long totalMemory = runtime.totalMemory();
+                    long freeMemory = runtime.freeMemory();
+                    long usedMemory = totalMemory - freeMemory;
+                    int cpuCores = runtime.availableProcessors();
+                    return SchedulerStatusRes.newBuilder()
+                            .setSchedulerName(i.getTriggerName())
+                            .setStatus(i.getTriggerState())
+                            .setMaxMemory(String.valueOf(maxMemory))
+                            .setTotalMemory(String.valueOf(totalMemory))
+                            .setFreeMemory(String.valueOf(freeMemory))
+                            .setUsedMemory(String.valueOf(BigDecimal.valueOf(usedMemory).multiply(BigDecimal.valueOf(100))
+                                    .divide(BigDecimal.valueOf(maxMemory), 2, RoundingMode.HALF_UP)))
+                            .setCpuCores(String.valueOf(cpuCores))
+                            .build();
+                })
+                .toList();
         return ResultVO.ok(SchedulesRes.newBuilder()
-                .addAllSchedulerStatusRes(Lists.newArrayList(schedulerStatusRes))
+                .addAllSchedules(list)
                 .build());
     }
 

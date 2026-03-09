@@ -36,6 +36,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * @author riversking
+ */
 @Component
 @Slf4j
 public class RequestGlobalFilter implements GlobalFilter, Ordered {

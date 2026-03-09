@@ -1,7 +1,7 @@
-package com.rivers.user.mapper;
+package com.rivers.batch.mapper;
 
-import com.rivers.user.entity.QrtzTriggers;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.rivers.batch.entity.QrtzTriggers;
 
 /**
  * <p>

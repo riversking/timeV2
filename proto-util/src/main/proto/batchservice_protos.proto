@@ -58,7 +58,7 @@ message SchedulerStatusRes {
 }
 
 message SchedulesRes {
-    repeated SchedulerStatusRes schedulerStatusRes = 1;
+    repeated SchedulerStatusRes schedules = 1;
 }
 
 message JobDateExecutionReq {
