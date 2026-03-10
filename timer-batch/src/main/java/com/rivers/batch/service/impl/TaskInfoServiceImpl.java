@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
+/**
+ * @author xx
+ */
 @Service
 @Slf4j
 public class TaskInfoServiceImpl implements ITaskInfoService {
@@ -93,6 +96,10 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
             return ResultVO.fail("服务名称不能为空");
         }
         long id = updateTaskInfoReq.getId();
+        TaskInfo oldTask = taskInfoMapper.selectById(id);
+        if (oldTask == null) {
+            return ResultVO.fail("任务不存在");
+        }
         LambdaQueryWrapper<TaskInfo> taskWrapper = Wrappers.lambdaQuery();
         taskWrapper.eq(TaskInfo::getTaskName, taskName)
                 .eq(TaskInfo::getServiceName, serviceName);
@@ -100,6 +107,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         if (taskInfo != null && taskInfo.getId() != id) {
             return ResultVO.fail("任务名称已存在");
         }
+        LoginUser loginUser = updateTaskInfoReq.getLoginUser();
         TaskInfo task = new TaskInfo();
         task.setId(id);
         task.setTaskName(taskName);
@@ -107,9 +115,10 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         task.setServiceName(serviceName);
         task.setCron(cron);
         task.setEmail(updateTaskInfoReq.getEmail());
+        task.setUpdateUser(loginUser.getUserId());
         task.updateById();
         try {
-            scheduler.deleteJob(JobKey.jobKey(taskName));
+            scheduler.deleteJob(JobKey.jobKey(oldTask.getTaskName()));
         } catch (SchedulerException e) {
             throw new BusinessException("", e);
         }

@@ -55,6 +55,8 @@ message SchedulerStatusRes {
     string usedMemory = 6;
     string cpuCores = 7;
     string cpuUsage = 8;
+    string jobCount = 9;
+    string successFullyCount = 10;
 }
 
 message SchedulesRes {

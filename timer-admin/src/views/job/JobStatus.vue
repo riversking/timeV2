@@ -162,7 +162,7 @@
                     "
                   >
                     <Monitor v-if="executor.status === 'COMPLATED'" />
-                    <Disconnect v-else />
+                    <WarnTriangleFilled v-else />
                   </el-icon>
                   <span>{{ executor.schedulerName }}</span>
                 </div>
@@ -181,6 +181,12 @@
               </div>
 
               <div class="executor-stats">
+                <div class="executor-stat">
+                  <div class="stat-label-small">执行次数</div>
+                  <div class="stat-value-small">
+                    {{ executor.jobCount }}
+                  </div>
+                </div>
                 <div class="executor-stat">
                   <div class="stat-label-small">成功率</div>
                   <div
@@ -291,6 +297,8 @@ import {
   Document,
   ArrowRight,
   List,
+  WarnTriangleFilled,
+  Connection
 } from "@element-plus/icons-vue";
 import {
   ElCard,
@@ -345,7 +353,7 @@ interface Executor {
   freeMemory: string;
   cpuCores: string;
   cpuUsage: string;
-  processedTasks: string;
+  jobCount: string;
   successRate: number;
 }
 

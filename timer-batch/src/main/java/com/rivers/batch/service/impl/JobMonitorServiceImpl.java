@@ -3,10 +3,10 @@ package com.rivers.batch.service.impl;
 import cn.hutool.core.util.NumberUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.rivers.batch.entity.QrtzTriggers;
 import com.rivers.batch.mapper.QrtzTriggersMapper;
 import com.rivers.batch.service.IJobMonitorService;
+import com.rivers.batch.vo.JobCountVO;
 import com.rivers.batch.vo.StatusCountVO;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
@@ -29,6 +29,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static com.google.common.collect.Maps.newHashMap;
 
 @Service
 public class JobMonitorServiceImpl implements IJobMonitorService {
@@ -100,14 +102,31 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         if (CollectionUtils.isEmpty(qrtzTriggers)) {
             return ResultVO.fail("没有任务");
         }
+        String sql = "SELECT B.JOB_NAME,A.STATUS, COUNT(*) AS count FROM BATCH_JOB_EXECUTION A " +
+                "LEFT JOIN BATCH_JOB_INSTANCE B ON A.JOB_INSTANCE_ID = B.JOB_INSTANCE_ID " +
+                "WHERE B.JOB_NAME IN (:jobName) GROUP BY B.JOB_NAME, A.STATUS";
+        List<String> jobNames = qrtzTriggers.stream()
+                .map(QrtzTriggers::getJobName)
+                .toList();
+        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("jobName", jobNames);
+        List<JobCountVO> jobCounts = namedJdbcTemplate.query(sql, params, new JobCountRowMapper());
+        Map<String, Map<String, Long>> jobStatusCountMap = jobCounts.stream()
+                .collect(Collectors.groupingBy(JobCountVO::getJobName,
+                        Collectors.groupingBy(JobCountVO::getStatus, Collectors.summingLong(JobCountVO::getCount))));
         List<SchedulerStatusRes> list = qrtzTriggers.stream()
                 .map(i -> {
+                    String jobName = i.getJobName();
                     Runtime runtime = Runtime.getRuntime();
                     long maxMemory = runtime.maxMemory();
                     long totalMemory = runtime.totalMemory();
                     long freeMemory = runtime.freeMemory();
                     long usedMemory = totalMemory - freeMemory;
                     int cpuCores = runtime.availableProcessors();
+                    Map<String, Long> statusCount = jobStatusCountMap.getOrDefault(jobName, newHashMap());
+                    long totalSum = statusCount.values().stream().mapToLong(j -> j).sum();
+                    Long successCount = statusCount.getOrDefault("COMPLETED", 0L);
                     return SchedulerStatusRes.newBuilder()
                             .setSchedulerName(i.getTriggerName())
                             .setStatus(i.getTriggerState())
@@ -117,6 +136,10 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                             .setUsedMemory(String.valueOf(BigDecimal.valueOf(usedMemory).multiply(BigDecimal.valueOf(100))
                                     .divide(BigDecimal.valueOf(maxMemory), 2, RoundingMode.HALF_UP)))
                             .setCpuCores(String.valueOf(cpuCores))
+                            .setJobCount(String.valueOf(totalSum))
+                            .setSuccessFullyCount(String.valueOf(BigDecimal.valueOf(successCount)
+                                    .multiply(BigDecimal.valueOf(100))
+                                    .divide(BigDecimal.valueOf(totalSum),2, RoundingMode.HALF_UP)))
                             .build();
                 })
                 .toList();
@@ -155,7 +178,7 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                 .toList();
         List<JobDateExecutionRes> list = allDates.stream()
                 .map(date -> {
-                    Map<String, Integer> statusMap = dateStatusMap.getOrDefault(date, Maps.newHashMap());
+                    Map<String, Integer> statusMap = dateStatusMap.getOrDefault(date, newHashMap());
                     Integer completed = statusMap.getOrDefault("COMPLETED", 0);
                     Integer failed = statusMap.getOrDefault("FAILED", 0);
                     int sum = completed + failed;
@@ -198,6 +221,17 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                     rs.getString("STATUS"),
                     rs.getInt("count"),
                     rs.getTimestamp("CREATE_TIME") != null ? rs.getTimestamp("CREATE_TIME").toLocalDateTime() : null
+            );
+        }
+    }
+
+    private static class JobCountRowMapper implements RowMapper<JobCountVO> {
+        @Override
+        public JobCountVO mapRow(ResultSet rs, int rowNum) throws SQLException {
+            return new JobCountVO(
+                    rs.getLong("count"),
+                    rs.getString("JOB_NAME"),
+                    rs.getString("STATUS")
             );
         }
     }
