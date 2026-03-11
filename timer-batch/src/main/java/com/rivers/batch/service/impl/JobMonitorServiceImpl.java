@@ -13,7 +13,6 @@ import com.rivers.proto.*;
 import lombok.SneakyThrows;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.quartz.Scheduler;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -32,19 +31,20 @@ import java.util.stream.Collectors;
 
 import static com.google.common.collect.Maps.newHashMap;
 
+/**
+ * @author xx
+ */
 @Service
 public class JobMonitorServiceImpl implements IJobMonitorService {
 
+    public static final String COUNT = "count";
+    public static final String STATUS = "STATUS";
     private final JdbcTemplate jdbcTemplate;
-
-    private final Scheduler scheduler;
 
     private final QrtzTriggersMapper qrtzTriggersMapper;
 
-    public JobMonitorServiceImpl(JdbcTemplate jdbcTemplate, Scheduler scheduler,
-                                 QrtzTriggersMapper qrtzTriggersMapper) {
+    public JobMonitorServiceImpl(JdbcTemplate jdbcTemplate, QrtzTriggersMapper qrtzTriggersMapper) {
         this.jdbcTemplate = jdbcTemplate;
-        this.scheduler = scheduler;
         this.qrtzTriggersMapper = qrtzTriggersMapper;
     }
 
@@ -139,7 +139,7 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                             .setJobCount(String.valueOf(totalSum))
                             .setSuccessFullyCount(String.valueOf(BigDecimal.valueOf(successCount)
                                     .multiply(BigDecimal.valueOf(100))
-                                    .divide(BigDecimal.valueOf(totalSum),2, RoundingMode.HALF_UP)))
+                                    .divide(BigDecimal.valueOf(totalSum), 2, RoundingMode.HALF_UP)))
                             .build();
                 })
                 .toList();
@@ -207,8 +207,8 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         @Override
         public StatusCountVO mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new StatusCountVO(
-                    rs.getString("STATUS"),
-                    rs.getInt("count"),
+                    rs.getString(STATUS),
+                    rs.getInt(COUNT),
                     null
             );
         }
@@ -218,8 +218,8 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         @Override
         public StatusCountVO mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new StatusCountVO(
-                    rs.getString("STATUS"),
-                    rs.getInt("count"),
+                    rs.getString(STATUS),
+                    rs.getInt(COUNT),
                     rs.getTimestamp("CREATE_TIME") != null ? rs.getTimestamp("CREATE_TIME").toLocalDateTime() : null
             );
         }
@@ -229,9 +229,9 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         @Override
         public JobCountVO mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new JobCountVO(
-                    rs.getLong("count"),
+                    rs.getLong(COUNT),
                     rs.getString("JOB_NAME"),
-                    rs.getString("STATUS")
+                    rs.getString(STATUS)
             );
         }
     }
