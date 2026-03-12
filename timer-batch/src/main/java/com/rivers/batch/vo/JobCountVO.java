@@ -18,8 +18,8 @@ public class JobCountVO implements Serializable {
 
     private Long count;
 
-    private String status;
-
     private String jobName;
+
+    private String status;
 
 }

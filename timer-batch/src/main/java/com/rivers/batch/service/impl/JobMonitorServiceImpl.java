@@ -125,7 +125,7 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                     long usedMemory = totalMemory - freeMemory;
                     int cpuCores = runtime.availableProcessors();
                     Map<String, Long> statusCount = jobStatusCountMap.getOrDefault(jobName, newHashMap());
-                    long totalSum = statusCount.values().stream().mapToLong(j -> j).sum();
+                    long totalSum = statusCount.values().stream().mapToLong(Long::longValue).sum();
                     Long successCount = statusCount.getOrDefault("COMPLETED", 0L);
                     return SchedulerStatusRes.newBuilder()
                             .setSchedulerName(i.getTriggerName())
@@ -133,13 +133,14 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                             .setMaxMemory(String.valueOf(maxMemory))
                             .setTotalMemory(String.valueOf(totalMemory))
                             .setFreeMemory(String.valueOf(freeMemory))
-                            .setUsedMemory(String.valueOf(BigDecimal.valueOf(usedMemory).multiply(BigDecimal.valueOf(100))
-                                    .divide(BigDecimal.valueOf(maxMemory), 2, RoundingMode.HALF_UP)))
+                            .setUsedMemory(String.valueOf(totalSum > 0 ? BigDecimal.valueOf(usedMemory)
+                                    .multiply(BigDecimal.valueOf(100))
+                                    .divide(BigDecimal.valueOf(maxMemory), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO))
                             .setCpuCores(String.valueOf(cpuCores))
                             .setJobCount(String.valueOf(totalSum))
-                            .setSuccessFullyCount(String.valueOf(BigDecimal.valueOf(successCount)
+                            .setSuccessFullyCount(String.valueOf(totalSum > 0 ? BigDecimal.valueOf(successCount)
                                     .multiply(BigDecimal.valueOf(100))
-                                    .divide(BigDecimal.valueOf(totalSum), 2, RoundingMode.HALF_UP)))
+                                    .divide(BigDecimal.valueOf(totalSum), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO))
                             .build();
                 })
                 .toList();

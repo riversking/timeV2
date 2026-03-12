@@ -133,7 +133,7 @@
           <template #header>
             <div class="card-header">
               <span class="card-title">
-                <el-icon><Server /></el-icon>
+                <el-icon><Cpu /></el-icon>
                 执行器状态
               </span>
               <el-button
@@ -192,12 +192,12 @@
                   <div
                     class="stat-value-small"
                     :class="
-                      executor.successRate >= 90
+                      executor.successFullyCount >= 90
                         ? 'success-text'
                         : 'warning-text'
                     "
                   >
-                    {{ executor.successRate }}%
+                    {{ executor.successFullyCount }}%
                   </div>
                 </div>
                 <div class="executor-stat">
@@ -298,7 +298,7 @@ import {
   ArrowRight,
   List,
   WarnTriangleFilled,
-  Connection
+  Cpu
 } from "@element-plus/icons-vue";
 import {
   ElCard,
@@ -354,7 +354,7 @@ interface Executor {
   cpuCores: string;
   cpuUsage: string;
   jobCount: string;
-  successRate: number;
+  successFullyCount: number;
 }
 
 const executorData = ref<Executor[]>([]);
