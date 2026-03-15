@@ -343,3 +343,12 @@ message DicDataDetailRes {
     string updateTime = 7;
     repeated DicDataDetailRes children = 9;
 }
+
+message AutoLoginReq {
+    string refreshToken = 1;
+}
+
+message AutoLoginRes {
+    string token = 1;
+    string refreshToken = 2;
+}
