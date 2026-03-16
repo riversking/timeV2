@@ -16,5 +16,5 @@ public interface ILoginService {
 
     ResultVO<AutoLoginRes> autoLogin(String authHeader);
 
-    ResultVO<AutoLoginRes> refreshToken(AutoLoginReq autoLoginReq);
+    ResultVO<AutoLoginRes> refresh(AutoLoginReq autoLoginReq);
 }

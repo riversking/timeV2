@@ -1,5 +1,6 @@
 // src/services/http.ts
 import axios from 'axios'
+import { refreshToken, autoLogin } from '@/api/user'
 
 // 创建 axios 实例
 const http = axios.create({
@@ -32,13 +33,50 @@ http.interceptors.response.use(
     }
     return response;
   },
-  error => {
+  async error => {
     // 检查HTTP状态码是否为401
     if (error.response && error.response.status === 401) {
-      // 清除本地存储的token
-      localStorage.removeItem('token');
-      // 直接跳转到登录页
-      window.location.href = '/login';
+      try {
+        // 先尝试调用refresh接口
+        const refreshResponse = await refreshToken();
+        if (refreshResponse.code === 200) {
+          // refresh成功，更新token并重试原始请求
+          const newToken = refreshResponse.data.token;
+          localStorage.setItem('token', newToken);
+          
+          // 重新设置原始请求的Authorization头
+          const originalRequest = error.config;
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          
+          // 重试原始请求
+          return http(originalRequest);
+        } else {
+          // refresh失败，尝试autoLogin
+          const autoLoginResponse = await autoLogin();
+          if (autoLoginResponse.code === 200) {
+            // autoLogin成功，更新token并重试原始请求
+            const newToken = autoLoginResponse.data.token;
+            localStorage.setItem('token', newToken);
+            
+            // 重新设置原始请求的Authorization头
+            const originalRequest = error.config;
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            
+            // 重试原始请求
+            return http(originalRequest);
+          } else {
+            // autoLogin也失败，清除token并跳转到登录页
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+            return Promise.reject(new Error('Unauthorized'));
+          }
+        }
+      } catch (refreshError) {
+        // refresh或autoLogin过程中发生网络错误，直接跳转到登录页
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
     }
     
     // 可以在这里统一弹出错误提示（如使用 ElMessage、Toast 等）

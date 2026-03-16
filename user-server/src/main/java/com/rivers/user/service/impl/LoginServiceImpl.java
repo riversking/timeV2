@@ -140,7 +140,7 @@ public class LoginServiceImpl implements ILoginService {
     }
 
     @Override
-    public ResultVO<AutoLoginRes> refreshToken(AutoLoginReq autoLoginReq) {
+    public ResultVO<AutoLoginRes> refresh(AutoLoginReq autoLoginReq) {
         String refreshToken = autoLoginReq.getRefreshToken();
         if (StringUtils.isBlank(refreshToken)) {
             return ResultVO.fail(401, "请先登录");

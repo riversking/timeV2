@@ -1,6 +1,7 @@
 package com.rivers.user.controller;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.proto.AutoLoginReq;
 import com.rivers.proto.AutoLoginRes;
 import com.rivers.proto.LoginReq;
 import com.rivers.proto.LoginRes;
@@ -31,5 +32,10 @@ public class LoginController {
     @PostMapping("autoLogin")
     public ResultVO<AutoLoginRes> autoLogin(@RequestHeader("Authorization") String authHeader) {
         return loginService.autoLogin(authHeader);
+    }
+
+    @PostMapping("refresh")
+    public ResultVO<AutoLoginRes> refresh(@RequestBody AutoLoginReq autoLoginReq) {
+        return loginService.refresh(autoLoginReq);
     }
 }
