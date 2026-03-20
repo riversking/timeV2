@@ -43,8 +43,8 @@ export async function resetPassword(data: any) {
 }
 
 // 刷新token
-export async function refreshToken() {
-  return http.post(`${API_PREFIX}/refresh`).then((res) => res.data);
+export async function refresh(data: any) {
+  return http.post(`${API_PREFIX}/refresh`, data).then((res) => res.data);
 }
 
 // 自动登录

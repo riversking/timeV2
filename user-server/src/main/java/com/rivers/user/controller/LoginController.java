@@ -25,7 +25,7 @@ public class LoginController {
     }
 
     @PostMapping("login")
-    public Mono<ResultVO<LoginRes>> login(@RequestBody LoginReq loginReq) {
+    public ResultVO<AutoLoginRes> login(@RequestBody LoginReq loginReq) {
         return loginService.login(loginReq);
     }
 

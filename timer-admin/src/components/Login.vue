@@ -80,8 +80,10 @@ const handleLogin = async () => {
     if (res.code === 200) {
       // 1. 保存token
       const token = res.data.token;
+      const refreshToken = res.data.refreshToken;
       // 2. 保存用户信息到store
       userStore.setToken(token);
+      userStore.setRefreshToken(refreshToken);
       // 4. 跳转到首页
       ElMessage.success("登录成功！");
       await router.replace({ path: "/home", replace: true });

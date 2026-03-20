@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 public class LoginServiceImpl implements ILoginService {
 
     public static final String REFRESH_TOKEN = "refresh:token:";
+    public static final String BASIC = "Basic ";
     private final TimerUserMapper timerUserMapper;
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -47,55 +48,24 @@ public class LoginServiceImpl implements ILoginService {
 
 
     @Override
-    public Mono<ResultVO<LoginRes>> login(LoginReq loginReq) {
+    public ResultVO<AutoLoginRes> login(LoginReq loginReq) {
         // 1. 参数校验（非阻塞，可放主线程）
-        if (StringUtils.isBlank(loginReq.getUsername()) || StringUtils.isBlank(loginReq.getPassword())) {
-            return Mono.just(ResultVO.fail("登录失败"));
+        String username = loginReq.getUsername();
+        String password = loginReq.getPassword();
+        if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
+            return ResultVO.fail("登录失败");
         }
+        String basicToken = Base64.getEncoder().encodeToString((username + ":" + password).getBytes());
         // 2. 将整个阻塞逻辑包装到 boundedElastic 线程
-        return Mono.fromCallable(() -> {
-                    String username = loginReq.getUsername();
-                    String password = loginReq.getPassword();
-                    // 查询用户（MyBatis-Plus 阻塞调用）
-                    LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
-                    userWrapper.eq(TimerUser::getUserId, username);
-                    TimerUser user = timerUserMapper.selectOne(userWrapper);
-                    if (Objects.isNull(user)) {
-                        throw new BusinessException("用户不存在");
-                    }
-                    if (!user.getPassword().equals(password)) {
-                        throw new BusinessException("登录失败");
-                    }
-                    // 构建登录用户信息
-                    LoginUser loginUser = new LoginUser();
-                    loginUser.setUserId(user.getUserId());
-                    loginUser.setUsername(user.getUsername());
-                    // 生成 token
-                    String key = UUID.randomUUID().toString();
-                    String token = JwtUtil.createJwt(loginUser, key);
-                    // 存入 Redis（同步阻塞）
-                    stringRedisTemplate.opsForValue().set("token:" + key, token, Duration.ofMinutes(30));
-                    // 构建 Protobuf 响应
-                    LoginRes loginRes = LoginRes.newBuilder()
-                            .setToken(token)
-                            .build();
-                    return ResultVO.ok(loginRes);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class, e ->
-                        Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorResume(Exception.class, e -> {
-                    log.error("登录异常", e);
-                    return Mono.just(ResultVO.fail("系统异常，请稍后再试"));
-                });
+        return autoLogin(BASIC + basicToken);
     }
 
     @Override
     public ResultVO<AutoLoginRes> autoLogin(String authHeader) {
-        if (StringUtils.isBlank(authHeader) || !authHeader.startsWith("Basic ")) {
+        if (StringUtils.isBlank(authHeader) || !authHeader.startsWith(BASIC)) {
             return ResultVO.fail(401, "请先登录");
         }
-        String basicToken = CharSequenceUtil.subAfter(authHeader, "Basic ", false);
+        String basicToken = CharSequenceUtil.subAfter(authHeader, BASIC, false);
         if (StringUtils.isBlank(basicToken)) {
             return ResultVO.fail(401, "请先登录");
         }

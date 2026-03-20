@@ -19,6 +19,11 @@ export const useUserStore = defineStore("user", () => {
     localStorage.setItem("token", newToken);
   };
 
+  const setRefreshToken = (newToken: string) => {
+    token.value = newToken;
+    localStorage.setItem("refreshToken", newToken);
+  };
+
   const setUserInfo = (user: any) => {
     userInfo.value = user;
   };
@@ -56,6 +61,7 @@ export const useUserStore = defineStore("user", () => {
     fetchMenu,
     isMenuLoaded,
     setMenuRoutes,
-    setIsMenuLoaded
+    setIsMenuLoaded,
+    setRefreshToken,
   };
 });

@@ -1,88 +1,80 @@
 // src/services/http.ts
-import axios from 'axios'
-import { refreshToken, autoLogin } from '@/api/user'
+import axios from "axios";
+import { refresh, autoLogin } from "@/api/user";
+import { resolve } from "path";
 
 // 创建 axios 实例
 const http = axios.create({
-//   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8006/',
+  //   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8006/',
   timeout: 10000,
   headers: {
-    'Content-Type': 'application/json'
-  }
-})
+    "Content-Type": "application/json",
+  },
+});
 
 // 请求拦截器：自动添加 token（如果已登录）
-http.interceptors.request.use(config => {
-  const token = localStorage.getItem('token')
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    config.headers.Authorization = `Bearer ${token}`;
   }
-  return config
-})
+  return config;
+});
 
 // 响应拦截器：统一处理错误
 http.interceptors.response.use(
-  response => {
+  async (response) => {
     // 检查响应体中的code字段是否为401
     if (response.data && response.data.code === 401) {
+      const refreshToken = localStorage.getItem("refreshToken");
+      try {
+        const res = await refresh({
+          refreshToken: refreshToken,
+        });
+        if (res.code === 200) {
+          // 刷新token成功，更新本地存储的token
+          localStorage.setItem("token", res.data.token);
+          localStorage.setItem("refreshToken", res.data.refreshToken);
+          // 重新发送原始请求
+          return new Promise((resolve) => {
+            response.headers["Authorization"] = "Bearer " + res.data.token;
+            setTimeout(() => {
+              resolve(axios(response.config));
+            });
+          });
+        } else {
+          // 刷新token失败，清除本地存储的token
+          localStorage.removeItem("token");
+          localStorage.removeItem("refreshToken");
+          // 跳转到登录页面
+          window.location.href = "/login";
+          return Promise.reject(res.message);
+        }
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    } else {
       // 清除本地存储的token
-      localStorage.removeItem('token');
+      localStorage.removeItem("token");
       // 抛出错误，让业务代码处理跳转
-      window.location.href = '/login';
-      return Promise.reject(new Error('Unauthorized'));
+      window.location.href = "/login";
+      return Promise.reject(new Error("Unauthorized"));
     }
     return response;
   },
-  async error => {
+  async (error) => {
     // 检查HTTP状态码是否为401
     if (error.response && error.response.status === 401) {
-      try {
-        // 先尝试调用refresh接口
-        const refreshResponse = await refreshToken();
-        if (refreshResponse.code === 200) {
-          // refresh成功，更新token并重试原始请求
-          const newToken = refreshResponse.data.token;
-          localStorage.setItem('token', newToken);
-          
-          // 重新设置原始请求的Authorization头
-          const originalRequest = error.config;
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
-          
-          // 重试原始请求
-          return http(originalRequest);
-        } else {
-          // refresh失败，尝试autoLogin
-          const autoLoginResponse = await autoLogin();
-          if (autoLoginResponse.code === 200) {
-            // autoLogin成功，更新token并重试原始请求
-            const newToken = autoLoginResponse.data.token;
-            localStorage.setItem('token', newToken);
-            
-            // 重新设置原始请求的Authorization头
-            const originalRequest = error.config;
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
-            
-            // 重试原始请求
-            return http(originalRequest);
-          } else {
-            // autoLogin也失败，清除token并跳转到登录页
-            localStorage.removeItem('token');
-            window.location.href = '/login';
-            return Promise.reject(new Error('Unauthorized'));
-          }
-        }
-      } catch (refreshError) {
-        // refresh或autoLogin过程中发生网络错误，直接跳转到登录页
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      }
+      // 清除本地存储的token
+      localStorage.removeItem("token");
+      // 直接跳转到登录页
+      window.location.href = "/login";
     }
-    
-    // 可以在这里统一弹出错误提示（如使用 ElMessage、Toast 等）
-    console.error('API Error:', error)
-    return Promise.reject(error)
-  }
-)
 
-export default http
+    // 可以在这里统一弹出错误提示（如使用 ElMessage、Toast 等）
+    console.error("API Error:", error);
+    return Promise.reject(error);
+  },
+);
+
+export default http;
