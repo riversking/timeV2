@@ -11,3 +11,13 @@ export async function getCurrentUser() {
 export async function login(data: any) {
   return http.post(`${API_PREFIX}/login`, data).then(res => res.data)
 }
+
+// 刷新token
+export async function refresh(data: any) {
+  return http.post(`${API_PREFIX}/refresh`, data).then((res) => res.data);
+}
+
+// 自动登录
+export async function autoLogin() {
+  return http.post(`${API_PREFIX}/autoLogin`).then((res) => res.data);
+}

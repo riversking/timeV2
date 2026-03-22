@@ -71,7 +71,6 @@ const error = ref<string | null>(null);
 const handleLogin = async () => {
   error.value = null;
   loading.value = true;
-
   try {
     const res = await login({
       username: form.value.username,

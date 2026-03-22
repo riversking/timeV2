@@ -1,6 +1,6 @@
 // src/services/http.ts
 import axios from "axios";
-import { refresh, autoLogin } from "@/api/user";
+import { refresh, autoLogin } from "@/api/auth";
 import { resolve } from "path";
 
 // 创建 axios 实例
@@ -39,7 +39,7 @@ http.interceptors.response.use(
           return new Promise((resolve) => {
             response.headers["Authorization"] = "Bearer " + res.data.token;
             setTimeout(() => {
-              resolve(axios(response.config));
+              resolve(http(response.config));
             });
           });
         } else {
@@ -53,12 +53,6 @@ http.interceptors.response.use(
       } catch (error) {
         return Promise.reject(error);
       }
-    } else {
-      // 清除本地存储的token
-      localStorage.removeItem("token");
-      // 抛出错误，让业务代码处理跳转
-      window.location.href = "/login";
-      return Promise.reject(new Error("Unauthorized"));
     }
     return response;
   },

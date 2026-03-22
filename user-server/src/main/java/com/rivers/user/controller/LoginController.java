@@ -4,13 +4,11 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.AutoLoginReq;
 import com.rivers.proto.AutoLoginRes;
 import com.rivers.proto.LoginReq;
-import com.rivers.proto.LoginRes;
 import com.rivers.user.service.ILoginService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Mono;
 
 /**
  * @author xx

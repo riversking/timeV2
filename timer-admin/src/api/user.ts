@@ -41,13 +41,3 @@ export async function disableUser(data: any) {
 export async function resetPassword(data: any) {
   return http.post(`${API_PREFIX}/resetPassword`, data).then((res) => res.data);
 }
-
-// 刷新token
-export async function refresh(data: any) {
-  return http.post(`${API_PREFIX}/refresh`, data).then((res) => res.data);
-}
-
-// 自动登录
-export async function autoLogin() {
-  return http.post(`${API_PREFIX}/autoLogin`).then((res) => res.data);
-}

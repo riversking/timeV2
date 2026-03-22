@@ -32,6 +32,8 @@ ignore:
   urls:
     - /actuator/**
     - /user-server/login
+    - /user-server/logout
+    - /user-server/refresh
 
 logging:
   level:
