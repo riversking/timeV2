@@ -117,7 +117,7 @@ public class LoginServiceImpl implements ILoginService {
         }
         String authHeader = stringRedisTemplate.opsForValue().get(REFRESH_TOKEN + refreshToken);
         if (StringUtils.isBlank(authHeader)) {
-            return ResultVO.fail(401, "请先登录");
+            return ResultVO.fail("请重新登录");
         }
         stringRedisTemplate.delete(REFRESH_TOKEN + refreshToken);
         return autoLogin(authHeader);
