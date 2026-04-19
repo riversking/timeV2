@@ -17,6 +17,7 @@ import org.quartz.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
@@ -224,6 +225,8 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
                                 .setCron(i.getCron())
                                 .setEmail(i.getEmail())
                                 .setStatus(i.getStatus())
+                                .setCreateTime(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(i.getCreateTime()))
                                 .build())
                 .toList();
         return ResultVO.ok(JobPageRes.newBuilder()

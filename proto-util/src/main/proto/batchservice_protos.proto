@@ -105,6 +105,8 @@ message JobDetailRes {
     string serverName = 5;
     string email = 6;
     string status = 7;
+    string createTime = 8;
+    string lastRunTime = 9;
 }
 
 message JobPageReq {
