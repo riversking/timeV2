@@ -1,9 +1,7 @@
 package com.rivers.batch.service;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.CommonTaskReq;
-import com.rivers.proto.SaveTaskInfoReq;
-import com.rivers.proto.UpdateTaskInfoReq;
+import com.rivers.proto.*;
 
 public interface ITaskInfoService {
 
@@ -18,4 +16,6 @@ public interface ITaskInfoService {
     ResultVO<Void> deleteTask(CommonTaskReq commonTaskReq);
 
     ResultVO<Void> runTask(CommonTaskReq commonTaskReq);
+
+    ResultVO<JobPageRes> getJobPage(JobPageReq jobPageReq);
 }

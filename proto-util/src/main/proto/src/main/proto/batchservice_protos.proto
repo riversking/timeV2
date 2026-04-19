@@ -34,7 +34,7 @@ message CommonTaskReq {
     LoginUser loginUser = 2;
 }
 
-message JobExecutionCount {
+message JobExecutionCountRes {
     string status = 1;
     int64 count = 2;
     string rate = 3;
@@ -42,7 +42,7 @@ message JobExecutionCount {
 }
 
 message JobExecutionRes {
-    repeated JobExecutionCount jobExecutionCounts = 1;
+    repeated JobExecutionCountRes jobExecutionCounts = 1;
     int64 totalCount = 2;
 }
 
@@ -78,4 +78,43 @@ message JobDateExecutionRes {
 
 message JobDateExecutionsRes {
     repeated JobDateExecutionRes jobDateExecutions = 1;
+}
+
+message JobLunchReq {
+    int64 currentPage = 1;
+    int64 pageSize = 2;
+    LoginUser loginUser = 3;
+}
+
+message JobLunch {
+    string jobName = 1;
+    string jobGroup = 2;
+    string state = 3;
+}
+
+message JobLunchRes {
+    int64 total = 1;
+    repeated JobLunch jobLunches = 2;
+}
+
+message JobDetailRes {
+    int64 id = 1;
+    string taskName = 2;
+    string jobName = 3;
+    string cron = 4;
+    string serverName = 5;
+    string email = 6;
+    string status = 7;
+}
+
+message JobPageReq {
+    int64 currentPage = 1;
+    int64 pageSize = 2;
+    string jobName = 3;
+    LoginUser loginUser = 4;
+}
+
+message JobPageRes {
+    int64 total = 1;
+    repeated JobDetailRes jobs = 2;
 }

@@ -33,41 +33,65 @@
         v-loading="loading"
       >
         <el-table-column prop="jobName" label="任务名称" min-width="180" />
-        <el-table-column prop="cronExpression" label="Cron表达式" min-width="150" />
-        <el-table-column prop="targetUrl" label="目标URL" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="taskName" label="任务Bean" min-width="180" />
+        <el-table-column prop="cron" label="Cron表达式" min-width="150" />
+        <el-table-column
+          prop="serverName"
+          label="服务名称"
+          min-width="150"
+          show-overflow-tooltip
+        />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
             <el-tag
-              :type="row.status === 'RUNNING' ? 'success' : row.status === 'PAUSED' ? 'warning' : 'danger'"
+              :type="
+                row.status === '1'
+                  ? 'success'
+                  : row.status === '0'
+                    ? 'warning'
+                    : 'danger'
+              "
               size="small"
               effect="plain"
             >
-              {{ row.status === 'RUNNING' ? '运行中' : row.status === 'PAUSED' ? '已暂停' : '停止' }}
+              {{
+                row.status === "1"
+                  ? "运行中"
+                  : row.status === "0"
+                    ? "已暂停"
+                    : "停止"
+              }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="160" />
-        <el-table-column prop="lastExecuteTime" label="最后执行时间" width="160" />
+        <el-table-column prop="createTime" label="创建时间" width="100" />
+        <el-table-column
+          prop="lastExecuteTime"
+          label="最后执行时间"
+          width="160"
+        />
         <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button 
-              size="small" 
-              type="success" 
-              v-if="row.status !== 'RUNNING'" 
+            <el-button
+              size="small"
+              type="success"
+              v-if="row.status !== 'RUNNING'"
               @click="handleStart(row)"
             >
               启动
             </el-button>
-            <el-button 
-              size="small" 
-              type="warning" 
-              v-if="row.status === 'RUNNING'" 
+            <el-button
+              size="small"
+              type="warning"
+              v-if="row.status === 'RUNNING'"
               @click="handlePause(row)"
             >
               暂停
             </el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)"
+              >删除</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
@@ -109,14 +133,14 @@ import {
   ElMessageBox,
 } from "element-plus";
 import { Plus, Search } from "@element-plus/icons-vue";
-import { 
-  getJobPage, 
-  saveJob, 
-  updateJob, 
-  deleteJob, 
-  startJob, 
-  pauseJob 
-} from "@/api/job";
+import {
+  getJobPage,
+  saveJob,
+  updateJob,
+  deleteJob,
+  startJob,
+  pauseJob,
+} from "@/api/task";
 import AddJobModal from "./AddJobModal.vue";
 
 // 搜索条件
@@ -140,13 +164,17 @@ const fetchJobList = async () => {
   loading.value = true;
   try {
     const params = {
-      current: currentPage.value,
-      size: pageSize.value,
-      jobName: searchQuery.value || undefined
+      currentPage: currentPage.value,
+      pageSize: pageSize.value,
+      jobName: searchQuery.value || undefined,
     };
     const response = await getJobPage(params);
-    jobs.value = response.records || [];
-    total.value = response.total || 0;
+    if (response.code !== 200) {
+      ElMessage.error(response.message || "获取任务列表失败");
+    }
+    jobs.value = response.data.jobs || [];
+    console.log("任务列表:", jobs.value);
+    total.value = response.data.total || 0;
   } catch (error) {
     ElMessage.error("获取任务列表失败");
     console.error(error);
@@ -260,9 +288,10 @@ const dialogTitle = computed(() => {
 
 <style scoped>
 .job-list-container {
+    background: #ffffff;
+  min-height: 0;
   padding: 20px;
-  background: linear-gradient(135deg, #f5f7fa, #e4edf5);
-  min-height: 100vh;
+  color: #333333; 
 }
 
 .header {
@@ -305,11 +334,8 @@ const dialogTitle = computed(() => {
 }
 
 .pagination {
+  margin-top: 20px; /* Add space between table and pagination */
   display: flex;
-  justify-content: flex-end;
-  padding: 16px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  justify-content: right;
 }
 </style>

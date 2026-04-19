@@ -1,23 +1,23 @@
 package com.rivers.batch.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.rivers.batch.entity.TaskInfo;
 import com.rivers.batch.mapper.TaskInfoMapper;
 import com.rivers.batch.quartz.BatchQuartzJob;
 import com.rivers.batch.service.ITaskInfoService;
 import com.rivers.core.exception.BusinessException;
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.CommonTaskReq;
-import com.rivers.proto.LoginUser;
-import com.rivers.proto.SaveTaskInfoReq;
-import com.rivers.proto.UpdateTaskInfoReq;
+import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.quartz.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -200,7 +200,39 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         return ResultVO.ok();
     }
 
-    public void addNewJob(TaskInfo taskInfo) {
+    @Override
+    public ResultVO<JobPageRes> getJobPage(JobPageReq jobPageReq) {
+        long currentPage = jobPageReq.getCurrentPage();
+        long pageSize = jobPageReq.getPageSize();
+        Page<TaskInfo> page = Page.of(currentPage, pageSize);
+        String jobName = jobPageReq.getJobName();
+        LambdaQueryWrapper<TaskInfo> taskWrapper = Wrappers.lambdaQuery();
+        taskWrapper.eq(StringUtils.isNotBlank(jobName), TaskInfo::getJobName, jobName);
+        IPage<TaskInfo> taskInfoPage = taskInfoMapper.selectPage(page, taskWrapper);
+        long total = taskInfoPage.getTotal();
+        List<TaskInfo> records = taskInfoPage.getRecords();
+        if (total == 0L) {
+            return ResultVO.ok(JobPageRes.newBuilder().setTotal(total).build());
+        }
+        List<JobDetailRes> jobs = records.stream()
+                .map(i ->
+                        JobDetailRes.newBuilder()
+                                .setId(i.getId())
+                                .setTaskName(i.getTaskName())
+                                .setJobName(i.getJobName())
+                                .setServerName(i.getServiceName())
+                                .setCron(i.getCron())
+                                .setEmail(i.getEmail())
+                                .setStatus(i.getStatus())
+                                .build())
+                .toList();
+        return ResultVO.ok(JobPageRes.newBuilder()
+                .addAllJobs(jobs)
+                .setTotal(total)
+                .build());
+    }
+
+    private void addNewJob(TaskInfo taskInfo) {
         // 创建JobDetail
         JobDetail jobDetail = JobBuilder.newJob(BatchQuartzJob.class)
                 .withIdentity(taskInfo.getTaskName())

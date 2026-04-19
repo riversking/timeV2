@@ -77,9 +77,9 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                 shouldContinue = false;
             }
         }
-        List<JobExecutionCount> list = allStatusCounts.stream()
+        List<JobExecutionCountRes> list = allStatusCounts.stream()
                 .map(i ->
-                        JobExecutionCount.newBuilder()
+                        JobExecutionCountRes.newBuilder()
                                 .setStatus(i.getStatus())
                                 .setCount(i.getCount())
                                 .setRate(String.valueOf(BigDecimal.valueOf(i.getCount())
