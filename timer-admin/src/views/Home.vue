@@ -172,7 +172,7 @@
             flex: 1;
             position: relative;
             min-height: 0;
-            overflow-y: auto;
+            overflow-y: hidden;
           "
         >
           <router-view v-slot="{ Component, route }">

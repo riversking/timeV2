@@ -8,7 +8,11 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+/**
+ * @author xx
+ */
 public interface IUserService {
+
     Mono<ResultVO<Void>> saveUser(SaveUserReq saveUserReq);
 
     Mono<ResultVO<Void>> updateUser(UpdateUserReq updateUserReq);
