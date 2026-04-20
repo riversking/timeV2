@@ -53,4 +53,8 @@ public class TaskController {
         return taskInfoService.getJobPage(jobPageReq);
     }
 
+    @PostMapping("getJobDetail")
+    public ResultVO<JobDetailRes> getJobDetail(@RequestBody CommonTaskReq commonTaskReq) {
+        return taskInfoService.getJobDetail(commonTaskReq);
+    }
 }

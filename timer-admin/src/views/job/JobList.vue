@@ -64,11 +64,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="100" />
+        <el-table-column prop="createTime" label="创建时间" width="200" />
         <el-table-column
-          prop="lastExecuteTime"
+          prop="lastRunTime"
           label="最后执行时间"
-          width="160"
+          width="200"
         />
         <el-table-column label="操作" width="240">
           <template #default="{ row }">
@@ -141,6 +141,7 @@ import {
   pauseTask,
   resumeTask,
   runTask,
+  getJobDetail,
 } from "@/api/task";
 import AddJobModal from "./AddJobModal.vue";
 
@@ -208,9 +209,22 @@ const handleAddJob = () => {
 };
 
 // 编辑任务
-const handleEdit = (row: any) => {
-  editingJob.value = { ...row };
-  showAddJobModal.value = true;
+const handleEdit = async(row: any) => {
+  try {
+    const response = await getJobDetail({
+      id: row.id,
+    });
+    if (response.code !== 200) {
+      ElMessage.error(response.message);
+      return;
+    }
+    editingJob.value = { ...response.data };
+  } catch (error) {
+    console.error("获取任务详情失败:", error);
+    ElMessage.error("获取任务详情失败");
+  } finally {
+    showAddJobModal.value = true;
+  }
 };
 
 // 保存任务

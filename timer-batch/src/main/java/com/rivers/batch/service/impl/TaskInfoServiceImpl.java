@@ -226,7 +226,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         List<String> jobNames = records.stream()
                 .map(TaskInfo::getTaskName)
                 .toList();
-        String sql = "SELECT A.*FROM (SELECT B.JOB_NAME,A.STATUS,A.LAST_UPDATED FROM BATCH_JOB_EXECUTION A " +
+        String sql = "SELECT A.* FROM (SELECT B.JOB_NAME,A.STATUS,A.LAST_UPDATED FROM BATCH_JOB_EXECUTION A " +
                 "LEFT JOIN BATCH_JOB_INSTANCE B ON A.JOB_INSTANCE_ID=B.JOB_INSTANCE_ID " +
                 "WHERE B.JOB_NAME IN (:jobName)) A " +
                 "INNER JOIN (SELECT B.JOB_NAME,MAX(A.LAST_UPDATED) AS LAST_UPDATED FROM BATCH_JOB_EXECUTION A " +
@@ -266,6 +266,25 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
                 .build());
     }
 
+    @Override
+    public ResultVO<JobDetailRes> getJobDetail(CommonTaskReq commonTaskReq) {
+        long id = commonTaskReq.getId();
+        TaskInfo taskInfo = taskInfoMapper.selectById(id);
+        JobDetailRes jobDetailRes = Optional.ofNullable(taskInfo)
+                .map(i -> {
+                    return JobDetailRes.newBuilder()
+                            .setId(taskInfo.getId())
+                            .setTaskName(taskInfo.getTaskName())
+                            .setJobName(taskInfo.getJobName())
+                            .setServerName(taskInfo.getServerName())
+                            .setCron(taskInfo.getCron())
+                            .setEmail(taskInfo.getEmail())
+                            .setStatus(taskInfo.getStatus())
+                            .build();
+                }).orElse(JobDetailRes.newBuilder().build());
+        return ResultVO.ok(jobDetailRes);
+    }
+
     private void addNewJob(TaskInfo taskInfo) {
         // 创建JobDetail
         JobDetail jobDetail = JobBuilder.newJob(BatchQuartzJob.class)
@@ -295,10 +314,10 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         @Override
         public JobRunTimeVO mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new JobRunTimeVO(
-                    rs.getString("JOB_NANE"),
+                    rs.getString("JOB_NAME"),
                     rs.getString("STATUS"),
                     rs.getTimestamp("LAST_UPDATED") != null ?
-                            rs.getTimestamp("CREATE_TIME").toLocalDateTime() : null
+                            rs.getTimestamp("LAST_UPDATED").toLocalDateTime() : null
             );
         }
     }

@@ -31,3 +31,7 @@ export async function deleteTask(data: any) {
 export async function runTask(data: any) {
   return http.post(`${API_PREFIX}/runTask`, data).then((res) => res.data);
 }
+
+export async function getJobDetail(data: any) {
+  return http.post(`${API_PREFIX}/getJobDetail`, data).then((res) => res.data);
+}

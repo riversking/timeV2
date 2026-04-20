@@ -18,4 +18,6 @@ public interface ITaskInfoService {
     ResultVO<Void> runTask(CommonTaskReq commonTaskReq);
 
     ResultVO<JobPageRes> getJobPage(JobPageReq jobPageReq);
+
+    ResultVO<JobDetailRes> getJobDetail(CommonTaskReq commonTaskReq);
 }
