@@ -135,11 +135,12 @@ import {
 import { Plus, Search } from "@element-plus/icons-vue";
 import {
   getJobPage,
-  saveJob,
-  updateJob,
-  deleteJob,
-  startJob,
-  pauseJob,
+  saveTaskInfo,
+  updateTaskInfo,
+  deleteTask,
+  pauseTask,
+  resumeTask,
+  runTask,
 } from "@/api/task";
 import AddJobModal from "./AddJobModal.vue";
 
@@ -215,24 +216,34 @@ const handleEdit = (row: any) => {
 // 保存任务
 const handleSaveJob = async (jobData: any) => {
   try {
-    await saveJob(jobData);
+    const response = await saveTaskInfo(jobData);
+    if (response.code !== 200) {
+      ElMessage.error(response.message || "任务添加失败");
+      return;
+    }
     ElMessage.success("任务添加成功");
-    showAddJobModal.value = false;
     fetchJobList();
   } catch (error) {
     ElMessage.error("任务添加失败");
+  } finally {
+    showAddJobModal.value = false;
   }
 };
 
 // 更新任务
 const handleUpdateJob = async (jobData: any) => {
   try {
-    await updateJob(jobData);
+    const response = await updateTaskInfo(jobData);
+    if (response.code !== 200) {
+      ElMessage.error(response.message || "任务更新失败");
+      return;
+    }
     ElMessage.success("任务更新成功");
-    showAddJobModal.value = false;
     fetchJobList();
   } catch (error) {
     ElMessage.error("任务更新失败");
+  } finally {
+    showAddJobModal.value = false;
   }
 };
 
@@ -244,7 +255,14 @@ const handleDelete = (row: any) => {
     type: "warning",
   }).then(async () => {
     try {
-      await deleteJob(row.id);
+      const params = {
+        id: row.id,
+      };
+      const response = await deleteTask(params);
+      if (response.code !== 200) {
+        ElMessage.error("任务删除失败");
+        return;
+      }
       ElMessage.success("任务删除成功");
       fetchJobList();
     } catch (error) {
@@ -256,7 +274,14 @@ const handleDelete = (row: any) => {
 // 启动任务
 const handleStart = async (row: any) => {
   try {
-    await startJob(row.id);
+    const params = {
+      id: row.id,
+    };
+    const response = await resumeTask(params);
+    if (response.code !== 200) {
+      ElMessage.error("任务启动失败");
+      return;
+    }
     ElMessage.success("任务启动成功");
     fetchJobList();
   } catch (error) {
@@ -267,7 +292,14 @@ const handleStart = async (row: any) => {
 // 暂停任务
 const handlePause = async (row: any) => {
   try {
-    await pauseJob(row.id);
+    const params = {
+      id: row.id,
+    };
+    const response = await pauseTask(params);
+    if (response.code !== 200) {
+      ElMessage.error("任务暂停失败");
+      return;
+    }
     ElMessage.success("任务暂停成功");
     fetchJobList();
   } catch (error) {
@@ -291,7 +323,7 @@ const dialogTitle = computed(() => {
   background: #ffffff;
   min-height: 0;
   padding: 20px;
-  color: #333333; 
+  color: #333333;
 }
 
 .header {

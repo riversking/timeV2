@@ -43,8 +43,8 @@ public class TaskInfo extends BasicDO<TaskInfo> {
     /**
      * 服务名称
      */
-    @TableField("service_name")
-    private String serviceName;
+    @TableField("server_name")
+    private String serverName;
 
     /**
      * cron表达式

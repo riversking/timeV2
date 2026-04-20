@@ -170,7 +170,6 @@ const handleAddUser = () => {
   console.log("添加新用户");
   editingUser.value = null;
   showAddUserModal.value = true;
-  // 在实际项目中，应该使用 router.push('/user-add')
 };
 
 const handleEdit = async (row: User) => {
@@ -268,10 +267,11 @@ const handleSaveUser = async (data: any) => {
       ElMessage.error(result.message);
       return;
     }
-    showAddUserModal.value = false;
     fetchUsers();
   } catch (error) {
     ElMessage.error("保存用户失败");
+  }finally{
+    showAddUserModal.value = false;
   }
 };
 
@@ -282,10 +282,11 @@ const handleUpdateUser = async (data: any) => {
       ElMessage.error(result.message);
       return;
     }
-    showAddUserModal.value = false;
     fetchUsers();
   } catch (error) {
     ElMessage.error("编辑用户失败");
+  } finally {
+    showAddUserModal.value = false;
   }
 };
 </script>

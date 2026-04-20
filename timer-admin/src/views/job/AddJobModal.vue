@@ -16,15 +16,12 @@
       <el-form-item label="任务名称" prop="jobName">
         <el-input v-model="formData.jobName" placeholder="请输入任务名称" />
       </el-form-item>
-      
-      <el-form-item label="Cron表达式" prop="cronExpression">
-        <el-input v-model="formData.cronExpression" placeholder="请输入Cron表达式" />
+      <el-form-item label="任务Bean" prop="taskName">
+        <el-input v-model="formData.targetUrl" placeholder="请输入任务Bean" />
       </el-form-item>
-      
-      <el-form-item label="目标URL" prop="targetUrl">
-        <el-input v-model="formData.targetUrl" placeholder="请输入HTTP请求的目标URL" />
+      <el-form-item label="Cron表达式" prop="cron">
+        <el-input v-model="formData.cron" placeholder="请输入Cron表达式" />
       </el-form-item>
-      
       <el-form-item label="请求方法" prop="httpMethod">
         <el-select v-model="formData.httpMethod" placeholder="请选择请求方法">
           <el-option label="GET" value="GET" />
@@ -95,13 +92,8 @@ import type { FormInstance, FormRules } from "element-plus";
 interface Job {
   id?: number;
   jobName: string;
-  cronExpression: string;
-  targetUrl: string;
-  httpMethod: string;
-  headers?: string;
-  body?: string;
-  description?: string;
-  status?: string;
+  taskName: string;
+  cron: string;
 }
 
 // 定义 props 和 emits
@@ -133,12 +125,8 @@ const jobFormRef = ref<FormInstance>();
 // 表单数据
 const formData = reactive<Job>({
   jobName: "",
-  cronExpression: "",
-  targetUrl: "",
-  httpMethod: "GET",
-  headers: "",
-  body: "",
-  description: "",
+  taskName: "",
+  cron: "",
 });
 
 // 表单验证规则
@@ -147,20 +135,9 @@ const rules = reactive<FormRules>({
     { required: true, message: "请输入任务名称", trigger: "blur" },
     { min: 2, max: 50, message: "任务名称长度在2到50个字符之间", trigger: "blur" }
   ],
-  cronExpression: [
+  cron: [
     { required: true, message: "请输入Cron表达式", trigger: "blur" }
   ],
-  targetUrl: [
-    { required: true, message: "请输入目标URL", trigger: "blur" },
-    { 
-      pattern: /^https?:\/\/.+/,
-      message: "请输入有效的URL地址",
-      trigger: "blur"
-    }
-  ],
-  httpMethod: [
-    { required: true, message: "请选择请求方法", trigger: "change" }
-  ]
 });
 
 // 监听弹窗状态变化
@@ -198,12 +175,8 @@ watch(dialogVisible, (val) => {
 // 重置表单数据
 const resetFormData = () => {
   formData.jobName = "";
-  formData.cronExpression = "";
-  formData.targetUrl = "";
-  formData.httpMethod = "GET";
-  formData.headers = "";
-  formData.body = "";
-  formData.description = "";
+  formData.taskName = "";
+  formData.cron = "";
 };
 
 // 关闭弹窗

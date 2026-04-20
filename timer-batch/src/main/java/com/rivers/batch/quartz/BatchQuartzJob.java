@@ -38,7 +38,7 @@ public class BatchQuartzJob extends QuartzJobBean {
                     .addLong("timestamp", System.currentTimeMillis())
                     .addString("jobName", jobName)
                     .addString("taskName", jobDataMap.getString("taskName"))
-                    .addString("serviceName", jobDataMap.getString("serviceName"))
+                    .addString("serverName", jobDataMap.getString("serverName"))
                     .addString("trigger", "quartz")
                     .toJobParameters();
             JobExecution jobExecution = jobOperator.start(dynamicJob, jobParameters);

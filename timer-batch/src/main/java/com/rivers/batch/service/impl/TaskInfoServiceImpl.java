@@ -8,18 +8,27 @@ import com.rivers.batch.entity.TaskInfo;
 import com.rivers.batch.mapper.TaskInfoMapper;
 import com.rivers.batch.quartz.BatchQuartzJob;
 import com.rivers.batch.service.ITaskInfoService;
+import com.rivers.batch.vo.JobRunTimeVO;
 import com.rivers.core.exception.BusinessException;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.quartz.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * @author xx
@@ -32,9 +41,13 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
 
     private final Scheduler scheduler;
 
-    public TaskInfoServiceImpl(TaskInfoMapper taskInfoMapper, Scheduler scheduler) {
+    private final JdbcTemplate jdbcTemplate;
+
+
+    public TaskInfoServiceImpl(TaskInfoMapper taskInfoMapper, Scheduler scheduler, JdbcTemplate jdbcTemplate) {
         this.taskInfoMapper = taskInfoMapper;
         this.scheduler = scheduler;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -43,7 +56,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         String taskName = saveTaskInfoReq.getTaskName();
         String jobName = saveTaskInfoReq.getJobName();
         String cron = saveTaskInfoReq.getCron();
-        String serviceName = saveTaskInfoReq.getServiceName();
+        String serverName = saveTaskInfoReq.getServerName();
         if (StringUtils.isBlank(taskName)) {
             return ResultVO.fail("任务名称不能为空");
         }
@@ -53,12 +66,12 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         if (StringUtils.isBlank(cron)) {
             return ResultVO.fail("cron表达式不能为空");
         }
-        if (StringUtils.isBlank(serviceName)) {
+        if (StringUtils.isBlank(serverName)) {
             return ResultVO.fail("服务名称不能为空");
         }
         LambdaQueryWrapper<TaskInfo> taskWrapper = Wrappers.lambdaQuery();
         taskWrapper.eq(TaskInfo::getTaskName, taskName)
-                .eq(TaskInfo::getServiceName, serviceName);
+                .eq(TaskInfo::getServerName, serverName);
         Long count = taskInfoMapper.selectCount(taskWrapper);
         if (count > 0) {
             return ResultVO.fail("任务名称已存在");
@@ -68,7 +81,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         TaskInfo taskInfo = new TaskInfo();
         taskInfo.setTaskName(taskName);
         taskInfo.setJobName(jobName);
-        taskInfo.setServiceName(serviceName);
+        taskInfo.setServerName(serverName);
         taskInfo.setCron(cron);
         taskInfo.setCreateUser(userId);
         taskInfo.setUpdateUser(userId);
@@ -83,7 +96,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         String taskName = updateTaskInfoReq.getTaskName();
         String jobName = updateTaskInfoReq.getJobName();
         String cron = updateTaskInfoReq.getCron();
-        String serviceName = updateTaskInfoReq.getServiceName();
+        String serverName = updateTaskInfoReq.getServerName();
         if (StringUtils.isBlank(taskName)) {
             return ResultVO.fail("任务名称不能为空");
         }
@@ -93,7 +106,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         if (StringUtils.isBlank(cron)) {
             return ResultVO.fail("cron表达式不能为空");
         }
-        if (StringUtils.isBlank(serviceName)) {
+        if (StringUtils.isBlank(serverName)) {
             return ResultVO.fail("服务名称不能为空");
         }
         long id = updateTaskInfoReq.getId();
@@ -103,7 +116,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         }
         LambdaQueryWrapper<TaskInfo> taskWrapper = Wrappers.lambdaQuery();
         taskWrapper.eq(TaskInfo::getTaskName, taskName)
-                .eq(TaskInfo::getServiceName, serviceName);
+                .eq(TaskInfo::getServerName, serverName);
         TaskInfo taskInfo = taskInfoMapper.selectOne(taskWrapper);
         if (taskInfo != null && taskInfo.getId() != id) {
             return ResultVO.fail("任务名称已存在");
@@ -113,7 +126,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         task.setId(id);
         task.setTaskName(taskName);
         task.setJobName(jobName);
-        task.setServiceName(serviceName);
+        task.setServerName(serverName);
         task.setCron(cron);
         task.setEmail(updateTaskInfoReq.getEmail());
         task.setUpdateUser(loginUser.getUserId());
@@ -185,13 +198,8 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
     @Override
     public ResultVO<Void> runTask(CommonTaskReq commonTaskReq) {
         long id = commonTaskReq.getId();
-        LoginUser loginUser = commonTaskReq.getLoginUser();
-        String userId = loginUser.getUserId();
         TaskInfo taskInfo = taskInfoMapper.selectById(id);
         Optional.ofNullable(taskInfo).ifPresent(i -> {
-            i.setUpdateUser(userId);
-            i.setStatus("1");
-            i.updateById();
             try {
                 scheduler.triggerJob(JobKey.jobKey(i.getTaskName()));
             } catch (SchedulerException e) {
@@ -215,18 +223,41 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
         if (total == 0L) {
             return ResultVO.ok(JobPageRes.newBuilder().setTotal(total).build());
         }
+        List<String> jobNames = records.stream()
+                .map(TaskInfo::getTaskName)
+                .toList();
+        String sql = "SELECT A.*FROM (SELECT B.JOB_NAME,A.STATUS,A.LAST_UPDATED FROM BATCH_JOB_EXECUTION A " +
+                "LEFT JOIN BATCH_JOB_INSTANCE B ON A.JOB_INSTANCE_ID=B.JOB_INSTANCE_ID " +
+                "WHERE B.JOB_NAME IN (:jobName)) A " +
+                "INNER JOIN (SELECT B.JOB_NAME,MAX(A.LAST_UPDATED) AS LAST_UPDATED FROM BATCH_JOB_EXECUTION A " +
+                "LEFT JOIN BATCH_JOB_INSTANCE B ON A.JOB_INSTANCE_ID=B.JOB_INSTANCE_ID " +
+                "WHERE B.JOB_NAME IN (:jobName) GROUP BY B.JOB_NAME) B ON A.JOB_NAME=B.JOB_NAME" +
+                " AND A.LAST_UPDATED=B.LAST_UPDATED";
+        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("jobName", jobNames);
+        List<JobRunTimeVO> jobRunTimes = namedJdbcTemplate.query(sql, params, new JobRunTimeRowMapper());
+        Map<String, JobRunTimeVO> jobRunTimeMap = jobRunTimes.stream()
+                .collect(Collectors.toMap(JobRunTimeVO::getJobName, v -> v));
         List<JobDetailRes> jobs = records.stream()
                 .map(i ->
                         JobDetailRes.newBuilder()
                                 .setId(i.getId())
                                 .setTaskName(i.getTaskName())
                                 .setJobName(i.getJobName())
-                                .setServerName(i.getServiceName())
+                                .setServerName(i.getServerName())
                                 .setCron(i.getCron())
                                 .setEmail(i.getEmail())
                                 .setStatus(i.getStatus())
                                 .setCreateTime(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                                         .format(i.getCreateTime()))
+                                .setLastRunTime(Optional.ofNullable(jobRunTimeMap.get(i.getTaskName()))
+                                        .map(t -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                                .format(t.getLastUpdated()))
+                                        .orElse(""))
+                                .setRunStatus(Optional.ofNullable(jobRunTimeMap.get(i.getTaskName()))
+                                        .map(JobRunTimeVO::getStatus)
+                                        .orElse(""))
                                 .build())
                 .toList();
         return ResultVO.ok(JobPageRes.newBuilder()
@@ -244,7 +275,7 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
                 .storeDurably()
                 .build();
         jobDetail.getJobDataMap().put("taskName", taskInfo.getTaskName());
-        jobDetail.getJobDataMap().put("serviceName", taskInfo.getServiceName());
+        jobDetail.getJobDataMap().put("serverName", taskInfo.getServerName());
         jobDetail.getJobDataMap().put("alarmEmail", taskInfo.getEmail());
         // 创建Trigger
         CronTrigger trigger = TriggerBuilder.newTrigger()
@@ -257,6 +288,18 @@ public class TaskInfoServiceImpl implements ITaskInfoService {
             scheduler.scheduleJob(jobDetail, trigger);
         } catch (SchedulerException e) {
             throw new BusinessException("Failed to schedule task", e);
+        }
+    }
+
+    private static class JobRunTimeRowMapper implements RowMapper<JobRunTimeVO> {
+        @Override
+        public JobRunTimeVO mapRow(ResultSet rs, int rowNum) throws SQLException {
+            return new JobRunTimeVO(
+                    rs.getString("JOB_NANE"),
+                    rs.getString("STATUS"),
+                    rs.getTimestamp("LAST_UPDATED") != null ?
+                            rs.getTimestamp("CREATE_TIME").toLocalDateTime() : null
+            );
         }
     }
 }

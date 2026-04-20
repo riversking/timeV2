@@ -35,14 +35,14 @@ public class BusinessTasklet implements Tasklet {
         JobParameters jobParameters = contribution.getStepExecution().getJobParameters();
         log.info("Job parameters: {}", jobParameters);
         String taskName = jobParameters.getString("taskName");
-        String serviceName = jobParameters.getString("serviceName");
+        String serverName = jobParameters.getString("serverName");
         log.info("Executing business task for job: {}", taskName);
-        log.info("Executing business task for service: {}", serviceName);
+        log.info("Executing business task for service: {}", serverName);
         Map<String, Object> parameters = chunkContext.getStepContext().getJobParameters();
         JobParamReq jobParamReq = new JobParamReq();
         jobParamReq.setTaskName(taskName);
         jobParamReq.setParams(parameters);
-        String res = dynamicServiceClient.post(serviceName, "/job/execute", jobParamReq, String.class).block();
+        String res = dynamicServiceClient.post(serverName, "/job/execute", jobParamReq, String.class).block();
         log.info("Result: {}", res);
         if (StringUtils.isBlank(res)) {
             throw new BusinessException("Result is null");
