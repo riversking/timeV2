@@ -17,45 +17,16 @@
         <el-input v-model="formData.jobName" placeholder="请输入任务名称" />
       </el-form-item>
       <el-form-item label="任务Bean" prop="taskName">
-        <el-input v-model="formData.targetUrl" placeholder="请输入任务Bean" />
+        <el-input v-model="formData.taskName" placeholder="请输入任务Bean" />
       </el-form-item>
       <el-form-item label="Cron表达式" prop="cron">
         <el-input v-model="formData.cron" placeholder="请输入Cron表达式" />
       </el-form-item>
-      <el-form-item label="请求方法" prop="httpMethod">
-        <el-select v-model="formData.httpMethod" placeholder="请选择请求方法">
-          <el-option label="GET" value="GET" />
-          <el-option label="POST" value="POST" />
-          <el-option label="PUT" value="PUT" />
-          <el-option label="DELETE" value="DELETE" />
-        </el-select>
+      <el-form-item label="服务名称" prop="serverName">
+        <el-input v-model="formData.serverName" placeholder="请输入服务名称" />
       </el-form-item>
-      
-      <el-form-item label="请求头" prop="headers">
-        <el-input 
-          v-model="formData.headers" 
-          type="textarea" 
-          placeholder="JSON格式的请求头，例如：{&quot;Content-Type&quot;:&quot;application/json&quot;}"
-          :rows="3"
-        />
-      </el-form-item>
-      
-      <el-form-item label="请求体" prop="body">
-        <el-input 
-          v-model="formData.body" 
-          type="textarea" 
-          placeholder="请求体内容（POST/PUT请求时使用）"
-          :rows="4"
-        />
-      </el-form-item>
-      
-      <el-form-item label="描述" prop="description">
-        <el-input 
-          v-model="formData.description" 
-          type="textarea" 
-          placeholder="任务描述"
-          :rows="2"
-        />
+      <el-form-item label="告警邮箱" prop="email">
+        <el-input v-model="formData.email" placeholder="请输入服务名称" />
       </el-form-item>
     </el-form>
     
@@ -94,6 +65,8 @@ interface Job {
   jobName: string;
   taskName: string;
   cron: string;
+  serverName:string;
+  email: string;
 }
 
 // 定义 props 和 emits
@@ -127,6 +100,8 @@ const formData = reactive<Job>({
   jobName: "",
   taskName: "",
   cron: "",
+  serverName: "",
+  email: "",
 });
 
 // 表单验证规则
