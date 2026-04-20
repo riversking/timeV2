@@ -288,7 +288,7 @@ const dialogTitle = computed(() => {
 
 <style scoped>
 .job-list-container {
-    background: #ffffff;
+  background: #ffffff;
   min-height: 0;
   padding: 20px;
   color: #333333; 
