@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, onActivated } from "vue";
 import {
   ElTable,
   ElTableColumn,
@@ -151,7 +151,9 @@ const fetchUsers = async () => {
 };
 
 // 初始加载数据
-onMounted(() => {
+onMounted(() => {});
+
+onActivated(() => {
   fetchUsers();
 });
 
@@ -198,7 +200,7 @@ const handleDelete = async (row: User) => {
         confirmButtonText: "确定",
         cancelButtonText: "取消",
         type: "warning",
-      }
+      },
     );
     const res = await deleteUser(row);
     if (res.code !== 200) {
@@ -270,7 +272,7 @@ const handleSaveUser = async (data: any) => {
     fetchUsers();
   } catch (error) {
     ElMessage.error("保存用户失败");
-  }finally{
+  } finally {
     showAddUserModal.value = false;
   }
 };

@@ -284,7 +284,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, onActivated } from "vue";
 import {
   CircleCheckFilled,
   CircleCloseFilled,
@@ -298,7 +298,7 @@ import {
   ArrowRight,
   List,
   WarnTriangleFilled,
-  Cpu
+  Cpu,
 } from "@element-plus/icons-vue";
 import {
   ElCard,
@@ -457,9 +457,9 @@ const handleSchedules = async () => {
 };
 
 // 加载数据
-onMounted(() => {
-  // TODO: 调用 API 加载实际数据
-  console.log("任务仪表板已加载");
+onMounted(() => {});
+
+onActivated(() => {
   handleJobExecutionCounts();
   handleJobExecutionByDate();
   handleSchedules();

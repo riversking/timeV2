@@ -76,7 +76,11 @@
       @save="handleSaveRole"
       @edit="handleUpdateRole"
     />
-    <AddRoleUserModal v-model="showAddRoleUserModal" :roleCode="roleCode" @close="handleRoleUserClose" />
+    <AddRoleUserModal
+      v-model="showAddRoleUserModal"
+      :roleCode="roleCode"
+      @close="handleRoleUserClose"
+    />
     <RoleMenuModal
       v-model="showPermissionDrawer"
       :roleCode="selectedRoleCode"
@@ -88,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onActivated } from "vue";
 import {
   ElTable,
   ElTableColumn,
@@ -139,8 +143,10 @@ const showPermissionDrawer = ref(false);
 const selectedRoleCode = ref("");
 const selectedRoleName = ref("");
 
-onMounted(async () => {
-  await fetchRoles();
+onMounted(() => {});
+
+onActivated(() => {
+  fetchRoles();
 });
 
 // 获取角色数据
@@ -216,7 +222,7 @@ const handleDelete = async (row: Role) => {
         confirmButtonText: "确定",
         cancelButtonText: "取消",
         type: "warning",
-      }
+      },
     );
     // 在实际项目中，这里应该调用删除API
     console.log("删除角色:", row);

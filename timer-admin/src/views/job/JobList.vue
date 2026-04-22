@@ -64,12 +64,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="200" />
-        <el-table-column
-          prop="lastRunTime"
-          label="最后执行时间"
-          width="200"
-        />
+        <el-table-column prop="lastRunTime" label="最后执行时间" width="200" />
         <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <el-button size="small" @click="handleEdit(row)">编辑</el-button>
@@ -81,6 +76,9 @@
             >
               启动
             </el-button>
+            <el-button size="small" type="primary" @click="handleRun(row)"
+              >立即执行</el-button
+            >
             <el-button
               size="small"
               type="warning"
@@ -121,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed } from "vue";
+import { ref, onMounted, reactive, computed, onActivated } from "vue";
 import {
   ElTable,
   ElTableColumn,
@@ -209,7 +207,7 @@ const handleAddJob = () => {
 };
 
 // 编辑任务
-const handleEdit = async(row: any) => {
+const handleEdit = async (row: any) => {
   try {
     const response = await getJobDetail({
       id: row.id,
@@ -321,11 +319,29 @@ const handlePause = async (row: any) => {
   }
 };
 
+const handleRun = async (row: any) => {
+  try {
+    const params = {
+      id: row.id,
+    };
+    const response = await runTask(params);
+    if (response.code !== 200) {
+      ElMessage.error("任务运行失败");
+      return;
+    }
+    ElMessage.success("任务运行成功");
+    fetchJobList();
+  } catch (error) {
+    ElMessage.error("任务运行失败");
+  }
+};
+
 // 初始化数据
-onMounted(() => {
+onMounted(() => {});
+
+onActivated(() => {
   fetchJobList();
 });
-
 // 对话框标题
 const dialogTitle = computed(() => {
   return editingJob.value ? "编辑定时任务" : "添加定时任务";

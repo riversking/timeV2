@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onActivated } from "vue";
 import {
   ElTable,
   ElTableColumn,
@@ -296,7 +296,7 @@ const handleDelete = async (row: Menu, index: number) => {
       confirmButtonText: "确定",
       cancelButtonText: "取消",
       type: "warning",
-    }
+    },
   );
   try {
     const response = await deleteMenu({ menuCode: row.menuCode });
@@ -324,7 +324,7 @@ const handleBatchDelete = async () => {
       confirmButtonText: "确定",
       cancelButtonText: "取消",
       type: "warning",
-    }
+    },
   );
   try {
     // 批量删除逻辑
@@ -375,7 +375,8 @@ const toggleSelection = () => {
 // 表格引用
 const multipleTableRef = ref();
 
-onMounted(() => {
+onMounted(() => {});
+onActivated(() => {
   fetchMenus();
 });
 </script>
