@@ -197,6 +197,7 @@
       v-model="showChangePasswordModal"
       @change-success="showChangePasswordModal = false"
     />
+    <RobotAssistant />
   </el-container>
 </template>
 
@@ -208,6 +209,7 @@ import { Search } from "@element-plus/icons-vue";
 import { MenuTreeVO } from "@/proto";
 import { getCurrentUser } from "@/api/user";
 import ResetPasswordModal from "@/views/users/ResetPasswordModal.vue"; // Import the new component
+import RobotAssistant from "@/views/chat/AiChat.vue";
 
 const router = useRouter();
 const route = useRoute();
