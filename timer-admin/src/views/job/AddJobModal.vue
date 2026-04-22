@@ -5,6 +5,7 @@
     width="600px"
     :close-on-click-modal="false"
     @close="handleClose"
+    append-to-body
   >
     <el-form
       ref="jobFormRef"
