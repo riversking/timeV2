@@ -26,7 +26,7 @@
         <el-input v-model="formData.serverName" placeholder="请输入服务名称" />
       </el-form-item>
       <el-form-item label="告警邮箱" prop="email">
-        <el-input v-model="formData.email" placeholder="请输入服务名称" />
+        <el-input v-model="formData.email" placeholder="请输入告警邮箱" />
       </el-form-item>
     </el-form>
     
