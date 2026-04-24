@@ -1,0 +1,60 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.5'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.rivers'
+version = '0.0.1-SNAPSHOT'
+description = 'im-server'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+repositories {
+	mavenLocal()
+	mavenCentral()
+	maven { url 'https://maven.aliyun.com/repository/public' }
+	maven { url 'https://repo.spring.io/milestone' }
+	maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+}
+
+
+ext {
+	set('springCloudVersion', "2025.1.0")
+}
+
+
+dependencies {
+	implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
+	implementation ('io.github.riversking:rivers-core:1.0.20')
+	implementation 'com.fasterxml.jackson.core:jackson-core'
+	implementation 'com.fasterxml.jackson.core:jackson-databind'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+}
+
+configurations {
+	implementation.exclude module: 'spring-boot-starter-web'
+	implementation.exclude module: 'mybatis-plus-spring-boot4-starter'
+	implementation.exclude module: 'mybatis-plus-jsqlparser'
+}
+
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
