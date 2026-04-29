@@ -9,7 +9,6 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.Date;
 
 /**
  * <p>
@@ -76,7 +75,7 @@ public class TimerMessage implements Serializable{
      * 发送时间
      */
     @Column("sent_time")
-    private Date sentTime;
+    private LocalDateTime sentTime;
 
     /**
      * 创建人

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package grpc; //package与java_package有些不同，java_package是定义编译生成的java文件所在的目录，而package是对应的java类的命名空间
+option java_package = "com.rivers.proto";
+option java_outer_classname = "BatchServiceProto"; //要生成Java类的名称
+option java_multiple_files = true;
+
+message LoginUser {
+    string username = 1;
+    string userId = 2;
+}
+
+message SaveMsgReq {
+    int64 fromUserId = 1;
+    int64 toUserId = 2;
+    int64 groupId = 3;
+    int32 messageType = 4;
+    string content = 5;
+    string fileUrl = 6;
+    LoginUser loginUser = 7;
+}
