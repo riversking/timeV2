@@ -8,7 +8,6 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.ReactiveSubscription;
 import org.springframework.data.redis.core.ReactiveHashOperations;
@@ -16,7 +15,6 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.ReactiveValueOperations;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.ReactiveRedisMessageListenerContainer;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
@@ -24,16 +22,16 @@ import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import tools.jackson.databind.ObjectMapper;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static java.time.Duration.*;
+import static java.time.Duration.ofMinutes;
+import static java.time.Duration.ofSeconds;
 
 @Component
 @Slf4j
@@ -73,9 +71,7 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     @PostConstruct
     public void init() {
         // 创建容器（无需 .build()）
-        listenerContainer = new ReactiveRedisMessageListenerContainer(
-                connectionFactory
-        );
+        listenerContainer = new ReactiveRedisMessageListenerContainer(connectionFactory);
 
         // 订阅实例频道
         String instanceChannel = "ws:msg:" + serverId;
@@ -111,16 +107,15 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         }
 
         if (listenerContainer != null) {
-            listenerContainer.stop()
-                    .doOnSuccess(v -> log.info("✅ Redis listener container stopped for serverId: {}", serverId))
-                    .doOnError(e -> log.error("❌ Failed to stop Redis listener container", e))
-                    .subscribe();
+            listenerContainer.destroy();
         }
 
         // 清理所有本地连接（触发 cleanup）
         localConnections.keySet().forEach(connId -> {
             ConnectionInfo info = localConnections.get(connId);
-            if (info != null) cleanupConnection(connId, info.getUserId());
+            if (info != null) {
+                cleanupConnection(connId, info.getUserId());
+            }
         });
 
         log.info("🧹 ChatWebSocketHandler destroyed | Cleared {} local connections", localConnections.size());
@@ -172,15 +167,18 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                 .then();
 
         // 4. 心跳续期（每25秒，持续到 session 关闭）
-        Flux<Void> heartbeatFlux = Flux.interval(ofSeconds(25))
-                .takeWhile(tick -> session.isOpen()) // session 关闭时自动停止
+        Flux<Void> heartbeatFlux = Flux.interval(Duration.ofSeconds(25))
+                .takeWhile(tick -> session.isOpen()) // ✅ Boolean 过滤，但不影响返回类型
                 .flatMap(tick ->
-                        reactiveRedisTemplate.expire(userKey, ofMinutes(5))
-                                .then(reactiveRedisTemplate.expire(connKey, ofMinutes(5)))
+                        // 🔑 核心修正：将 Mono<Boolean> 转换为 Mono<Void>
+                        Mono.when(
+                                        reactiveRedisTemplate.expire(userKey, Duration.ofMinutes(5)).then(), // ✅ .then() 转 Void
+                                        reactiveRedisTemplate.expire(connKey, Duration.ofMinutes(5)).then()
+                                )
                                 .doOnError(e -> log.warn("⚠️ Heartbeat renew failed for connId: {}", connectionId, e))
                                 .onErrorResume(e -> Mono.empty())
                 )
-                .onErrorContinue((e, v) -> log.warn("⚠️ Heartbeat flux error for connId: {}", connectionId, e));
+                .onErrorContinue((e, _) -> log.warn("⚠️ Heartbeat flux error for connId: {}", connectionId, e));
 
         // 5. 合并流 + 清理资源
         return Mono.when(register, input, heartbeatFlux.then())
@@ -296,11 +294,11 @@ public class ChatWebSocketHandler implements WebSocketHandler {
 
     private Long extractUserId(WebSocketSession session) {
         Object userIdObj = session.getAttributes().get("userId");
-        if (userIdObj instanceof Number) {
-            return ((Number) userIdObj).longValue();
-        } else if (userIdObj instanceof String) {
+        if (userIdObj instanceof Number userId) {
+            return userId.longValue();
+        } else if (userIdObj instanceof String userId) {
             try {
-                return Long.parseLong((String) userIdObj);
+                return Long.parseLong(userId);
             } catch (NumberFormatException e) {
                 log.warn("⚠️ Invalid userId format in session attributes: {}", userIdObj);
             }
@@ -328,7 +326,6 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     private void cleanupConnection(String connectionId, Long userId) {
         // 1. 移除本地连接
         localConnections.remove(connectionId);
-
         // 2. 清理 Redis 数据（异步执行，避免阻塞）
         String userKey = "ws:user:" + userId;
         String connKey = "ws:conn:" + connectionId;
