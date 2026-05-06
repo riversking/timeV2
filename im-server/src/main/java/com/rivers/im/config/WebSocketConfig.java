@@ -37,12 +37,11 @@ public class WebSocketConfig {
         // 包装 Handler：在握手阶段进行认证
         WebSocketHandler wrappedHandler = session -> {
             // 1️⃣ 握手认证逻辑
-            Long userId = extractUserIdFromSession(session);
+            String userId = extractUserIdFromSession(session);
             if (userId == null) {
                 log.warn("❌ Handshake rejected: userId not found");
                 return session.close();
             }
-
             // 2️⃣ 将 userId 存入 session attributes
             session.getAttributes().put("userId", userId);
             log.info("✅ Handshake success | userId: {} | session: {}", userId, session.getId());
@@ -50,9 +49,7 @@ public class WebSocketConfig {
             // 3️⃣ 交给实际 Handler 处理
             return chatWebSocketHandler.handle(session);
         };
-
         handlerMap.put("/ws/chat", wrappedHandler);
-
         SimpleUrlHandlerMapping mapping = new SimpleUrlHandlerMapping();
         mapping.setUrlMap(handlerMap);
         mapping.setOrder(1);
@@ -89,34 +86,26 @@ public class WebSocketConfig {
     @Bean
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration config = new CorsConfiguration();
-        config.addAllowedOrigin("*");
+        config.addAllowedOriginPattern("*");
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         config.setAllowCredentials(true);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/ws/**", config);
-
         return new CorsWebFilter(source);
     }
 
     /**
      * 从 WebSocketSession 提取 userId
      */
-    private Long extractUserIdFromSession(org.springframework.web.reactive.socket.WebSocketSession session) {
+    private String extractUserIdFromSession(org.springframework.web.reactive.socket.WebSocketSession session) {
         try {
             // 从 URI 查询参数提取 userId（示例：/ws/chat?userId=123）
             String query = session.getHandshakeInfo().getUri().getQuery();
             if (query == null) {
                 return null;
             }
-
-            String userIdParam = extractQueryParam(query, "userId");
-            if (userIdParam == null) {
-                return null;
-            }
-
-            return Long.parseLong(userIdParam);
+            return extractQueryParam(query, "userId");
         } catch (Exception e) {
             log.warn("❌ Failed to extract userId: {}", e.getMessage());
             return null;
