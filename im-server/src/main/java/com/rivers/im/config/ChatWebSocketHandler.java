@@ -47,6 +47,7 @@ public class ChatWebSocketHandler implements WebSocketHandler {
 
     public static final String SYSTEM = "system";
     public static final String WS_USER = "ws:user:";
+
     private final IMessageService messageService;
 
     private final ReactiveRedisConnectionFactory connectionFactory;
