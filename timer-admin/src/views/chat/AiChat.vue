@@ -20,6 +20,7 @@
     width="600px"
     :close-on-click-modal="false"
     :destroy-on-close="true"
+    @closed="handleDialogClose"
   >
     <div style="height: 400px; display: flex; flex-direction: column">
       <div
@@ -69,6 +70,9 @@
             </div>
           </div>
         </div>
+        <div v-if="!isConnected" style="text-align: center; color: #909399; margin-top: 10px;">
+          连接中...
+        </div>
       </div>
       <div style="display: flex; gap: 10px">
         <el-input
@@ -76,16 +80,24 @@
           placeholder="请输入消息..."
           @keyup.enter="sendMessage"
           style="flex: 1"
+          :disabled="!isConnected"
         />
-        <el-button type="primary" @click="sendMessage">发送</el-button>
+        <el-button type="primary" @click="sendMessage" :disabled="!isConnected">发送</el-button>
       </div>
     </div>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { Stamp } from "@element-plus/icons-vue";
+import useWebSocket from "@/composables/useWebSocket";
+
+// WebSocket配置
+const WS_URL = "ws://localhost:8006/ws/chat";
+
+// 使用WebSocket组合式函数
+const { messages: wsMessages, isConnected, send: sendWsMessage, close: closeWsConnection } = useWebSocket(WS_URL);
 
 // 机器人对话相关
 const showRobotDialog = ref(false);
@@ -102,6 +114,22 @@ const robotButton = ref<HTMLDivElement | null>(null);
 const robotPosition = ref({ right: 20, bottom: 20 }); // 默认右下角位置
 const isDragging = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
+
+// 监听WebSocket消息并添加到聊天记录
+watch(wsMessages, (newMessages) => {
+  if (newMessages.length > 0) {
+    const latestMessage = newMessages[newMessages.length - 1];
+    // 处理服务器返回的消息格式：{ "type": "chat", "content": "message", "to": "userId" }
+    if (latestMessage.type === "chat") {
+      const aiMessage = {
+        type: "ai" as const,
+        content: latestMessage.content || ""
+      };
+      chatMessages.value.push(aiMessage);
+      scrollToBottom();
+    }
+  }
+});
 
 // 组件挂载时恢复位置
 onMounted(() => {
@@ -139,31 +167,23 @@ const scrollToBottom = () => {
 
 // 发送消息
 const sendMessage = () => {
-  if (!userMessage.value.trim()) return;
+  if (!userMessage.value.trim() || !isConnected.value) return;
 
-  // 添加用户消息
-  chatMessages.value.push({ type: "user", content: userMessage.value });
+  // 添加用户消息到本地显示
+  const userMsg = { type: "user" as const, content: userMessage.value };
+  chatMessages.value.push(userMsg);
   
   // 立即滚动到底部显示用户消息
   scrollToBottom();
   
+  // 通过WebSocket发送消息，使用指定的报文格式
+  sendWsMessage({ 
+    type: "chat", 
+    content: userMessage.value,
+    to: "ai" // 发送给AI助手
+  });
+  
   userMessage.value = '';
-
-  // 模拟AI回复
-  setTimeout(() => {
-    const replies = [
-      "感谢您的消息！这是一个示例回复。",
-      "我已经收到您的信息，正在处理中...",
-      "您好！请问还有其他问题需要帮助吗？",
-      "这是一个AI助手的演示功能，实际项目中可以集成真实的AI服务。",
-      "我可以帮您解答关于系统使用的问题！",
-    ];
-    const randomReply = replies[Math.floor(Math.random() * replies.length)];
-    chatMessages.value.push({ type: "ai", content: randomReply });
-    
-    // AI回复后再次滚动到底部
-    scrollToBottom();
-  }, 1000);
 };
 
 // 拖拽功能
@@ -228,10 +248,17 @@ const toggleRobotDialog = () => {
   }
 };
 
+// 处理对话框关闭
+const handleDialogClose = () => {
+  // 可以在这里添加额外的清理逻辑
+};
+
 // 清理事件监听器
 onBeforeUnmount(() => {
   document.removeEventListener("mousemove", handleDrag);
   document.removeEventListener("mouseup", stopDrag);
+  // 关闭WebSocket连接
+  closeWsConnection();
 });
 </script>
 

@@ -343,7 +343,7 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                 sendMessageToUser(userId, textMsg.getPayload());
                 // 发送给目标用户
                 sendMessageToUser(msg.getTo(), textMsg.getPayload());
-                log.debug("📤 私聊投递 | from={} → to={}, content={}", userId, msg.getTo(), msg.getContent());
+                log.info("📤 私聊投递 | from={} → to={}, content={}", userId, msg.getTo(), msg.getContent());
             }
         } catch (JsonSyntaxException e) {
             log.error("❌ JSON解析失败 | rawMessage={}", rawMessage, e);
