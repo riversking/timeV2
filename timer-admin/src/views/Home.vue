@@ -321,6 +321,9 @@ const fetchCurrenntUser = async () => {
     const res = await getCurrentUser();
     console.log("current", res);
     username.value = res.data.username;
+    if (res.data) {
+      localStorage.setItem("user", JSON.stringify(res.data));
+    }
   } catch (error) {
     console.error(error);
   }

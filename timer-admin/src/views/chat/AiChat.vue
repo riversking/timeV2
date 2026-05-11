@@ -9,6 +9,7 @@
     }"
     @mousedown="startDrag"
     @click="toggleRobotDialog"
+    append-to-body
   >
     <el-icon><Stamp /></el-icon>
   </div>
@@ -17,72 +18,113 @@
   <el-dialog
     v-model="showRobotDialog"
     title="AI助手"
-    width="600px"
+    width="800px"
     :close-on-click-modal="false"
     :destroy-on-close="true"
     @closed="handleDialogClose"
   >
-    <div style="height: 400px; display: flex; flex-direction: column">
-      <div
-        ref="messagesContainer"
-        style="
-          flex: 1;
-          overflow-y: auto;
-          padding: 10px;
-          background: #f5f7fa;
-          border-radius: 8px;
-          margin-bottom: 10px;
-        "
-      >
-        <div
-          v-for="(msg, index) in chatMessages"
-          :key="index"
-          style="margin-bottom: 10px"
-        >
-          <div v-if="msg.type === 'user'" style="text-align: right">
-            <div
-              style="
-                display: inline-block;
-                background: #e6f7ff;
-                padding: 8px 12px;
-                border-radius: 12px;
-                margin-top: 5px;
-                max-width: 80%;
-              "
-            >
-              {{ msg.content }}
-            </div>
-            <el-tag type="success" size="small">我</el-tag>
+    <div style="height: 500px; display: flex">
+      <!-- 左侧用户列表 -->
+      <div style="width: 200px; border-right: 1px solid #ebeef5; padding: 10px">
+        <div style="margin-bottom: 10px; font-weight: bold">在线用户</div>
+        <el-scrollbar style="height: 450px">
+          <div
+            v-for="user in onlineUsers"
+            :key="user.id"
+            :class="['user-item', { active: selectedUser?.id === user.id }]"
+            @click="selectUser(user)"
+          >
+            <el-avatar size="small" :src="user.avatar">{{
+              user.name?.charAt(0)
+            }}</el-avatar>
+            <span style="margin-left: 10px">{{ user.name }}</span>
+            <el-badge
+              is-dot
+              :hidden="!user.isActive"
+              style="margin-left: auto"
+            />
           </div>
-          <div v-else style="text-align: left">
-            <el-tag type="primary" size="small">AI助手</el-tag>
-            <div
-              style="
-                display: inline-block;
-                background: #f0f9eb;
-                padding: 8px 12px;
-                border-radius: 12px;
-                margin-top: 5px;
-                max-width: 80%;
-              "
-            >
-              {{ msg.content }}
-            </div>
-          </div>
-        </div>
-        <div v-if="!isConnected" style="text-align: center; color: #909399; margin-top: 10px;">
-          连接中...
-        </div>
+        </el-scrollbar>
       </div>
-      <div style="display: flex; gap: 10px">
-        <el-input
-          v-model="userMessage"
-          placeholder="请输入消息..."
-          @keyup.enter="sendMessage"
-          style="flex: 1"
-          :disabled="!isConnected"
-        />
-        <el-button type="primary" @click="sendMessage" :disabled="!isConnected">发送</el-button>
+
+      <!-- 右侧聊天框 -->
+      <div
+        style="flex: 1; display: flex; flex-direction: column; padding: 10px"
+      >
+        <div v-if="selectedUser" style="margin-bottom: 10px; font-weight: bold">
+          与 {{ selectedUser.name }} 聊天中
+        </div>
+        <div
+          ref="messagesContainer"
+          style="
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f5f7fa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+          "
+        >
+          <div
+            v-for="(msg, index) in chatMessages"
+            :key="index"
+            style="margin-bottom: 10px"
+          >
+            <div v-if="msg.type === 'user'" style="text-align: right">
+              <div
+                style="
+                  display: inline-block;
+                  background: #e6f7ff;
+                  padding: 8px 12px;
+                  border-radius: 12px;
+                  margin-top: 5px;
+                  max-width: 80%;
+                "
+              >
+                {{ msg.content }}
+              </div>
+              <el-tag type="success" size="small">我</el-tag>
+            </div>
+            <div v-else style="text-align: left">
+              <el-tag type="primary" size="small">{{
+                selectedUser?.name || "AI助手"
+              }}</el-tag>
+              <div
+                style="
+                  display: inline-block;
+                  background: #f0f9eb;
+                  padding: 8px 12px;
+                  border-radius: 12px;
+                  margin-top: 5px;
+                  max-width: 80%;
+                "
+              >
+                {{ msg.content }}
+              </div>
+            </div>
+          </div>
+          <div
+            v-if="!isConnected"
+            style="text-align: center; color: #909399; margin-top: 10px"
+          >
+            连接中...
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px">
+          <el-input
+            v-model="userMessage"
+            placeholder="请输入消息..."
+            @keyup.enter="sendMessage"
+            style="flex: 1"
+            :disabled="!isConnected || !selectedUser"
+          />
+          <el-button
+            type="primary"
+            @click="sendMessage"
+            :disabled="!isConnected || !selectedUser"
+            >发送</el-button
+          >
+        </div>
       </div>
     </div>
   </el-dialog>
@@ -94,17 +136,37 @@ import { Stamp } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 
 // WebSocket配置
-const WS_URL = "ws://localhost:8006/ws/chat";
+const WS_URL = "/websocket/im-server/ws/chat";
 
 // 使用WebSocket组合式函数
-const { messages: wsMessages, isConnected, send: sendWsMessage, close: closeWsConnection } = useWebSocket(WS_URL);
+const {
+  messages: wsMessages,
+  isConnected,
+  send: sendWsMessage,
+  close: closeWsConnection,
+} = useWebSocket(WS_URL);
+
+// 用户列表相关
+interface User {
+  id: string;
+  name: string;
+  avatar?: string;
+  isActive: boolean;
+}
+
+const onlineUsers = ref<User[]>([
+  { id: "ri123", name: "AI助手", isActive: true },
+  { id: "admin", name: "张三", isActive: true },
+  { id: "user2", name: "李四", isActive: false },
+  { id: "user3", name: "王五", isActive: true },
+]);
+
+const selectedUser = ref<User | null>(null);
 
 // 机器人对话相关
 const showRobotDialog = ref(false);
 const userMessage = ref("");
-const chatMessages = ref<Array<{ type: "user" | "ai"; content: string }>>([
-  { type: "ai", content: "你好！我是AI助手，有什么可以帮助你的吗？" },
-]);
+const chatMessages = ref<Array<{ type: "user" | "ai"; content: string }>>([]);
 
 // 消息容器引用
 const messagesContainer = ref<HTMLDivElement | null>(null);
@@ -115,21 +177,74 @@ const robotPosition = ref({ right: 20, bottom: 20 }); // 默认右下角位置
 const isDragging = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
 
+// 选择用户
+const selectUser = (user: User) => {
+  selectedUser.value = user;
+  // 清空聊天记录或加载历史记录
+  chatMessages.value = [];
+  if (user.id === "ai") {
+    chatMessages.value.push({
+      type: "ai",
+      content: "你好！我是AI助手，有什么可以帮助你的吗？",
+    });
+  }
+};
+
 // 监听WebSocket消息并添加到聊天记录
 watch(wsMessages, (newMessages) => {
+  console.log("Received messages:", newMessages);
   if (newMessages.length > 0) {
     const latestMessage = newMessages[newMessages.length - 1];
-    // 处理服务器返回的消息格式：{ "type": "chat", "content": "message", "to": "userId" }
+    // 处理服务器返回的消息格式：{ "msgId":null,"type":"chat","content":"hi","extraData":null,"from":"admin","to":"ri123",... }
     if (latestMessage.type === "chat") {
-      const aiMessage = {
-        type: "ai" as const,
-        content: latestMessage.content || ""
-      };
-      chatMessages.value.push(aiMessage);
-      scrollToBottom();
+      const currentUser = localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user")!).userId : null;
+      
+      // 新增：查找消息相关的用户（无论是发送给谁的）
+      let relevantUser: User | null = null;
+      
+      // 检查是否是发给当前用户的消息
+      if (latestMessage.to === currentUser) {
+        // 找到发送者
+        const senderUser = onlineUsers.value.find(user => user.id === latestMessage.from);
+        if (senderUser) {
+          relevantUser = senderUser;
+          
+          // 将发送者移到数组第一个位置
+          const senderIndex = onlineUsers.value.findIndex(user => user.id === latestMessage.from);
+          if (senderIndex !== -1) {
+            onlineUsers.value.splice(senderIndex, 1);
+            onlineUsers.value.unshift(senderUser);
+          }
+        }
+      } 
+      // 检查是否是当前用户发送的消息的回显
+      else if (latestMessage.from === currentUser) {
+        // 找到接收者
+        const receiverUser = onlineUsers.value.find(user => user.id === latestMessage.to);
+        if (receiverUser) {
+          relevantUser = receiverUser;
+        }
+      }
+      
+      // 如果找到了相关用户
+      if (relevantUser) {
+        // 如果当前没有选中用户，或者选中的不是相关用户，则选中相关用户
+        if (!selectedUser.value || selectedUser.value.id !== relevantUser.id) {
+          selectUser(relevantUser);
+        }
+        
+        // 添加消息到聊天记录
+        const messageType: "ai" | "user" = latestMessage.from === currentUser ? "user" : "ai";
+        const chatMessage = {
+          type: messageType,
+          content: latestMessage.content || ""
+        };
+        chatMessages.value.push(chatMessage);
+        scrollToBottom();
+      }
     }
   }
-});
+}, { deep: true });
 
 // 组件挂载时恢复位置
 onMounted(() => {
@@ -154,6 +269,11 @@ onMounted(() => {
       robotPosition.value = { right: 20, bottom: 20 };
     }
   }
+
+  // 默认选择AI助手
+  if (onlineUsers.value.length > 0) {
+    selectUser(onlineUsers.value[0]);
+  }
 });
 
 // 自动滚动到底部
@@ -167,23 +287,24 @@ const scrollToBottom = () => {
 
 // 发送消息
 const sendMessage = () => {
-  if (!userMessage.value.trim() || !isConnected.value) return;
+  if (!userMessage.value.trim() || !isConnected.value || !selectedUser.value)
+    return;
 
   // 添加用户消息到本地显示
   const userMsg = { type: "user" as const, content: userMessage.value };
-  chatMessages.value.push(userMsg);
-  
+  // chatMessages.value.push(userMsg);
+
   // 立即滚动到底部显示用户消息
   scrollToBottom();
-  
+
   // 通过WebSocket发送消息，使用指定的报文格式
-  sendWsMessage({ 
-    type: "chat", 
+  sendWsMessage({
+    type: "chat",
     content: userMessage.value,
-    to: "ai" // 发送给AI助手
+    to: selectedUser.value.id,
   });
-  
-  userMessage.value = '';
+
+  userMessage.value = "";
 };
 
 // 拖拽功能
@@ -238,7 +359,7 @@ const stopDrag = () => {
 const toggleRobotDialog = () => {
   if (!isDragging.value) {
     showRobotDialog.value = !showRobotDialog.value;
-    
+
     // 对话框打开后滚动到底部
     if (showRobotDialog.value) {
       nextTick(() => {
@@ -290,5 +411,24 @@ onBeforeUnmount(() => {
 .draggable-robot-button .el-icon {
   font-size: 24px;
   color: white;
+}
+
+/* 用户列表项样式 */
+.user-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 5px;
+}
+
+.user-item:hover {
+  background-color: #f5f7fa;
+}
+
+.user-item.active {
+  background-color: #e6f7ff;
+  border-left: 3px solid #409eff;
 }
 </style>

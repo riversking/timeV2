@@ -143,7 +143,9 @@ const showPermissionDrawer = ref(false);
 const selectedRoleCode = ref("");
 const selectedRoleName = ref("");
 
-onMounted(() => {});
+onMounted(() => {
+    fetchRoles();
+});
 
 onActivated(() => {
   fetchRoles();

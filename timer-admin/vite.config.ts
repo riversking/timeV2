@@ -17,11 +17,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '') // 去掉前缀
       },
-      '/ws': {
+      '/websocket': {
         target: 'ws://localhost:8006', // 后端真实 WebSocket 服务地址
         ws: true,        // 必须设置为 true
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ws/, '') // 剥离代理标识
+        rewrite: (path) => path.replace(/^\/websocket/, '') // 剥离代理标识
       }
     }
   }

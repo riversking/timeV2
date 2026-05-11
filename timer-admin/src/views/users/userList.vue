@@ -151,7 +151,9 @@ const fetchUsers = async () => {
 };
 
 // 初始加载数据
-onMounted(() => {});
+onMounted(() => {
+    fetchUsers();
+});
 
 onActivated(() => {
   fetchUsers();

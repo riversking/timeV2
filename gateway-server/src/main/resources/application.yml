@@ -26,6 +26,10 @@ spring:
               uri: lb://batch-server
               predicates:
                 - Path=/batch-server/**
+            - id: im-server
+              uri: lb://im-server
+              predicates:
+                - Path=/im-server/**
 
 
 ignore:
@@ -34,6 +38,7 @@ ignore:
     - /user-server/login
     - /user-server/logout
     - /user-server/refresh
+    - /im-server/ws/**
 
 logging:
   level:

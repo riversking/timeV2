@@ -375,7 +375,9 @@ const toggleSelection = () => {
 // 表格引用
 const multipleTableRef = ref();
 
-onMounted(() => {});
+onMounted(() => {
+  fetchMenus();
+});
 onActivated(() => {
   fetchMenus();
 });
