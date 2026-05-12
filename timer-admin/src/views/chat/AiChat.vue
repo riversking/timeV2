@@ -11,6 +11,7 @@
     @click="toggleRobotDialog"
     append-to-body
   >
+    <div v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</div>
     <el-icon><Stamp /></el-icon>
   </div>
 
@@ -27,7 +28,11 @@
       <!-- 左侧用户列表 -->
       <div style="width: 200px; border-right: 1px solid #ebeef5; padding: 10px">
         <div style="margin-bottom: 10px; font-weight: bold">在线用户</div>
-        <el-scrollbar style="height: 450px">
+        <el-scrollbar
+          ref="userListScrollbar"
+          style="height: 450px"
+          @scroll="handleUserListScroll"
+        >
           <div
             v-for="user in onlineUsers"
             :key="user.id"
@@ -43,6 +48,15 @@
               :hidden="!user.isActive"
               style="margin-left: auto"
             />
+          </div>
+          <div v-if="loadingMore" style="text-align: center; padding: 10px">
+            加载中...
+          </div>
+          <div
+            v-else-if="!hasMore && onlineUsers.length > 0"
+            style="text-align: center; padding: 10px; color: #909399"
+          >
+            没有更多用户了
           </div>
         </el-scrollbar>
       </div>
@@ -134,6 +148,8 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { Stamp } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
+import { ElNotification, ElMessage } from "element-plus";
+import { getUserPage } from "@/api/user";
 
 // WebSocket配置
 const WS_URL = "/websocket/im-server/ws/chat";
@@ -167,6 +183,7 @@ const selectedUser = ref<User | null>(null);
 const showRobotDialog = ref(false);
 const userMessage = ref("");
 const chatMessages = ref<Array<{ type: "user" | "ai"; content: string }>>([]);
+const unreadCount = ref(0); // 新增：未读消息计数
 
 // 消息容器引用
 const messagesContainer = ref<HTMLDivElement | null>(null);
@@ -176,6 +193,14 @@ const robotButton = ref<HTMLDivElement | null>(null);
 const robotPosition = ref({ right: 20, bottom: 20 }); // 默认右下角位置
 const isDragging = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
+
+const currentPage = ref(1);
+const pageSize = ref(10);
+const total = ref(0);
+const users = ref<User[]>([]);
+const loading = ref(false);
+const loadingMore = ref(false);
+const hasMore = ref(true);
 
 // 选择用户
 const selectUser = (user: User) => {
@@ -191,60 +216,97 @@ const selectUser = (user: User) => {
 };
 
 // 监听WebSocket消息并添加到聊天记录
-watch(wsMessages, (newMessages) => {
-  console.log("Received messages:", newMessages);
-  if (newMessages.length > 0) {
-    const latestMessage = newMessages[newMessages.length - 1];
-    // 处理服务器返回的消息格式：{ "msgId":null,"type":"chat","content":"hi","extraData":null,"from":"admin","to":"ri123",... }
-    if (latestMessage.type === "chat") {
-      const currentUser = localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user")!).userId : null;
-      
-      // 新增：查找消息相关的用户（无论是发送给谁的）
-      let relevantUser: User | null = null;
-      
-      // 检查是否是发给当前用户的消息
-      if (latestMessage.to === currentUser) {
-        // 找到发送者
-        const senderUser = onlineUsers.value.find(user => user.id === latestMessage.from);
-        if (senderUser) {
-          relevantUser = senderUser;
-          
-          // 将发送者移到数组第一个位置
-          const senderIndex = onlineUsers.value.findIndex(user => user.id === latestMessage.from);
-          if (senderIndex !== -1) {
-            onlineUsers.value.splice(senderIndex, 1);
-            onlineUsers.value.unshift(senderUser);
+watch(
+  wsMessages,
+  (newMessages) => {
+    console.log("Received messages:", newMessages);
+    if (newMessages.length > 0) {
+      const latestMessage = newMessages[newMessages.length - 1];
+      // 处理服务器返回的消息格式：{ "msgId":null,"type":"chat","content":"hi","extraData":null,"from":"admin","to":"ri123",... }
+      if (latestMessage.type === "chat") {
+        const currentUser = localStorage.getItem("user")
+          ? JSON.parse(localStorage.getItem("user")!).userId
+          : null;
+
+        // 新增：查找消息相关的用户（无论是发送给谁的）
+        let relevantUser: User | null = null;
+
+        // 检查是否是发给当前用户的消息
+        if (latestMessage.to === currentUser) {
+          // 找到发送者
+          const senderUser = onlineUsers.value.find(
+            (user) => user.id === latestMessage.from,
+          );
+          if (senderUser) {
+            relevantUser = senderUser;
+
+            // 将发送者移到数组第一个位置
+            const senderIndex = onlineUsers.value.findIndex(
+              (user) => user.id === latestMessage.from,
+            );
+            if (senderIndex !== -1) {
+              onlineUsers.value.splice(senderIndex, 1);
+              onlineUsers.value.unshift(senderUser);
+            }
           }
         }
-      } 
-      // 检查是否是当前用户发送的消息的回显
-      else if (latestMessage.from === currentUser) {
-        // 找到接收者
-        const receiverUser = onlineUsers.value.find(user => user.id === latestMessage.to);
-        if (receiverUser) {
-          relevantUser = receiverUser;
+        // 检查是否是当前用户发送的消息的回显
+        else if (latestMessage.from === currentUser) {
+          // 找到接收者
+          const receiverUser = onlineUsers.value.find(
+            (user) => user.id === latestMessage.to,
+          );
+          if (receiverUser) {
+            relevantUser = receiverUser;
+          }
         }
-      }
-      
-      // 如果找到了相关用户
-      if (relevantUser) {
-        // 如果当前没有选中用户，或者选中的不是相关用户，则选中相关用户
-        if (!selectedUser.value || selectedUser.value.id !== relevantUser.id) {
-          selectUser(relevantUser);
+
+        // 如果找到了相关用户
+        if (relevantUser) {
+          // 如果当前没有选中用户，或者选中的不是相关用户，则选中相关用户
+          if (
+            !selectedUser.value ||
+            selectedUser.value.id !== relevantUser.id
+          ) {
+            selectUser(relevantUser);
+          }
+
+          // 添加消息到聊天记录
+          const messageType: "ai" | "user" =
+            latestMessage.from === currentUser ? "user" : "ai";
+          const chatMessage = {
+            type: messageType,
+            content: latestMessage.content || "",
+          };
+          chatMessages.value.push(chatMessage);
+          if (
+            latestMessage.to === currentUser &&
+            (!showRobotDialog.value ||
+              (selectedUser.value && selectedUser.value.id !== relevantUser.id))
+          ) {
+            unreadCount.value++;
+            ElNotification({
+              title: "新消息",
+              message: `${relevantUser.name}: ${latestMessage.content}`,
+              type: "info",
+              duration: 3000,
+              position: "bottom-right",
+            });
+          }
+          scrollToBottom();
+          // 如果当前没有选中用户，或者选中的不是相关用户，则选中相关用户
+          if (
+            !selectedUser.value ||
+            selectedUser.value.id !== relevantUser.id
+          ) {
+            selectUser(relevantUser);
+          }
         }
-        
-        // 添加消息到聊天记录
-        const messageType: "ai" | "user" = latestMessage.from === currentUser ? "user" : "ai";
-        const chatMessage = {
-          type: messageType,
-          content: latestMessage.content || ""
-        };
-        chatMessages.value.push(chatMessage);
-        scrollToBottom();
       }
     }
-  }
-}, { deep: true });
+  },
+  { deep: true },
+);
 
 // 组件挂载时恢复位置
 onMounted(() => {
@@ -270,11 +332,65 @@ onMounted(() => {
     }
   }
 
-  // 默认选择AI助手
-  if (onlineUsers.value.length > 0) {
-    selectUser(onlineUsers.value[0]);
-  }
+  // 加载用户列表
+  loading.value = true;
+  loadUserList(1);
 });
+
+const loadUserList = async (page: number) => {
+  try {
+    const response = await getUserPage({
+      currentPage: page,
+      pageSize: pageSize.value,
+    });
+    console.log("获取用户数据成功:", response);
+    if (response.code === 200) {
+      const users = response.data.users || [];
+      // 添加isActive字段，默认为true
+      const usersWithActive = users.map((user: User) => ({
+        ...user,
+        isActive: true,
+      }));
+      if (page === 1) {
+        onlineUsers.value = usersWithActive;
+      } else {
+        onlineUsers.value = [...onlineUsers.value, ...usersWithActive];
+      }
+      total.value = response.data.total || 0;
+      hasMore.value = onlineUsers.value.length < total.value;
+    } else {
+      ElMessage.error(response.message || "获取用户数据失败");
+    }
+  } catch (error) {
+    console.error("Failed to load user list:", error);
+    ElMessage.error("获取用户数据失败");
+  } finally {
+    loading.value = false;
+    loadingMore.value = false;
+  }
+};
+
+// 加载更多用户
+const loadMoreUsers = () => {
+  if (!loadingMore.value && hasMore.value) {
+    loadingMore.value = true;
+    currentPage.value++;
+    loadUserList(currentPage.value);
+  }
+};
+
+// 处理用户列表滚动
+const handleUserListScroll = (event: any) => {
+  const scrollbar = event.target;
+  const scrollTop = scrollbar.scrollTop;
+  const clientHeight = scrollbar.clientHeight;
+  const scrollHeight = scrollbar.scrollHeight;
+
+  // 当滚动到底部时加载更多
+  if (scrollTop + clientHeight >= scrollHeight - 10) {
+    loadMoreUsers();
+  }
+};
 
 // 自动滚动到底部
 const scrollToBottom = () => {
@@ -365,6 +481,7 @@ const toggleRobotDialog = () => {
       nextTick(() => {
         scrollToBottom();
       });
+      unreadCount.value = 0;
     }
   }
 };
@@ -430,5 +547,18 @@ onBeforeUnmount(() => {
 .user-item.active {
   background-color: #e6f7ff;
   border-left: 3px solid #409eff;
+}
+.unread-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: #f56c6c;
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 12px;
+  min-width: 18px;
+  text-align: center;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
 }
 </style>
