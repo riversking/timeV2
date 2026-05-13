@@ -32,4 +32,7 @@ public interface IUserService {
     Mono<ResultVO<Void>> disableUser(DisableUserReq disableUserReq);
 
     Mono<ResultVO<Void>> resetPassword(ResetPasswordReq resetPasswordReq);
+
+    Mono<ResultVO<UserPageRes>> getUserActivePage(UserPageReq userPageReq);
+
 }

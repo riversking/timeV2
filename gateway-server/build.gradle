@@ -34,7 +34,7 @@ dependencies {
     implementation 'com.alibaba:fastjson:2.0.58'
     implementation files('../protos/userservice_protos.jar')
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
     implementation 'org.springframework.cloud:spring-cloud-starter-gateway-server-webflux'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

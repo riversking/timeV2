@@ -23,10 +23,13 @@ import com.rivers.user.vo.MenuTreeVO;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -38,15 +41,18 @@ public class UserServiceImpl implements IUserService {
     private final TimerUserRoleMapper timerUserRoleMapper;
     private final TimerRoleMenuMapper timerRoleMenuMapper;
     private final TimerMenuMapper timerMenuMapper;
+    private final ReactiveRedisTemplate<String, String> reactiveRedisTemplate;
 
     public UserServiceImpl(TimerUserMapper timerUserMapper,
                            TimerUserRoleMapper timerUserRoleMapper,
                            TimerRoleMenuMapper timerRoleMenuMapper,
-                           TimerMenuMapper timerMenuMapper) {
+                           TimerMenuMapper timerMenuMapper,
+                           ReactiveRedisTemplate<String, String> reactiveRedisTemplate) {
         this.timerUserMapper = timerUserMapper;
         this.timerUserRoleMapper = timerUserRoleMapper;
         this.timerRoleMenuMapper = timerRoleMenuMapper;
         this.timerMenuMapper = timerMenuMapper;
+        this.reactiveRedisTemplate = reactiveRedisTemplate;
     }
 
     @Override
@@ -354,6 +360,61 @@ public class UserServiceImpl implements IUserService {
                 .onErrorReturn(ResultVO.fail("重置密码失败"));
     }
 
+    @Override
+    public Mono<ResultVO<UserPageRes>> getUserActivePage(UserPageReq userPageReq) {
+        int currentPage = Math.max(1, userPageReq.getCurrentPage());
+        int pageSize = Math.clamp(userPageReq.getPageSize(), 1, 100);
+        String userId = userPageReq.getUserId();
+        String username = userPageReq.getUsername();
+        LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
+        wrapper.like(StringUtils.isNotBlank(userId), TimerUser::getUserId, userId)
+                .like(StringUtils.isNotBlank(username), TimerUser::getUsername, username);
+        Page<TimerUser> page = Page.of(currentPage, pageSize);
+        IPage<TimerUser> result = timerUserMapper.selectPage(page, wrapper);
+        long total = result.getTotal();
+        if (total == 0) {
+            return Mono.just(ResultVO.ok(UserPageRes.newBuilder().build()));
+        }
+        List<TimerUser> records = result.getRecords();
+        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        List<User> users = result.getRecords().stream()
+                .map(u -> User.newBuilder()
+                        .setId(u.getId())
+                        .setUserId(u.getUserId())
+                        .setUsername(u.getUsername())
+                        .setMail(u.getMail())
+                        .setPhone(u.getPhone())
+                        .setIsDisable(u.getIsDisable())
+                        .setCreateTime(Optional.ofNullable(u.getCreateTime())
+                                .map(dateTimeFormatter::format)
+                                .orElse(""))
+                        .setUpdateTime(Optional.ofNullable(u.getUpdateTime())
+                                .map(dateTimeFormatter::format)
+                                .orElse(""))
+                        .build())
+                .toList();
+        Flux.fromIterable(users)
+                .parallel()
+                .runOn(Schedulers.boundedElastic())
+                .flatMap(this::getUserOnlineStatus)
+                .sequential();
+        return null;
+    }
+
+    public Mono<User> getUserOnlineStatus(User user) {
+        String onlineKey = "user:online:" + user.getUserId();
+        Mono<Boolean> onlineCheck = reactiveRedisTemplate.hasKey(onlineKey);
+        return onlineCheck
+                .flatMap(isOnline -> {
+                    if (Boolean.TRUE.equals(isOnline)) {
+                        return Mono.just(user.get);
+                    } else {
+                        return Mono.just(user);
+                    }
+                })
+                .cache(Duration.ofSeconds(30));
+    }
+
     private @NonNull ResultVO<Void> changeUserStatus(String userId, String isDisable, LoginUser loginUser) {
         LambdaUpdateWrapper<TimerUser> userWrapper = Wrappers.lambdaUpdate();
         userWrapper.eq(TimerUser::getUserId, userId);
@@ -366,6 +427,6 @@ public class UserServiceImpl implements IUserService {
         user.setId(timerUser.getId());
         user.setUpdateUser(loginUser.getUserId());
         user.updateById();
-        return ResultVO.<Void>ok();
+        return ResultVO.ok();
     }
 }

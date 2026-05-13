@@ -35,14 +35,14 @@
         >
           <div
             v-for="user in onlineUsers"
-            :key="user.id"
-            :class="['user-item', { active: selectedUser?.id === user.id }]"
+            :key="user.userId"
+            :class="['user-item', { active: selectedUser?.userId === user.userId }]"
             @click="selectUser(user)"
           >
             <el-avatar size="small" :src="user.avatar">{{
-              user.name?.charAt(0)
+              user.username?.charAt(0)
             }}</el-avatar>
-            <span style="margin-left: 10px">{{ user.name }}</span>
+            <span style="margin-left: 10px">{{ user.username }}</span>
             <el-badge
               is-dot
               :hidden="!user.isActive"
@@ -66,7 +66,7 @@
         style="flex: 1; display: flex; flex-direction: column; padding: 10px"
       >
         <div v-if="selectedUser" style="margin-bottom: 10px; font-weight: bold">
-          与 {{ selectedUser.name }} 聊天中
+          与 {{ selectedUser.username }} 聊天中
         </div>
         <div
           ref="messagesContainer"
@@ -101,7 +101,7 @@
             </div>
             <div v-else style="text-align: left">
               <el-tag type="primary" size="small">{{
-                selectedUser?.name || "AI助手"
+                selectedUser?.username || "AI助手"
               }}</el-tag>
               <div
                 style="
@@ -164,18 +164,14 @@ const {
 
 // 用户列表相关
 interface User {
-  id: string;
-  name: string;
+  // id: number;
+  userId: string;
+  username: string;
   avatar?: string;
   isActive: boolean;
 }
 
-const onlineUsers = ref<User[]>([
-  { id: "ri123", name: "AI助手", isActive: true },
-  { id: "admin", name: "张三", isActive: true },
-  { id: "user2", name: "李四", isActive: false },
-  { id: "user3", name: "王五", isActive: true },
-]);
+const onlineUsers = ref<User[]>([]);
 
 const selectedUser = ref<User | null>(null);
 
@@ -197,7 +193,6 @@ const dragOffset = ref({ x: 0, y: 0 });
 const currentPage = ref(1);
 const pageSize = ref(10);
 const total = ref(0);
-const users = ref<User[]>([]);
 const loading = ref(false);
 const loadingMore = ref(false);
 const hasMore = ref(true);
@@ -207,7 +202,7 @@ const selectUser = (user: User) => {
   selectedUser.value = user;
   // 清空聊天记录或加载历史记录
   chatMessages.value = [];
-  if (user.id === "ai") {
+  if (user.userId === "ai") {
     chatMessages.value.push({
       type: "ai",
       content: "你好！我是AI助手，有什么可以帮助你的吗？",
@@ -235,14 +230,14 @@ watch(
         if (latestMessage.to === currentUser) {
           // 找到发送者
           const senderUser = onlineUsers.value.find(
-            (user) => user.id === latestMessage.from,
+            (user) => user.userId === latestMessage.from,
           );
           if (senderUser) {
             relevantUser = senderUser;
 
             // 将发送者移到数组第一个位置
             const senderIndex = onlineUsers.value.findIndex(
-              (user) => user.id === latestMessage.from,
+              (user) => user.userId === latestMessage.from,
             );
             if (senderIndex !== -1) {
               onlineUsers.value.splice(senderIndex, 1);
@@ -254,7 +249,7 @@ watch(
         else if (latestMessage.from === currentUser) {
           // 找到接收者
           const receiverUser = onlineUsers.value.find(
-            (user) => user.id === latestMessage.to,
+            (user) => user.userId === latestMessage.to,
           );
           if (receiverUser) {
             relevantUser = receiverUser;
@@ -266,7 +261,7 @@ watch(
           // 如果当前没有选中用户，或者选中的不是相关用户，则选中相关用户
           if (
             !selectedUser.value ||
-            selectedUser.value.id !== relevantUser.id
+            selectedUser.value.userId !== relevantUser.userId
           ) {
             selectUser(relevantUser);
           }
@@ -282,12 +277,12 @@ watch(
           if (
             latestMessage.to === currentUser &&
             (!showRobotDialog.value ||
-              (selectedUser.value && selectedUser.value.id !== relevantUser.id))
+              (selectedUser.value && selectedUser.value.userId !== relevantUser.userId))
           ) {
             unreadCount.value++;
             ElNotification({
               title: "新消息",
-              message: `${relevantUser.name}: ${latestMessage.content}`,
+              message: `${relevantUser.username}: ${latestMessage.content}`,
               type: "info",
               duration: 3000,
               position: "bottom-right",
@@ -297,7 +292,7 @@ watch(
           // 如果当前没有选中用户，或者选中的不是相关用户，则选中相关用户
           if (
             !selectedUser.value ||
-            selectedUser.value.id !== relevantUser.id
+            selectedUser.value.userId !== relevantUser.userId
           ) {
             selectUser(relevantUser);
           }
@@ -417,7 +412,7 @@ const sendMessage = () => {
   sendWsMessage({
     type: "chat",
     content: userMessage.value,
-    to: selectedUser.value.id,
+    to: selectedUser.value.userId,
   });
 
   userMessage.value = "";
