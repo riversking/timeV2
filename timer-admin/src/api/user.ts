@@ -41,3 +41,9 @@ export async function disableUser(data: any) {
 export async function resetPassword(data: any) {
   return http.post(`${API_PREFIX}/resetPassword`, data).then((res) => res.data);
 }
+
+export async function getUserActivePage(data: any) {
+  return http
+    .post(`${API_PREFIX}/getUserActivePage`, data)
+    .then((res) => res.data);
+}

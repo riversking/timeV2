@@ -71,4 +71,9 @@ public class UserController {
     public Mono<ResultVO<Void>> resetPassword(@RequestBody ResetPasswordReq resetPasswordReq) {
         return userService.resetPassword(resetPasswordReq);
     }
+
+    @PostMapping("getUserActivePage")
+    public Mono<ResultVO<UserPageRes>> getUserActivePage(@RequestBody UserPageReq userPageReq) {
+        return userService.getUserActivePage(userPageReq);
+    }
 }

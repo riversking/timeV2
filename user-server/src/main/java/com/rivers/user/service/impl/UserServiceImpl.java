@@ -20,6 +20,7 @@ import com.rivers.user.mapper.TimerUserRoleMapper;
 import com.rivers.user.service.IUserService;
 import com.rivers.user.util.PasswordGenerator;
 import com.rivers.user.vo.MenuTreeVO;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
@@ -34,6 +35,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Service
+@Slf4j
 public class UserServiceImpl implements IUserService {
 
     public static final String USER_EMPTY = "用户ID不能为空";
@@ -376,41 +378,49 @@ public class UserServiceImpl implements IUserService {
             return Mono.just(ResultVO.ok(UserPageRes.newBuilder().build()));
         }
         List<TimerUser> records = result.getRecords();
-        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        List<User> users = result.getRecords().stream()
-                .map(u -> User.newBuilder()
-                        .setId(u.getId())
-                        .setUserId(u.getUserId())
-                        .setUsername(u.getUsername())
-                        .setMail(u.getMail())
-                        .setPhone(u.getPhone())
-                        .setIsDisable(u.getIsDisable())
-                        .setCreateTime(Optional.ofNullable(u.getCreateTime())
-                                .map(dateTimeFormatter::format)
-                                .orElse(""))
-                        .setUpdateTime(Optional.ofNullable(u.getUpdateTime())
-                                .map(dateTimeFormatter::format)
-                                .orElse(""))
-                        .build())
-                .toList();
-        Flux.fromIterable(users)
+        return   Flux.fromIterable(records)
                 .parallel()
                 .runOn(Schedulers.boundedElastic())
                 .flatMap(this::getUserOnlineStatus)
-                .sequential();
-        return null;
+                .sequential().collectList()
+                .map(i ->
+                        ResultVO.ok(UserPageRes.newBuilder()
+                                .setTotal(total)
+                                .addAllUsers(i)
+                                .build())).onErrorResume(e -> {
+                    log.error("❌ Failed to batch query online status", e);
+                    return Mono.just(ResultVO.fail("批量查询在线状态失败"));
+                });
     }
 
-    public Mono<User> getUserOnlineStatus(User user) {
-        String onlineKey = "user:online:" + user.getUserId();
+    private Mono<User> getUserOnlineStatus(TimerUser timerUser) {
+        String onlineKey = "user:online:" + timerUser.getUserId();
         Mono<Boolean> onlineCheck = reactiveRedisTemplate.hasKey(onlineKey);
         return onlineCheck
                 .flatMap(isOnline -> {
+                    User user;
                     if (Boolean.TRUE.equals(isOnline)) {
-                        return Mono.just(user.get);
+                        user = User.newBuilder()
+                                .setId(timerUser.getId())
+                                .setUserId(timerUser.getUserId())
+                                .setUsername(timerUser.getUsername())
+                                .setMail(timerUser.getMail())
+                                .setPhone(timerUser.getPhone())
+                                .setIsDisable(timerUser.getIsDisable())
+                                .setIsActive("1")
+                                .build();
                     } else {
-                        return Mono.just(user);
+                        user = User.newBuilder()
+                                .setId(timerUser.getId())
+                                .setUserId(timerUser.getUserId())
+                                .setUsername(timerUser.getUsername())
+                                .setMail(timerUser.getMail())
+                                .setPhone(timerUser.getPhone())
+                                .setIsDisable(timerUser.getIsDisable())
+                                .setIsActive("0")
+                                .build();
                     }
+                    return Mono.just(user);
                 })
                 .cache(Duration.ofSeconds(30));
     }

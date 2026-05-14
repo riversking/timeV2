@@ -36,7 +36,10 @@
           <div
             v-for="user in onlineUsers"
             :key="user.userId"
-            :class="['user-item', { active: selectedUser?.userId === user.userId }]"
+            :class="[
+              'user-item',
+              { active: selectedUser?.userId === user.userId },
+            ]"
             @click="selectUser(user)"
           >
             <el-avatar size="small" :src="user.avatar">{{
@@ -45,7 +48,7 @@
             <span style="margin-left: 10px">{{ user.username }}</span>
             <el-badge
               is-dot
-              :hidden="!user.isActive"
+              :hidden="user.isActive === '0'"
               style="margin-left: auto"
             />
           </div>
@@ -149,7 +152,7 @@ import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { Stamp } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
-import { getUserPage } from "@/api/user";
+import { getUserActivePage } from "@/api/user";
 
 // WebSocket配置
 const WS_URL = "/websocket/im-server/ws/chat";
@@ -168,7 +171,7 @@ interface User {
   userId: string;
   username: string;
   avatar?: string;
-  isActive: boolean;
+  isActive: string;
 }
 
 const onlineUsers = ref<User[]>([]);
@@ -277,7 +280,8 @@ watch(
           if (
             latestMessage.to === currentUser &&
             (!showRobotDialog.value ||
-              (selectedUser.value && selectedUser.value.userId !== relevantUser.userId))
+              (selectedUser.value &&
+                selectedUser.value.userId !== relevantUser.userId))
           ) {
             unreadCount.value++;
             ElNotification({
@@ -334,7 +338,7 @@ onMounted(() => {
 
 const loadUserList = async (page: number) => {
   try {
-    const response = await getUserPage({
+    const response = await getUserActivePage({
       currentPage: page,
       pageSize: pageSize.value,
     });
@@ -342,14 +346,11 @@ const loadUserList = async (page: number) => {
     if (response.code === 200) {
       const users = response.data.users || [];
       // 添加isActive字段，默认为true
-      const usersWithActive = users.map((user: User) => ({
-        ...user,
-        isActive: true,
-      }));
+
       if (page === 1) {
-        onlineUsers.value = usersWithActive;
+        onlineUsers.value = users;
       } else {
-        onlineUsers.value = [...onlineUsers.value, ...usersWithActive];
+        onlineUsers.value = [...onlineUsers.value, ...users];
       }
       total.value = response.data.total || 0;
       hasMore.value = onlineUsers.value.length < total.value;
