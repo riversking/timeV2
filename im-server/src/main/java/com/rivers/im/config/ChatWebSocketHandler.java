@@ -34,10 +34,12 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static java.time.Duration.ofMinutes;
 
@@ -177,11 +179,10 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                 .doOnError(e -> log.error("❌ Error receiving message from user {} (connId: {})", userId, connectionId, e))
                 .doOnTerminate(() -> log.debug("📡 Input stream terminated for connId: {}", connectionId))
                 .then();
-
         // 4. 心跳续期（每25秒，持续到 session 关闭）
         Flux<Void> heartbeatFlux = Flux.interval(Duration.ofSeconds(25))
-                .takeWhile(tick -> session.isOpen()) // ✅ Boolean 过滤，但不影响返回类型
-                .flatMap(tick ->
+                .takeWhile(_ -> session.isOpen()) // ✅ Boolean 过滤，但不影响返回类型
+                .flatMap(_ ->
                         // 🔑 核心修正：将 Mono<Boolean> 转换为 Mono<Void>
                         // ✅ .then() 转 Void
                         Mono.when(
@@ -320,14 +321,26 @@ public class ChatWebSocketHandler implements WebSocketHandler {
             }
             // 2️⃣ 解析客户端消息（假设为标准JSON格式）
             ChatMessage msg = gson.fromJson(rawMessage, ChatMessage.class);
-            if (msg == null || StringUtils.isEmpty(msg.getContent())) {
+            if (msg == null) {
+                log.warn("⚠️ 消息内容为空 | userId={}", userId);
+                return;
+            }
+            if ("query_online".equalsIgnoreCase(msg.getType())) {
+                handleQueryOnlineStatus(connectionId, userId, msg);
+                return;
+            }
+
+            if ("subscribe_status".equalsIgnoreCase(msg.getType())) {
+                handleSubscribeStatus(connectionId, userId, msg);
+                return;
+            }
+            if (StringUtils.isEmpty(msg.getContent())) {
                 log.warn("⚠️ 消息内容为空 | userId={}", userId);
                 return;
             }
             // 3️⃣ 【关键】覆盖from字段，防止客户端伪造身份（安全加固）
             msg.setFrom(userId); // 强制使用连接认证的userId
             msg.setTimestamp(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()); // 服务端统一时间戳
-
             // 4️⃣ 业务层处理（持久化/风控/通知等）
 //            messageService.saveMessage(msg); // 假设已注入messageService
             // 5️⃣ 消息分发逻辑
@@ -380,6 +393,152 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         } catch (Exception e) {
             log.warn("⚠️ 系统消息发送失败", e);
         }
+    }
+
+    private void handleQueryOnlineStatus(String connectionId, String currentUserId, ChatMessage requestMsg) {
+        try {
+            String targetUserId = requestMsg.getTo();
+            if (StringUtils.isEmpty(targetUserId)) {
+                sendSystemMessage(connectionId, "查询在线状态需要指定目标用户ID");
+                return;
+            }
+            String wsUserKey = WS_USER + targetUserId;
+            hashOps.entries(wsUserKey)
+                    .collectMap(Map.Entry::getKey, Map.Entry::getValue)
+                    .defaultIfEmpty(Collections.emptyMap())
+                    .map(connections -> {
+                        boolean isOnline = !connections.isEmpty();
+                        ChatMessage response = new ChatMessage();
+                        response.setType("online_status");
+                        response.setFrom(SYSTEM);
+                        response.setTo(currentUserId);
+                        response.setContent(targetUserId);
+                        response.setTimestamp(LocalDateTime.now()
+                                .atZone(ZoneId.systemDefault())
+                                .toInstant().toEpochMilli());
+                        if (isOnline) {
+                            response.setStatus("online");
+                            response.setExtraData("{\"message\":\"用户在线\"}");
+                        } else {
+                            response.setStatus("offline");
+                            response.setExtraData("{\"message\":\"用户离线\"}");
+                        }
+                        return gson.toJson(response);
+                    })
+                    .doOnNext(json -> {
+                        ConnectionInfo info = localConnections.get(connectionId);
+                        if (info != null && info.session().isOpen()) {
+                            info.session().send(Mono.just(info.session().textMessage(json)))
+                                    .onErrorResume(e -> {
+                                        log.warn("⚠️ 发送在线状态响应失败 | connId: {}", connectionId, e);
+                                        return Mono.empty();
+                                    })
+                                    .subscribe();
+                        }
+                    })
+                    .doOnError(e -> {
+                        log.error("❌ 查询在线状态失败 | targetUserId: {}", targetUserId, e);
+                        sendSystemMessage(connectionId, "查询在线状态失败");
+                    })
+                    .subscribe();
+
+            log.info("🔍 查询在线状态 | requester: {} | target: {}", currentUserId, targetUserId);
+        } catch (Exception e) {
+            log.error("❌ 处理在线状态查询异常 | connId: {}", connectionId, e);
+            sendSystemMessage(connectionId, "查询在线状态异常");
+        }
+    }
+
+    private void handleSubscribeStatus(String connectionId, String currentUserId, ChatMessage requestMsg) {
+        try {
+            String extraData = requestMsg.getExtraData();
+            if (StringUtils.isEmpty(extraData)) {
+                sendSystemMessage(connectionId, "订阅状态需要指定目标用户列表");
+                return;
+            }
+            Map<?, ?> data = gson.fromJson(extraData, Map.class);
+            Object targetUserIdsObj = data.get("targetUserIds");
+
+            if (!(targetUserIdsObj instanceof List)) {
+                sendSystemMessage(connectionId, "目标用户列表格式错误");
+                return;
+            }
+            List<String> targetUserIds = (List<String>) targetUserIdsObj;
+            String subscribeKey = "ws:subscribe:" + currentUserId;
+            Map<String, String> subscribeData = targetUserIds.stream()
+                    .collect(Collectors.toMap(
+                            id -> id,
+                            _ -> System.currentTimeMillis() + ""
+                    ));
+            hashOps.putAll(subscribeKey, subscribeData)
+                    .then(reactiveRedisTemplate.expire(subscribeKey, ofMinutes(10)))
+                    .doOnSuccess(v -> {
+                        log.info("✅ 用户 {} 订阅了 {} 个用户的状态变化", currentUserId, targetUserIds.size());
+                        ChatMessage response = new ChatMessage();
+                        response.setType("subscribe_success");
+                        response.setFrom(SYSTEM);
+                        response.setTo(currentUserId);
+                        response.setContent("订阅成功");
+                        response.setTimestamp(LocalDateTime.now()
+                                .atZone(ZoneId.systemDefault())
+                                .toInstant().toEpochMilli());
+                        ConnectionInfo info = localConnections.get(connectionId);
+                        if (info != null && info.session().isOpen()) {
+                            info.session().send(Mono.just(info.session().textMessage(gson.toJson(response))))
+                                    .subscribe();
+                        }
+                    })
+                    .doOnError(e -> {
+                        log.error("❌ 订阅状态失败", e);
+                        sendSystemMessage(connectionId, "订阅状态失败");
+                    })
+                    .subscribe();
+
+        } catch (Exception e) {
+            log.error("❌ 处理订阅状态异常 | connId: {}", connectionId, e);
+            sendSystemMessage(connectionId, "订阅状态异常");
+        }
+    }
+
+    private void notifySubscribers(String changedUserId, boolean isOnline) {
+        String wsUserKey = WS_USER + changedUserId;
+        hashOps.entries(wsUserKey)
+                .collectMap(Map.Entry::getKey, Map.Entry::getValue)
+                .defaultIfEmpty(Collections.emptyMap())
+                .subscribe(connections -> {
+                    if (connections.isEmpty()) {
+                        return;
+                    }
+                    ChatMessage notification = new ChatMessage();
+                    notification.setType("status_change");
+                    notification.setFrom(SYSTEM);
+                    notification.setContent(changedUserId);
+                    notification.setStatus(isOnline ? "online" : "offline");
+                    notification.setTimestamp(LocalDateTime.now()
+                            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
+                    String payload = gson.toJson(notification);
+                    connections.forEach((connId, targetServer) -> {
+                        if (targetServer.equals(serverId)) {
+                            ConnectionInfo info = localConnections.get(connId);
+                            if (info != null && info.session().isOpen()) {
+                                info.session().send(Mono.just(info.session().textMessage(payload)))
+                                        .subscribe();
+                            }
+                        } else {
+                            String channel = "ws:msg:" + targetServer;
+                            Map<String, String> routedMsg = Map.of(
+                                    "connectionId", connId,
+                                    "payload", payload
+                            );
+                            try {
+                                String jsonMsg = objectMapper.writeValueAsString(routedMsg);
+                                reactiveRedisTemplate.convertAndSend(channel, jsonMsg).subscribe();
+                            } catch (Exception e) {
+                                log.error("❌ 路由状态通知失败", e);
+                            }
+                        }
+                    });
+                });
     }
 
     /**
@@ -471,9 +630,10 @@ public class ChatWebSocketHandler implements WebSocketHandler {
 
     private Mono<Void> updateOnlineStatus(String userId, boolean online) {
         String key = "user:online:" + userId;
-        return online
+        return (online
                 ? valueOps.set(key, "1", ofMinutes(5)).then()
-                : reactiveRedisTemplate.delete(key).then();
+                : reactiveRedisTemplate.delete(key).then())
+                .doOnSuccess(v -> notifySubscribers(userId, online));
     }
 
     private void cleanupConnection(String connectionId, String userId) {

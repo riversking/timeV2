@@ -213,6 +213,25 @@ const selectUser = (user: User) => {
   }
 };
 
+// 更新用户状态
+const updateUserStatus = (userId: string, isActive: string) => {
+  const userIndex = onlineUsers.value.findIndex(user => user.userId === userId);
+  if (userIndex !== -1) {
+    onlineUsers.value[userIndex].isActive = isActive;
+  }
+};
+
+// 订阅用户状态
+const subscribeUserStatus = () => {
+  if (isConnected.value && onlineUsers.value.length > 0) {
+    const targetUserIds = onlineUsers.value.map(user => user.userId);
+    sendWsMessage({
+      type: "subscribe_status",
+      extraData: JSON.stringify({ targetUserIds })
+    });
+  }
+};
+
 // 监听WebSocket消息并添加到聊天记录
 watch(
   wsMessages,
@@ -302,6 +321,20 @@ watch(
           }
         }
       }
+      // 处理用户状态更新消息
+      else if (latestMessage.type === "status_update") {
+        // 从extraData中解析用户状态信息
+        if (latestMessage.extraData) {
+          try {
+            const statusData = JSON.parse(latestMessage.extraData);
+            if (statusData.userId && statusData.isActive !== undefined) {
+              updateUserStatus(statusData.userId, statusData.isActive);
+            }
+          } catch (e) {
+            console.error("解析用户状态数据失败:", e);
+          }
+        }
+      }
     }
   },
   { deep: true },
@@ -363,6 +396,13 @@ const loadUserList = async (page: number) => {
   } finally {
     loading.value = false;
     loadingMore.value = false;
+    
+    // 用户列表加载完成后订阅状态
+    if (page === 1) {
+      nextTick(() => {
+        subscribeUserStatus();
+      });
+    }
   }
 };
 
@@ -486,6 +526,16 @@ const toggleRobotDialog = () => {
 const handleDialogClose = () => {
   // 可以在这里添加额外的清理逻辑
 };
+
+// 监听WebSocket连接状态变化
+watch(isConnected, (connected) => {
+  if (connected) {
+    // 连接成功后订阅用户状态
+    nextTick(() => {
+      subscribeUserStatus();
+    });
+  }
+});
 
 // 清理事件监听器
 onBeforeUnmount(() => {
