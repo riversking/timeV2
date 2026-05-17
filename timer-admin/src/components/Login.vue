@@ -5,50 +5,82 @@
         <h2 class="login-title">用户登录</h2>
       </template>
 
-      <el-form @submit.prevent="handleLogin" :model="form" label-position="top">
-        <el-form-item label="用户名">
-          <el-input
-            v-model="form.username"
-            placeholder="请输入用户名"
-            clearable
-            required
-          />
-        </el-form-item>
+      <!-- 账号密码登录 -->
+      <div v-if="loginType === 'password'" class="password-login">
+        <el-form @submit.prevent="handleLogin" :model="form" label-position="top">
+          <el-form-item label="用户名">
+            <el-input
+              v-model="form.username"
+              placeholder="请输入用户名"
+              clearable
+              required
+            />
+          </el-form-item>
 
-        <el-form-item label="密码">
-          <el-input
-            v-model="form.password"
-            type="password"
-            placeholder="请输入密码"
-            show-password
-            required
-          />
-        </el-form-item>
+          <el-form-item label="密码">
+            <el-input
+              v-model="form.password"
+              type="password"
+              placeholder="请输入密码"
+              show-password
+              required
+            />
+          </el-form-item>
 
-        <el-form-item v-if="error">
-          <el-alert :title="error" type="error" show-icon :closable="false" />
-        </el-form-item>
+          <el-form-item v-if="error">
+            <el-alert :title="error" type="error" show-icon :closable="false" />
+          </el-form-item>
 
-        <el-form-item>
-          <el-button
-            type="primary"
-            native-type="submit"
-            :loading="loading"
-            style="width: 100%"
-            :disabled="!form.username || !form.password"
-          >
-            {{ loading ? "登录中..." : "登录" }}
-          </el-button>
-        </el-form-item>
-      </el-form>
+          <el-form-item>
+            <el-button
+              type="primary"
+              native-type="submit"
+              :loading="loading"
+              style="width: 100%"
+              :disabled="!form.username || !form.password"
+            >
+              {{ loading ? "登录中..." : "登录" }}
+            </el-button>
+          </el-form-item>
+        </el-form>
+        
+        <div class="login-switch">
+          <span>没有账号？</span>
+          <el-link type="primary" @click="switchLoginType('qrcode')">扫码登录</el-link>
+        </div>
+      </div>
+
+      <!-- 扫码登录 -->
+      <div v-else-if="loginType === 'qrcode'" class="qrcode-login">
+        <div class="qrcode-container">
+          <div v-if="qrcodeUrl" class="qrcode-wrapper">
+            <img :src="qrcodeUrl" alt="扫码登录" class="qrcode-img" />
+            <div class="qrcode-tip">请使用手机APP扫描二维码</div>
+            <div v-if="scanStatus === 'SCANNED'" class="scan-status success">
+              {{ scannedUser ? `已扫码用户：${scannedUser.username}` : '已扫码，请在手机上确认登录' }}
+            </div>
+            <div v-else-if="scanStatus === 'EXPIRED'" class="scan-status error">
+              二维码已过期，请重新获取
+            </div>
+          </div>
+          <div v-else class="qrcode-loading">
+            <el-skeleton :rows="4" animated />
+          </div>
+        </div>
+        
+        <div class="login-switch">
+          <span>使用账号密码登录？</span>
+          <el-link type="primary" @click="switchLoginType('password')">返回</el-link>
+        </div>
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import { login } from "@/api/auth";
-import { ElMessage, ElLoading } from "element-plus";
+import { ref, onMounted, onUnmounted } from "vue";
+import { login, getQrCode } from "@/api/auth";
+import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/store/user";
 
@@ -56,6 +88,9 @@ import { useUserStore } from "@/store/user";
 const router = useRouter();
 // 获取用户状态管理
 const userStore = useUserStore();
+
+// 登录类型：password 或 qrcode
+const loginType = ref<"password" | "qrcode">("password");
 
 // 表单数据
 const form = ref({
@@ -66,6 +101,126 @@ const form = ref({
 // 状态
 const loading = ref(false);
 const error = ref<string | null>(null);
+
+// 扫码登录相关
+const qrcodeUrl = ref<string | null>(null);
+const qrCodeId = ref<string | null>(null);
+const scanStatus = ref<"WAITING" | "SCANNED" | "CONFIRMED" | "EXPIRED">("WAITING");
+const scannedUser = ref<{ userId: string; username: string } | null>(null);
+const ws = ref<WebSocket | null>(null);
+
+// 切换登录类型
+const switchLoginType = (type: "password" | "qrcode") => {
+  loginType.value = type;
+  if (type === "qrcode") {
+    generateQrCode();
+  } else {
+    // 清理扫码相关的WebSocket和数据
+    closeWebSocket();
+    qrcodeUrl.value = null;
+    qrCodeId.value = null;
+    scanStatus.value = "WAITING";
+    scannedUser.value = null;
+  }
+};
+
+// 生成二维码
+const generateQrCode = async () => {
+  try {
+    const res = await getQrCode();
+    if (res.code === 200) {
+      qrcodeUrl.value = res.data.qrCodeContent; // 使用 qrCodeContent 字段
+      qrCodeId.value = res.data.qrCodeId;       // 使用 qrCodeId 字段
+      scanStatus.value = "WAITING";
+      scannedUser.value = null;
+      connectWebSocket();
+    } else {
+      ElMessage.error("获取二维码失败");
+    }
+  } catch (err) {
+    console.error("获取二维码失败:", err);
+    ElMessage.error("获取二维码失败，请稍后重试");
+  }
+};
+
+// 连接WebSocket
+const connectWebSocket = () => {
+  if (!qrCodeId.value) return;
+  
+  // 关闭现有连接
+  closeWebSocket();
+  
+  // 创建新的WebSocket连接（不需要用户认证）
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsHost = `${protocol}//${window.location.host}`;
+  const wsUrl = `${wsHost}/websocket/user-server/ws/qrcode?qrCodeId=${qrCodeId.value}`;
+  
+  ws.value = new WebSocket(wsUrl);
+  
+  ws.value.onopen = () => {
+    console.log("WebSocket连接已建立");
+  };
+  
+  ws.value.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      console.log("收到扫码状态消息:", message);
+      
+      // 处理扫码状态更新
+      if (message.status === "SCANNED") {
+        scanStatus.value = "SCANNED";
+        scannedUser.value = message.data;
+      } else if (message.status === "CONFIRMED") {
+        // 扫码登录成功
+        handleQrCodeLoginSuccess(message.data);
+      } else if (message.status === "EXPIRED") {
+        scanStatus.value = "EXPIRED";
+        // 自动重新生成二维码
+        setTimeout(() => {
+          if (loginType.value === "qrcode") {
+            generateQrCode();
+          }
+        }, 3000);
+      }
+    } catch (e) {
+      console.error("解析WebSocket消息失败:", e);
+    }
+  };
+  
+  ws.value.onclose = (event) => {
+    console.log("WebSocket连接已关闭:", event.code, event.reason);
+    // 如果不是主动关闭且不是扫码成功的情况，尝试重连
+    if (event.code !== 1000 && scanStatus.value !== "CONFIRMED") {
+      setTimeout(() => {
+        if (loginType.value === "qrcode" && qrCodeId.value) {
+          connectWebSocket();
+        }
+      }, 3000);
+    }
+  };
+  
+  ws.value.onerror = (error) => {
+    console.error("WebSocket错误:", error);
+  };
+};
+
+// 关闭WebSocket
+const closeWebSocket = () => {
+  if (ws.value) {
+    ws.value.close(1000, "manual close");
+    ws.value = null;
+  }
+};
+
+// 处理扫码登录成功
+const handleQrCodeLoginSuccess = (loginData: any) => {
+  closeWebSocket();
+  // 保存token和用户信息
+  userStore.setToken(loginData.token);
+  userStore.setRefreshToken(loginData.refreshToken);
+  ElMessage.success("扫码登录成功！");
+  router.replace({ path: "/home", replace: true });
+};
 
 // 提交登录
 const handleLogin = async () => {
@@ -102,6 +257,11 @@ const handleLogin = async () => {
     loading.value = false;
   }
 };
+
+// 组件卸载时清理WebSocket
+onUnmounted(() => {
+  closeWebSocket();
+});
 </script>
 
 <style scoped>
@@ -124,5 +284,74 @@ const handleLogin = async () => {
   font-size: 24px;
   text-align: center;
   color: #303133;
+}
+
+.password-login,
+.qrcode-login {
+  padding: 20px 0;
+}
+
+.qrcode-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.qrcode-wrapper {
+  text-align: center;
+  position: relative;
+}
+
+.qrcode-img {
+  width: 200px;
+  height: 200px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+}
+
+.qrcode-tip {
+  margin-top: 10px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.scan-status {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.scan-status.success {
+  background-color: #f0f9eb;
+  color: #67c23a;
+}
+
+.scan-status.error {
+  background-color: #fef0f0;
+  color: #f56c6c;
+}
+
+.qrcode-loading {
+  width: 200px;
+  height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.login-switch {
+  text-align: center;
+  margin-top: 20px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.login-switch .el-link {
+  margin-left: 8px;
 }
 </style>

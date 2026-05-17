@@ -1,9 +1,7 @@
 package com.rivers.user.controller;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.AutoLoginReq;
-import com.rivers.proto.AutoLoginRes;
-import com.rivers.proto.LoginReq;
+import com.rivers.proto.*;
 import com.rivers.user.service.ILoginService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,5 +33,22 @@ public class LoginController {
     @PostMapping("refresh")
     public ResultVO<AutoLoginRes> refresh(@RequestBody AutoLoginReq autoLoginReq) {
         return loginService.refresh(autoLoginReq);
+    }
+
+    @PostMapping("/qrcode/generate")
+    public ResultVO<QrCodeRes> generateQrCode() {
+        return loginService.generateQrCode();
+    }
+
+    // ✅ HTTP POST - 扫描二维码（移动端调用）
+    @PostMapping("/qrcode/scan")
+    public ResultVO<Void> scanQrCode(@RequestBody ScanQrCodeReq scanQrCodeReq) {
+        return loginService.scanQrCode(scanQrCodeReq);
+    }
+
+    // ✅ HTTP POST - 确认登录（移动端调用）
+    @PostMapping("/qrcode/confirm")
+    public ResultVO<Void> confirmQrCode(@RequestBody ConfirmQrCodeReq confirmQrCodeReq) {
+        return loginService.confirmQrCode(confirmQrCodeReq);
     }
 }

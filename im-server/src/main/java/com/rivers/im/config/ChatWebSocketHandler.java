@@ -193,7 +193,6 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                                 .onErrorResume(e -> Mono.empty())
                 )
                 .onErrorContinue((e, _) -> log.warn("⚠️ Heartbeat flux error for connId: {}", connectionId, e));
-
         // 5. 合并流 + 清理资源
         return Mono.when(register, input, heartbeatFlux.then())
                 .doFinally(signalType -> cleanupConnection(connectionId, userId))

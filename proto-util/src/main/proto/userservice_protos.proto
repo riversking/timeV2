@@ -353,3 +353,20 @@ message AutoLoginRes {
     string token = 1;
     string refreshToken = 2;
 }
+
+message QrCodeRes {
+    string qrCodeId = 1;
+    string qrCodeContent = 2;
+    string qrCodeImage = 3;
+    int64 expireTime = 4;
+}
+
+message ScanQrCodeReq {
+    string qrCodeId = 1;
+    LoginUser loginUser = 2;
+}
+
+message ConfirmQrCodeReq {
+    string qrCodeId = 1;
+    string userId = 2;
+}

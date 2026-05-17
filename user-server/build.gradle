@@ -36,7 +36,6 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     implementation files('../protos/userservice_protos.jar')
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
     runtimeOnly 'com.mysql:mysql-connector-j'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

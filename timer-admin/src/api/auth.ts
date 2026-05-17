@@ -21,3 +21,7 @@ export async function refresh(data: any) {
 export async function autoLogin() {
   return http.post(`${API_PREFIX}/autoLogin`).then((res) => res.data);
 }
+
+export async function getQrCode() {
+  return http.post(`${API_PREFIX}/qrcode/generate`).then((res) => res.data);
+}

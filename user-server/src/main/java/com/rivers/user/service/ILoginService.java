@@ -1,9 +1,7 @@
 package com.rivers.user.service;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.AutoLoginReq;
-import com.rivers.proto.AutoLoginRes;
-import com.rivers.proto.LoginReq;
+import com.rivers.proto.*;
 
 /**
  * @author xx
@@ -15,4 +13,11 @@ public interface ILoginService {
     ResultVO<AutoLoginRes> autoLogin(String authHeader);
 
     ResultVO<AutoLoginRes> refresh(AutoLoginReq autoLoginReq);
+
+    ResultVO<QrCodeRes> generateQrCode();
+
+    ResultVO<Void> scanQrCode(ScanQrCodeReq scanQrCodeReq);
+
+    ResultVO<Void> confirmQrCode(ConfirmQrCodeReq confirmQrCodeReq);
+
 }
