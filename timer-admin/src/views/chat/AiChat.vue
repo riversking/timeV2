@@ -147,6 +147,7 @@
   </el-dialog>
 </template>
 
+// ... existing code ...
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { Stamp } from "@element-plus/icons-vue";
@@ -200,6 +201,9 @@ const loading = ref(false);
 const loadingMore = ref(false);
 const hasMore = ref(true);
 
+// 状态管理
+const isSubscribed = ref(false);
+
 // 选择用户
 const selectUser = (user: User) => {
   selectedUser.value = user;
@@ -221,15 +225,34 @@ const updateUserStatus = (userId: string, isActive: string) => {
   }
 };
 
+// 批量更新用户状态
+const batchUpdateUserStatus = (statusList: Array<{ userId: string; isActive: string }>) => {
+  const statusMap = new Map(statusList.map(item => [item.userId, item.isActive]));
+  onlineUsers.value = onlineUsers.value.map(user => ({
+    ...user,
+    isActive: statusMap.get(user.userId) || user.isActive
+  }));
+};
+
 // 订阅用户状态
 const subscribeUserStatus = () => {
-  if (isConnected.value && onlineUsers.value.length > 0) {
-    const targetUserIds = onlineUsers.value.map(user => user.userId);
-    sendWsMessage({
-      type: "subscribe_status",
-      extraData: JSON.stringify({ targetUserIds })
-    });
+  if (!isConnected.value || isSubscribed.value || onlineUsers.value.length === 0) {
+    return;
   }
+  
+  const targetUserIds = onlineUsers.value.map(user => user.userId);
+  sendWsMessage({
+    type: "subscribe_status",
+    extraData: JSON.stringify({ targetUserIds })
+  });
+};
+
+// 重新订阅用户状态（用于重连后）
+const resubscribeUserStatus = () => {
+  isSubscribed.value = false;
+  nextTick(() => {
+    subscribeUserStatus();
+  });
 };
 
 // 监听WebSocket消息并添加到聊天记录
@@ -321,7 +344,7 @@ watch(
           }
         }
       }
-      // 处理用户状态更新消息
+      // 处理单个用户状态更新消息
       else if (latestMessage.type === "status_update") {
         // 从extraData中解析用户状态信息
         if (latestMessage.extraData) {
@@ -334,6 +357,26 @@ watch(
             console.error("解析用户状态数据失败:", e);
           }
         }
+      }
+      // 处理批量用户状态更新消息
+      else if (latestMessage.type === "status_batch_update") {
+        if (latestMessage.extraData) {
+          try {
+            const statusList = JSON.parse(latestMessage.extraData);
+            if (Array.isArray(statusList)) {
+              batchUpdateUserStatus(statusList);
+            }
+          } catch (e) {
+            console.error("解析批量用户状态数据失败:", e);
+          }
+        }
+      }
+      // 处理订阅成功响应
+      else if (latestMessage.type === "subscribe_success") {
+        console.log("用户状态订阅成功:", latestMessage.content);
+        isSubscribed.value = true;
+        // 可以在这里显示订阅成功的提示（可选）
+        // ElMessage.success("用户状态订阅成功");
       }
     }
   },
@@ -363,7 +406,6 @@ onMounted(() => {
       robotPosition.value = { right: 20, bottom: 20 };
     }
   }
-
   // 加载用户列表
   loading.value = true;
   loadUserList(1);
@@ -378,8 +420,6 @@ const loadUserList = async (page: number) => {
     console.log("获取用户数据成功:", response);
     if (response.code === 200) {
       const users = response.data.users || [];
-      // 添加isActive字段，默认为true
-
       if (page === 1) {
         onlineUsers.value = users;
       } else {
@@ -387,6 +427,13 @@ const loadUserList = async (page: number) => {
       }
       total.value = response.data.total || 0;
       hasMore.value = onlineUsers.value.length < total.value;
+      
+      // 用户列表加载完成后立即尝试订阅状态
+      if (page === 1) {
+        nextTick(() => {
+          subscribeUserStatus();
+        });
+      }
     } else {
       ElMessage.error(response.message || "获取用户数据失败");
     }
@@ -396,13 +443,6 @@ const loadUserList = async (page: number) => {
   } finally {
     loading.value = false;
     loadingMore.value = false;
-    
-    // 用户列表加载完成后订阅状态
-    if (page === 1) {
-      nextTick(() => {
-        subscribeUserStatus();
-      });
-    }
   }
 };
 
@@ -530,10 +570,13 @@ const handleDialogClose = () => {
 // 监听WebSocket连接状态变化
 watch(isConnected, (connected) => {
   if (connected) {
-    // 连接成功后订阅用户状态
+    // 连接成功后重新订阅用户状态
     nextTick(() => {
-      subscribeUserStatus();
+      resubscribeUserStatus();
     });
+  } else {
+    // 连接断开时重置订阅状态
+    isSubscribed.value = false;
   }
 });
 
