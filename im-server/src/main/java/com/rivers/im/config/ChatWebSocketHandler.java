@@ -529,12 +529,8 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                                     "connectionId", connId,
                                     "payload", payload
                             );
-                            try {
-                                String jsonMsg = objectMapper.writeValueAsString(routedMsg);
-                                reactiveRedisTemplate.convertAndSend(channel, jsonMsg).subscribe();
-                            } catch (Exception e) {
-                                log.error("❌ 路由状态通知失败", e);
-                            }
+                            String jsonMsg = objectMapper.writeValueAsString(routedMsg);
+                            reactiveRedisTemplate.convertAndSend(channel, jsonMsg).subscribe();
                         }
                     });
                 });
