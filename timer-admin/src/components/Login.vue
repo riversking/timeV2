@@ -7,7 +7,11 @@
 
       <!-- 账号密码登录 -->
       <div v-if="loginType === 'password'" class="password-login">
-        <el-form @submit.prevent="handleLogin" :model="form" label-position="top">
+        <el-form
+          @submit.prevent="handleLogin"
+          :model="form"
+          label-position="top"
+        >
           <el-form-item label="用户名">
             <el-input
               v-model="form.username"
@@ -43,21 +47,27 @@
             </el-button>
           </el-form-item>
         </el-form>
-        
+
         <div class="login-switch">
           <span>没有账号？</span>
-          <el-link type="primary" @click="switchLoginType('qrcode')">扫码登录</el-link>
+          <el-link type="primary" @click="switchLoginType('qrcode')"
+            >扫码登录</el-link
+          >
         </div>
       </div>
 
       <!-- 扫码登录 -->
       <div v-else-if="loginType === 'qrcode'" class="qrcode-login">
         <div class="qrcode-container">
-          <div v-if="qrcodeUrl" class="qrcode-wrapper">
-            <img :src="qrcodeUrl" alt="扫码登录" class="qrcode-img" />
+          <div v-if="qrCodeId" class="qrcode-wrapper">
+            <div ref="qrcodeContainer" class="qrcode-svg"></div>
             <div class="qrcode-tip">请使用手机APP扫描二维码</div>
             <div v-if="scanStatus === 'SCANNED'" class="scan-status success">
-              {{ scannedUser ? `已扫码用户：${scannedUser.username}` : '已扫码，请在手机上确认登录' }}
+              {{
+                scannedUser
+                  ? `已扫码用户：${scannedUser.username}`
+                  : "已扫码，请在手机上确认登录"
+              }}
             </div>
             <div v-else-if="scanStatus === 'EXPIRED'" class="scan-status error">
               二维码已过期，请重新获取
@@ -67,10 +77,12 @@
             <el-skeleton :rows="4" animated />
           </div>
         </div>
-        
+
         <div class="login-switch">
           <span>使用账号密码登录？</span>
-          <el-link type="primary" @click="switchLoginType('password')">返回</el-link>
+          <el-link type="primary" @click="switchLoginType('password')"
+            >返回</el-link
+          >
         </div>
       </div>
     </el-card>
@@ -78,11 +90,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, nextTick } from "vue";
 import { login, getQrCode } from "@/api/auth";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/store/user";
+
+// 声明 qrcode 模块类型（如果 @types/qrcode 不可用）
+declare module "qrcode" {
+  export function toString(
+    text: string,
+    options: any,
+    callback: (error: Error | null, svg: string) => void,
+  ): void;
+}
 
 // 获取路由实例
 const router = useRouter();
@@ -103,11 +124,13 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 // 扫码登录相关
-const qrcodeUrl = ref<string | null>(null);
 const qrCodeId = ref<string | null>(null);
-const scanStatus = ref<"WAITING" | "SCANNED" | "CONFIRMED" | "EXPIRED">("WAITING");
+const scanStatus = ref<"WAITING" | "SCANNED" | "CONFIRMED" | "EXPIRED">(
+  "WAITING",
+);
 const scannedUser = ref<{ userId: string; username: string } | null>(null);
 const ws = ref<WebSocket | null>(null);
+const qrcodeContainer = ref<HTMLDivElement | null>(null);
 
 // 切换登录类型
 const switchLoginType = (type: "password" | "qrcode") => {
@@ -117,10 +140,13 @@ const switchLoginType = (type: "password" | "qrcode") => {
   } else {
     // 清理扫码相关的WebSocket和数据
     closeWebSocket();
-    qrcodeUrl.value = null;
     qrCodeId.value = null;
     scanStatus.value = "WAITING";
     scannedUser.value = null;
+    // 清空二维码容器
+    if (qrcodeContainer.value) {
+      qrcodeContainer.value.innerHTML = "";
+    }
   }
 };
 
@@ -129,11 +155,15 @@ const generateQrCode = async () => {
   try {
     const res = await getQrCode();
     if (res.code === 200) {
-      qrcodeUrl.value = res.data.qrCodeContent; // 使用 qrCodeContent 字段
-      qrCodeId.value = res.data.qrCodeId;       // 使用 qrCodeId 字段
+      qrCodeId.value = res.data.qrCodeId;
       scanStatus.value = "WAITING";
       scannedUser.value = null;
-      connectWebSocket();
+
+      // 延迟生成二维码，确保DOM已更新
+      nextTick(() => {
+        createQRCode();
+        connectWebSocket();
+      });
     } else {
       ElMessage.error("获取二维码失败");
     }
@@ -143,29 +173,74 @@ const generateQrCode = async () => {
   }
 };
 
+// 创建二维码
+const createQRCode = () => {
+  if (!qrCodeId.value || !qrcodeContainer.value) return;
+
+  try {
+    // 生成二维码内容（扫码链接）
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    const host = window.location.host;
+    const qrContent = `${protocol}//${host}/scan/${qrCodeId.value}`;
+
+    // 清空容器
+    qrcodeContainer.value.innerHTML = "";
+
+    // 使用 qrcode 库生成 SVG 二维码
+    import("qrcode")
+      .then((module) => {
+        const QRCode = module.default;
+        QRCode.toString(
+          qrContent,
+          { type: "svg", width: 200, height: 200 },
+          (err: Error | null, svg: string) => {
+            if (err) {
+              console.error("生成二维码失败:", err);
+              qrcodeContainer.value!.innerHTML =
+                '<div style="color: red; text-align: center;">二维码生成失败</div>';
+            } else {
+              qrcodeContainer.value!.innerHTML = svg;
+            }
+          },
+        );
+      })
+      .catch((err) => {
+        console.error("加载qrcode库失败:", err);
+        qrcodeContainer.value!.innerHTML =
+          '<div style="color: red; text-align: center;">二维码生成失败</div>';
+      });
+  } catch (err) {
+    console.error("生成二维码失败:", err);
+    if (qrcodeContainer.value) {
+      qrcodeContainer.value.innerHTML =
+        '<div style="color: red; text-align: center;">二维码生成失败</div>';
+    }
+  }
+};
+
 // 连接WebSocket
 const connectWebSocket = () => {
   if (!qrCodeId.value) return;
-  
+
   // 关闭现有连接
   closeWebSocket();
-  
+
   // 创建新的WebSocket连接（不需要用户认证）
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsHost = `${protocol}//${window.location.host}`;
   const wsUrl = `${wsHost}/websocket/user-server/ws/qrcode?qrCodeId=${qrCodeId.value}`;
-  
+
   ws.value = new WebSocket(wsUrl);
-  
+
   ws.value.onopen = () => {
     console.log("WebSocket连接已建立");
   };
-  
+
   ws.value.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
       console.log("收到扫码状态消息:", message);
-      
+
       // 处理扫码状态更新
       if (message.status === "SCANNED") {
         scanStatus.value = "SCANNED";
@@ -186,7 +261,7 @@ const connectWebSocket = () => {
       console.error("解析WebSocket消息失败:", e);
     }
   };
-  
+
   ws.value.onclose = (event) => {
     console.log("WebSocket连接已关闭:", event.code, event.reason);
     // 如果不是主动关闭且不是扫码成功的情况，尝试重连
@@ -198,7 +273,7 @@ const connectWebSocket = () => {
       }, 3000);
     }
   };
-  
+
   ws.value.onerror = (error) => {
     console.error("WebSocket错误:", error);
   };
@@ -303,9 +378,12 @@ onUnmounted(() => {
   position: relative;
 }
 
-.qrcode-img {
+.qrcode-svg {
   width: 200px;
   height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   border: 1px solid #ebeef5;
   border-radius: 8px;
   padding: 10px;
