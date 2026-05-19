@@ -176,17 +176,14 @@ const generateQrCode = async () => {
 // 创建二维码
 const createQRCode = () => {
   if (!qrCodeId.value || !qrcodeContainer.value) return;
-
   try {
     // 生成二维码内容（扫码链接）
     const protocol = window.location.protocol === "https:" ? "https:" : "http:";
     const host = window.location.host;
     const qrContent = `${protocol}//${host}/scan/${qrCodeId.value}`;
-
     // 清空容器
     qrcodeContainer.value.innerHTML = "";
-
-    // 使用 qrcode 库生成 SVG 二维码
+    // 使用 qrcode 库生成 SVG 二维码 npm install qrcode npm install @types/qrcode --save-dev
     import("qrcode")
       .then((module) => {
         const QRCode = module.default;
