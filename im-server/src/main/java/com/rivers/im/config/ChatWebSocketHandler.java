@@ -49,6 +49,9 @@ public class ChatWebSocketHandler implements WebSocketHandler {
 
     public static final String SYSTEM = "system";
     public static final String WS_USER = "ws:user:";
+    public static final String WS_MSG = "ws:msg:";
+    public static final String CONNECTION_ID = "connectionId";
+    public static final String PAYLOAD = "payload";
 
     private final IMessageService messageService;
 
@@ -96,7 +99,7 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         // 创建容器（无需 .build()）
         listenerContainer = new ReactiveRedisMessageListenerContainer(connectionFactory);
         // 订阅实例频道
-        String instanceChannel = "ws:msg:" + serverId;
+        String instanceChannel = WS_MSG + serverId;
         instanceSubscription = listenerContainer.receive(ChannelTopic.of(instanceChannel))
                 .map(ReactiveSubscription.Message::getMessage)  // Message<String, String> → String
                 .subscribe(
@@ -151,11 +154,9 @@ public class ChatWebSocketHandler implements WebSocketHandler {
         // 1. 本地注册连接
         localConnections.put(connectionId, new ConnectionInfo(session, userId));
         log.info("✅ User {} connected | connId: {} | serverId: {}", userId, connectionId, serverId);
-
         // 2. Redis 注册路由（用户→连接映射 + 连接元数据）
         String userKey = WS_USER + userId;
         String connKey = "ws:conn:" + connectionId;
-
         Map<String, String> connMeta = Map.of(
                 "serverId", serverId,
                 "userId", userId,
@@ -215,7 +216,6 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                         log.debug("📭 User {} is offline, message stored (handled by caller)", userId);
                         return;
                     }
-
                     connections.forEach((connId, targetServer) -> {
                         if (targetServer.equals(serverId)) {
                             // 本实例连接：直接推送
@@ -233,12 +233,11 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                         } else {
                             // 跨实例：通过 Redis Pub/Sub 路由
                             Map<String, String> routedMsg = Map.of(
-                                    "connectionId", connId,
-                                    "payload", payload
+                                    CONNECTION_ID, connId,
+                                    PAYLOAD, payload
                             );
-                            String channel = "ws:msg:" + targetServer;
+                            String channel = WS_MSG + targetServer;
                             String jsonMsg = objectMapper.writeValueAsString(routedMsg);
-
                             reactiveRedisTemplate.convertAndSend(channel, jsonMsg)
                                     .doOnSuccess(v -> log.trace("📤 Routed message to server: {} | connId: {}", targetServer, connId))
                                     .doOnError(e -> log.error("❌ Failed to route message to server: {}", targetServer, e))
@@ -263,9 +262,8 @@ public class ChatWebSocketHandler implements WebSocketHandler {
     private void routeMessageToLocalSession(String routedJson) {
         try {
             Map<?, ?> msg = objectMapper.readValue(routedJson, Map.class);
-            String connId = (String) msg.get("connectionId");
-            String payload = (String) msg.get("payload");
-
+            String connId = (String) msg.get(CONNECTION_ID);
+            String payload = (String) msg.get(PAYLOAD);
             ConnectionInfo info = localConnections.get(connId);
             if (info != null && info.session().isOpen()) {
                 info.session().send(Mono.just(info.session().textMessage(payload)))
@@ -328,7 +326,6 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                 handleQueryOnlineStatus(connectionId, userId, msg);
                 return;
             }
-
             if ("subscribe_status".equalsIgnoreCase(msg.getType())) {
                 handleSubscribeStatus(connectionId, userId, msg);
                 return;
@@ -339,7 +336,9 @@ public class ChatWebSocketHandler implements WebSocketHandler {
             }
             // 3️⃣ 【关键】覆盖from字段，防止客户端伪造身份（安全加固）
             msg.setFrom(userId); // 强制使用连接认证的userId
-            msg.setTimestamp(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()); // 服务端统一时间戳
+            msg.setTimestamp(LocalDateTime.now()
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant().toEpochMilli()); // 服务端统一时间戳
             // 4️⃣ 业务层处理（持久化/风控/通知等）
 //            messageService.saveMessage(msg); // 假设已注入messageService
             // 5️⃣ 消息分发逻辑
@@ -524,10 +523,10 @@ public class ChatWebSocketHandler implements WebSocketHandler {
                                         .subscribe();
                             }
                         } else {
-                            String channel = "ws:msg:" + targetServer;
+                            String channel = WS_MSG + targetServer;
                             Map<String, String> routedMsg = Map.of(
-                                    "connectionId", connId,
-                                    "payload", payload
+                                    CONNECTION_ID, connId,
+                                    PAYLOAD, payload
                             );
                             String jsonMsg = objectMapper.writeValueAsString(routedMsg);
                             reactiveRedisTemplate.convertAndSend(channel, jsonMsg).subscribe();

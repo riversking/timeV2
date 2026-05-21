@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
  */
 @Data
 @Table("timer_friend")
-public class TimerFriend implements Serializable {
+public class TimerFriendRequests implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1273140946938184191L;
@@ -31,13 +31,13 @@ public class TimerFriend implements Serializable {
      * 用户ID
      */
     @Column("user_id")
-    private String userId;
+    private Long userId;
 
     /**
      * 好友ID
      */
     @Column("friend_id")
-    private String friendId;
+    private Long friendId;
 
     /**
      * 备注名

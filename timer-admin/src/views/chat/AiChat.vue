@@ -25,49 +25,104 @@
     @closed="handleDialogClose"
   >
     <div style="height: 500px; display: flex">
-      <!-- 左侧用户列表 -->
-      <div style="width: 200px; border-right: 1px solid #ebeef5; padding: 10px">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
-          <span style="font-weight: bold">在线用户</span>
-          <el-button type="primary" size="small" @click="showAddFriendDialog = true">
-            <el-icon><Plus /></el-icon>
-            添加好友
-          </el-button>
-        </div>
-        <el-scrollbar
-          ref="userListScrollbar"
-          style="height: 450px"
-          @scroll="handleUserListScroll"
-        >
-          <div
-            v-for="user in onlineUsers"
-            :key="user.userId"
-            :class="[
-              'user-item',
-              { active: selectedUser?.userId === user.userId },
-            ]"
-            @click="selectUser(user)"
-          >
-            <el-avatar size="small" :src="user.avatar">{{
-              user.username?.charAt(0)
-            }}</el-avatar>
-            <span style="margin-left: 10px">{{ user.username }}</span>
-            <el-badge
-              is-dot
-              :hidden="user.isActive === '0'"
-              style="margin-left: auto"
-            />
-          </div>
-          <div v-if="loadingMore" style="text-align: center; padding: 10px">
-            加载中...
-          </div>
-          <div
-            v-else-if="!hasMore && onlineUsers.length > 0"
-            style="text-align: center; padding: 10px; color: #909399"
-          >
-            没有更多用户了
-          </div>
-        </el-scrollbar>
+      <!-- 左侧Tab区域 -->
+      <div
+        style="
+          width: 200px;
+          border-right: 1px solid #ebeef5;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <el-tabs v-model="activeTab" type="border-card" style="flex: 1">
+          <!-- 聊天列表Tab -->
+          <el-tab-pane label="聊天列表" name="chat">
+            <el-scrollbar
+              ref="chatListScrollbar"
+              style="height: 450px"
+              @scroll="handleChatListScroll"
+            >
+              <div
+                v-for="user in onlineUsers"
+                :key="user.userId"
+                :class="[
+                  'user-item',
+                  { active: selectedUser?.userId === user.userId },
+                ]"
+                @click="selectUser(user)"
+              >
+                <el-avatar size="small" :src="user.avatar">{{
+                  user.username?.charAt(0)
+                }}</el-avatar>
+                <span style="margin-left: 10px">{{ user.username }}</span>
+                <el-badge
+                  is-dot
+                  :hidden="user.isActive === '0'"
+                  style="margin-left: auto"
+                />
+              </div>
+              <div v-if="loadingMore" style="text-align: center; padding: 10px">
+                加载中...
+              </div>
+              <div
+                v-else-if="!hasMore && onlineUsers.length > 0"
+                style="text-align: center; padding: 10px; color: #909399"
+              >
+                没有更多用户了
+              </div>
+            </el-scrollbar>
+          </el-tab-pane>
+
+          <!-- 好友列表Tab -->
+          <el-tab-pane label="好友列表" name="friends">
+            <div style="padding: 10px">
+              <el-button
+                type="primary"
+                size="small"
+                style="width: 100%; margin-bottom: 10px"
+                @click="showAddFriendDialog = true"
+              >
+                <el-icon><Plus /></el-icon>
+                添加好友
+              </el-button>
+            </div>
+            <el-scrollbar ref="friendListScrollbar" style="height: 410px">
+              <div
+                v-for="friend in friendList"
+                :key="friend.userId"
+                :class="[
+                  'user-item',
+                  { active: selectedUser?.userId === friend.userId },
+                ]"
+                @click="selectUser(friend)"
+              >
+                <el-avatar size="small" :src="friend.avatar">{{
+                  friend.username?.charAt(0)
+                }}</el-avatar>
+                <div style="margin-left: 10px; flex: 1">
+                  <div>{{ friend.username }}</div>
+                  <div
+                    v-if="friend.remark"
+                    style="font-size: 12px; color: #909399"
+                  >
+                    {{ friend.remark }}
+                  </div>
+                </div>
+                <el-badge
+                  is-dot
+                  :hidden="friend.isActive === '0'"
+                  style="margin-left: auto"
+                />
+              </div>
+              <div
+                v-if="friendList.length === 0"
+                style="text-align: center; padding: 20px; color: #909399"
+              >
+                暂无好友
+              </div>
+            </el-scrollbar>
+          </el-tab-pane>
+        </el-tabs>
       </div>
 
       <!-- 右侧聊天框 -->
@@ -76,6 +131,12 @@
       >
         <div v-if="selectedUser" style="margin-bottom: 10px; font-weight: bold">
           与 {{ selectedUser.username }} 聊天中
+        </div>
+        <div
+          v-else
+          style="margin-bottom: 10px; font-weight: bold; color: #909399"
+        >
+          请选择一个用户开始聊天
         </div>
         <div
           ref="messagesContainer"
@@ -153,37 +214,11 @@
   </el-dialog>
 
   <!-- 添加好友对话框 -->
-  <el-dialog
+  <AddFriendModal
     v-model="showAddFriendDialog"
-    title="添加好友"
-    width="400px"
-    :close-on-click-modal="false"
-  >
-    <el-form :model="addFriendForm" label-width="80px">
-      <el-form-item label="用户ID">
-        <el-input
-          v-model="addFriendForm.userId"
-          placeholder="请输入要添加的用户ID"
-          clearable
-        />
-      </el-form-item>
-      <el-form-item label="备注">
-        <el-input
-          v-model="addFriendForm.remark"
-          placeholder="请输入备注信息（可选）"
-          clearable
-        />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <span class="dialog-footer">
-        <el-button @click="showAddFriendDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleAddFriend" :loading="addingFriend">
-          确定
-        </el-button>
-      </span>
-    </template>
-  </el-dialog>
+    :friend-list="friendList"
+    @add-friend="handleAddFriend"
+  />
 </template>
 
 <script setup lang="ts">
@@ -192,6 +227,7 @@ import { Stamp, Plus } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
 import { getUserActivePage } from "@/api/user";
+import AddFriendModal from './AddFriendModal.vue';
 
 // WebSocket配置
 const WS_URL = "/websocket/im-server/ws/chat";
@@ -212,8 +248,14 @@ interface User {
   isActive: string;
 }
 
+interface Friend extends User {
+  remark?: string;
+}
+
 const onlineUsers = ref<User[]>([]);
+const friendList = ref<Friend[]>([]);
 const selectedUser = ref<User | null>(null);
+const activeTab = ref("chat");
 
 // 机器人对话相关
 const showRobotDialog = ref(false);
@@ -226,7 +268,7 @@ const showAddFriendDialog = ref(false);
 const addingFriend = ref(false);
 const addFriendForm = ref({
   userId: "",
-  remark: ""
+  remark: "",
 });
 
 // 消息容器引用
@@ -262,31 +304,55 @@ const selectUser = (user: User) => {
 
 // 更新用户状态
 const updateUserStatus = (userId: string, isActive: string) => {
-  const userIndex = onlineUsers.value.findIndex(user => user.userId === userId);
+  const userIndex = onlineUsers.value.findIndex(
+    (user) => user.userId === userId,
+  );
   if (userIndex !== -1) {
     onlineUsers.value[userIndex].isActive = isActive;
+  }
+
+  const friendIndex = friendList.value.findIndex(
+    (friend) => friend.userId === userId,
+  );
+  if (friendIndex !== -1) {
+    friendList.value[friendIndex].isActive = isActive;
   }
 };
 
 // 批量更新用户状态
-const batchUpdateUserStatus = (statusList: Array<{ userId: string; isActive: string }>) => {
-  const statusMap = new Map(statusList.map(item => [item.userId, item.isActive]));
-  onlineUsers.value = onlineUsers.value.map(user => ({
+const batchUpdateUserStatus = (
+  statusList: Array<{ userId: string; isActive: string }>,
+) => {
+  const statusMap = new Map(
+    statusList.map((item) => [item.userId, item.isActive]),
+  );
+  onlineUsers.value = onlineUsers.value.map((user) => ({
     ...user,
-    isActive: statusMap.get(user.userId) || user.isActive
+    isActive: statusMap.get(user.userId) || user.isActive,
+  }));
+  friendList.value = friendList.value.map((friend) => ({
+    ...friend,
+    isActive: statusMap.get(friend.userId) || friend.isActive,
   }));
 };
 
 // 订阅用户状态
 const subscribeUserStatus = () => {
-  if (!isConnected.value || isSubscribed.value || onlineUsers.value.length === 0) {
+  if (
+    !isConnected.value ||
+    isSubscribed.value ||
+    (onlineUsers.value.length === 0 && friendList.value.length === 0)
+  ) {
     return;
   }
-  
-  const targetUserIds = onlineUsers.value.map(user => user.userId);
+
+  const targetUserIds = [
+    ...onlineUsers.value.map((user) => user.userId),
+    ...friendList.value.map((friend) => friend.userId),
+  ];
   sendWsMessage({
     type: "subscribe_status",
-    extraData: JSON.stringify({ targetUserIds })
+    extraData: JSON.stringify({ targetUserIds }),
   });
 };
 
@@ -306,21 +372,21 @@ const handleAddFriend = async () => {
   }
 
   addingFriend.value = true;
-  
+
   try {
     sendWsMessage({
       type: "add_friend",
       extraData: JSON.stringify({
         targetUserId: addFriendForm.value.userId,
-        remark: addFriendForm.value.remark
-      })
+        remark: addFriendForm.value.remark,
+      }),
     });
 
     ElMessage.success("好友请求已发送");
     showAddFriendDialog.value = false;
     addFriendForm.value = {
       userId: "",
-      remark: ""
+      remark: "",
     };
   } catch (error) {
     console.error("添加好友失败:", error);
@@ -337,14 +403,16 @@ watch(
     console.log("Received messages:", newMessages);
     if (newMessages.length > 0) {
       const latestMessage = newMessages[newMessages.length - 1];
-      
+
       // 处理添加好友响应
       if (latestMessage.type === "add_friend_response") {
         try {
           const responseData = JSON.parse(latestMessage.extraData || "{}");
           if (responseData.success) {
             ElMessage.success(responseData.message || "好友添加成功");
-            loadUserList(1);
+            if (responseData.friend) {
+              friendList.value.push(responseData.friend);
+            }
           } else {
             ElMessage.error(responseData.message || "好友添加失败");
           }
@@ -352,7 +420,7 @@ watch(
           console.error("解析添加好友响应失败:", e);
         }
       }
-      
+
       // 处理服务器返回的消息格式
       if (latestMessage.type === "chat") {
         const currentUser = localStorage.getItem("user")
@@ -362,9 +430,13 @@ watch(
         let relevantUser: User | null = null;
 
         if (latestMessage.to === currentUser) {
-          const senderUser = onlineUsers.value.find(
-            (user) => user.userId === latestMessage.from,
-          );
+          const senderUser =
+            onlineUsers.value.find(
+              (user) => user.userId === latestMessage.from,
+            ) ||
+            friendList.value.find(
+              (friend) => friend.userId === latestMessage.from,
+            );
           if (senderUser) {
             relevantUser = senderUser;
             const senderIndex = onlineUsers.value.findIndex(
@@ -376,9 +448,13 @@ watch(
             }
           }
         } else if (latestMessage.from === currentUser) {
-          const receiverUser = onlineUsers.value.find(
-            (user) => user.userId === latestMessage.to,
-          );
+          const receiverUser =
+            onlineUsers.value.find(
+              (user) => user.userId === latestMessage.to,
+            ) ||
+            friendList.value.find(
+              (friend) => friend.userId === latestMessage.to,
+            );
           if (receiverUser) {
             relevantUser = receiverUser;
           }
@@ -492,7 +568,7 @@ const loadUserList = async (page: number) => {
       }
       total.value = response.data.total || 0;
       hasMore.value = onlineUsers.value.length < total.value;
-      
+
       if (page === 1) {
         nextTick(() => {
           subscribeUserStatus();
@@ -519,8 +595,8 @@ const loadMoreUsers = () => {
   }
 };
 
-// 处理用户列表滚动
-const handleUserListScroll = (event: any) => {
+// 处理聊天列表滚动
+const handleChatListScroll = (event: any) => {
   const scrollbar = event.target;
   const scrollTop = scrollbar.scrollTop;
   const clientHeight = scrollbar.clientHeight;
@@ -616,9 +692,7 @@ const toggleRobotDialog = () => {
 };
 
 // 处理对话框关闭
-const handleDialogClose = () => {
-  // 可以在这里添加额外的清理逻辑
-};
+const handleDialogClose = () => {};
 
 // 监听WebSocket连接状态变化
 watch(isConnected, (connected) => {

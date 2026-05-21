@@ -39,13 +39,13 @@ public class TimerMessage implements Serializable{
      * 接收者ID(私聊)
      */
     @Column("to_user_id")
-    private Long toUserId;
+    private String toUserId;
 
     /**
      * 群组ID(群聊)
      */
     @Column("group_id")
-    private Long groupId;
+    private String groupId;
 
     /**
      * 消息类型: 1-文本, 2-图片, 3-文件, 4-语音, 5-视频
