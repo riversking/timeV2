@@ -19,3 +19,38 @@ message SaveMsgReq {
     string fileUrl = 6;
     LoginUser loginUser = 7;
 }
+
+message SaveFriendReq {
+    string friendId = 1;
+    string remark = 2;
+    LoginUser loginUser = 3;
+}
+
+message DeleteFriendReq {
+    string friendId = 1;
+    LoginUser loginUser = 2;
+}
+
+message FriendDetailRes {
+    string friendId = 1;
+    string remark = 2;
+    string friendName = 3;
+}
+
+message FriendDetailReq {
+    string friendId = 1;
+    LoginUser loginUser = 2;
+}
+
+message FriendPageReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string friendName = 3;
+    string friendId = 4;
+    LoginUser loginUser = 5;
+}
+
+message FriendPageRes {
+    int32 total = 1;
+    repeated FriendDetailRes friendList = 2;
+}

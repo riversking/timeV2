@@ -378,11 +378,12 @@ public class UserServiceImpl implements IUserService {
             return Mono.just(ResultVO.ok(UserPageRes.newBuilder().build()));
         }
         List<TimerUser> records = result.getRecords();
-        return   Flux.fromIterable(records)
+        return Flux.fromIterable(records)
                 .parallel()
                 .runOn(Schedulers.boundedElastic())
                 .flatMap(this::getUserOnlineStatus)
-                .sequential().collectList()
+                .sequential()
+                .collectList()
                 .map(i ->
                         ResultVO.ok(UserPageRes.newBuilder()
                                 .setTotal(total)

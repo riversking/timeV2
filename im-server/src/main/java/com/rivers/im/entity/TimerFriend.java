@@ -1,5 +1,6 @@
 package com.rivers.im.entity;
 
+import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
@@ -18,6 +19,7 @@ import java.time.LocalDateTime;
  * @since 2026-04-28
  */
 @Data
+@Builder
 @Table("timer_friend")
 public class TimerFriend implements Serializable {
 
