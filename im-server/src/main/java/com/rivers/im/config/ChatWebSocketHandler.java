@@ -207,7 +207,6 @@ public class ChatWebSocketHandler implements WebSocketHandler {
      */
     public void sendMessageToUser(String userId, String payload) {
         String userKey = WS_USER + userId;
-
         hashOps.entries(userKey)
                 .collectMap(Map.Entry::getKey, Map.Entry::getValue) // connectionId → serverId
                 .defaultIfEmpty(Collections.emptyMap())
