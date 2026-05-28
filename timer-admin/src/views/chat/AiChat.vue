@@ -9,211 +9,105 @@
     }"
     @mousedown="startDrag"
     @click="toggleRobotDialog"
-    append-to-body
   >
-    <div v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</div>
-    <el-icon><Stamp /></el-icon>
+    <div v-if="unreadCount > 0" class="unread-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</div>
+    <el-icon :size="28"><ChatDotRound /></el-icon>
   </div>
 
   <!-- 机器人对话框 -->
   <el-dialog
     v-model="showRobotDialog"
-    title="AI助手"
+    title="消息中心"
     width="800px"
     :close-on-click-modal="false"
-    :destroy-on-close="true"
+    destroy-on-close
     @closed="handleDialogClose"
   >
-    <div style="height: 500px; display: flex">
+    <div class="chat-container">
       <!-- 左侧Tab区域 -->
-      <div
-        style="
-          width: 200px;
-          border-right: 1px solid #ebeef5;
-          display: flex;
-          flex-direction: column;
-        "
-      >
-        <el-tabs v-model="activeTab" type="border-card" style="flex: 1">
+      <div class="left-panel">
+        <el-tabs v-model="activeTab" type="border-card" class="full-height-tabs">
           <!-- 聊天列表Tab -->
-          <el-tab-pane label="聊天列表" name="chat">
-            <el-scrollbar
-              ref="chatListScrollbar"
-              style="height: 450px"
-              @scroll="handleChatListScroll"
-            >
+          <el-tab-pane label="在线用户" name="chat">
+            <el-scrollbar ref="chatListScrollbar" style="height: 420px" @scroll="handleChatListScroll">
               <div
                 v-for="user in onlineUsers"
                 :key="user.userId"
-                :class="[
-                  'user-item',
-                  { active: selectedUser?.userId === user.userId },
-                ]"
+                :class="['user-item', { active: selectedUser?.userId === user.userId }]"
                 @click="selectUser(user)"
               >
-                <el-avatar size="small" :src="user.avatar">{{
-                  user.username?.charAt(0)
-                }}</el-avatar>
-                <span style="margin-left: 10px">{{ user.username }}</span>
-                <el-badge
-                  is-dot
-                  :hidden="user.isActive === '0'"
-                  style="margin-left: auto"
-                />
+                <el-avatar size="small" :src="user.avatar">{{ user.username?.charAt(0) }}</el-avatar>
+                <span class="username">{{ user.username }}</span>
+                <el-badge is-dot :hidden="user.isActive !== '1'" class="status-badge" />
               </div>
-              <div v-if="loadingMore" style="text-align: center; padding: 10px">
-                加载中...
-              </div>
-              <div
-                v-else-if="!hasMore && onlineUsers.length > 0"
-                style="text-align: center; padding: 10px; color: #909399"
-              >
-                没有更多用户了
-              </div>
+              <div v-if="loadingMore" class="loading-text">加载中...</div>
+              <div v-else-if="!hasMore && onlineUsers.length > 0" class="loading-text">没有更多用户了</div>
             </el-scrollbar>
           </el-tab-pane>
 
           <!-- 好友列表Tab -->
-          <el-tab-pane label="好友列表" name="friends">
+          <el-tab-pane label="我的好友" name="friends">
             <div style="padding: 10px">
-              <el-button
-                type="primary"
-                size="small"
-                style="width: 100%; margin-bottom: 10px"
-                @click="showAddFriendDialog = true"
-              >
-                <el-icon><Plus /></el-icon>
-                添加好友
+              <el-button type="primary" size="small" style="width: 100%" @click="showAddFriendDialog = true">
+                <el-icon><Plus /></el-icon> 添加好友
               </el-button>
             </div>
-            <el-scrollbar ref="friendListScrollbar" style="height: 410px">
+            <el-scrollbar ref="friendListScrollbar" style="height: 380px">
               <div
                 v-for="friend in friendList"
                 :key="friend.userId"
-                :class="[
-                  'user-item',
-                  { active: selectedUser?.userId === friend.userId },
-                ]"
+                :class="['user-item', { active: selectedUser?.userId === friend.userId }]"
                 @click="selectUser(friend)"
               >
-                <el-avatar size="small" :src="friend.avatar">{{
-                  friend.username?.charAt(0)
-                }}</el-avatar>
-                <div style="margin-left: 10px; flex: 1">
+                <el-avatar size="small" :src="friend.avatar">{{ friend.username?.charAt(0) }}</el-avatar>
+                <div class="friend-info">
                   <div>{{ friend.username }}</div>
-                  <div
-                    v-if="friend.remark"
-                    style="font-size: 12px; color: #909399"
-                  >
-                    {{ friend.remark }}
-                  </div>
+                  <div v-if="friend.remark" class="remark">{{ friend.remark }}</div>
                 </div>
-                <el-badge
-                  is-dot
-                  :hidden="friend.isActive === '0'"
-                  style="margin-left: auto"
-                />
+                <el-badge is-dot :hidden="friend.isActive !== '1'" class="status-badge" />
               </div>
-              <div
-                v-if="friendList.length === 0"
-                style="text-align: center; padding: 20px; color: #909399"
-              >
-                暂无好友
-              </div>
+              <div v-if="friendList.length === 0" class="loading-text">暂无好友</div>
             </el-scrollbar>
           </el-tab-pane>
         </el-tabs>
       </div>
 
       <!-- 右侧聊天框 -->
-      <div
-        style="flex: 1; display: flex; flex-direction: column; padding: 10px"
-      >
-        <div v-if="selectedUser" style="margin-bottom: 10px; font-weight: bold">
-          与 {{ selectedUser.username }} 聊天中
+      <div class="right-panel">
+        <div class="chat-header">
+          <span v-if="selectedUser">与 <b>{{ selectedUser.username }}</b> 聊天中</span>
+          <span v-else style="color: #909399">请选择一个用户开始聊天</span>
+          <el-tag v-if="isConnected" type="success" size="small" effect="plain">已连接</el-tag>
+          <el-tag v-else type="danger" size="small" effect="plain">连接中...</el-tag>
         </div>
-        <div
-          v-else
-          style="margin-bottom: 10px; font-weight: bold; color: #909399"
-        >
-          请选择一个用户开始聊天
-        </div>
-        <div
-          ref="messagesContainer"
-          style="
-            flex: 1;
-            overflow-y: auto;
-            padding: 10px;
-            background: #f5f7fa;
-            border-radius: 8px;
-            margin-bottom: 10px;
-          "
-        >
-          <div
-            v-for="(msg, index) in chatMessages"
-            :key="index"
-            style="margin-bottom: 10px"
-          >
-            <div v-if="msg.type === 'user'" style="text-align: right">
-              <div
-                style="
-                  display: inline-block;
-                  background: #e6f7ff;
-                  padding: 8px 12px;
-                  border-radius: 12px;
-                  margin-top: 5px;
-                  max-width: 80%;
-                "
-              >
-                {{ msg.content }}
-              </div>
-              <el-tag type="success" size="small">我</el-tag>
+        
+        <div ref="messagesContainer" class="messages-area">
+          <div v-for="(msg, index) in chatMessages" :key="index" class="message-row" :class="msg.type">
+            <div v-if="msg.type === 'user'" class="msg-content user-msg">
+              <span class="msg-text">{{ msg.content }}</span>
+              <el-avatar size="small" style="background: #409eff">我</el-avatar>
             </div>
-            <div v-else style="text-align: left">
-              <el-tag type="primary" size="small">{{
-                selectedUser?.username || "AI助手"
-              }}</el-tag>
-              <div
-                style="
-                  display: inline-block;
-                  background: #f0f9eb;
-                  padding: 8px 12px;
-                  border-radius: 12px;
-                  margin-top: 5px;
-                  max-width: 80%;
-                "
-              >
-                {{ msg.content }}
-              </div>
+            <div v-else class="msg-content ai-msg">
+              <el-avatar size="small" :src="selectedUser?.avatar">{{ selectedUser?.username?.charAt(0) || 'AI' }}</el-avatar>
+              <span class="msg-text">{{ msg.content }}</span>
             </div>
           </div>
-          <div
-            v-if="!isConnected"
-            style="text-align: center; color: #909399; margin-top: 10px"
-          >
-            连接中...
-          </div>
         </div>
-        <div style="display: flex; gap: 10px">
+
+        <div class="input-area">
           <el-input
             v-model="userMessage"
             placeholder="请输入消息..."
             @keyup.enter="sendMessage"
-            style="flex: 1"
             :disabled="!isConnected || !selectedUser"
           />
-          <el-button
-            type="primary"
-            @click="sendMessage"
-            :disabled="!isConnected || !selectedUser"
-            >发送</el-button
-          >
+          <el-button type="primary" @click="sendMessage" :disabled="!isConnected || !selectedUser">发送</el-button>
         </div>
       </div>
     </div>
   </el-dialog>
 
-  <!-- 添加好友对话框 -->
+  <!-- 添加好友对话框 (假设你已有此组件) -->
   <AddFriendModal
     v-model="showAddFriendDialog"
     :friend-list="friendList"
@@ -223,362 +117,247 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
-import { Stamp, Plus } from "@element-plus/icons-vue";
+import { ChatDotRound, Plus } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
-import { getUserActivePage } from "@/api/user";
-import AddFriendModal from './AddFriendModal.vue';
+import { getUserActivePage } from "@/api/user"; // 你的 HTTP 接口
+import AddFriendModal from './AddFriendModal.vue'; // 你的子组件
 
-// WebSocket配置
-const WS_URL = "/websocket/im-server/ws/chat";
+// 1. 初始化 WebSocket
+// 注意：这里的 URL 需要加上你后端的 context-path (如果有的话)
+const WS_URL = import.meta.env.VITE_WS_URL || "/im-server/ws"; 
 
-// 使用WebSocket组合式函数
 const {
   messages: wsMessages,
   isConnected,
-  send: sendWsMessage,
+  send: sendWsMessage, 
   close: closeWsConnection,
+  connect: connectWs
 } = useWebSocket(WS_URL);
 
-// 用户列表相关
+// 2. 类型定义
 interface User {
   userId: string;
   username: string;
   avatar?: string;
-  isActive: string;
+  isActive: string; // '1' 在线, '0' 离线
 }
 
 interface Friend extends User {
   remark?: string;
 }
 
+interface ChatMessage {
+  type: "user" | "ai"; // user 代表自己发的，ai 代表对方发的
+  content: string;
+}
+
+// 3. 状态响应式变量
 const onlineUsers = ref<User[]>([]);
 const friendList = ref<Friend[]>([]);
 const selectedUser = ref<User | null>(null);
 const activeTab = ref("chat");
 
-// 机器人对话相关
 const showRobotDialog = ref(false);
 const userMessage = ref("");
-const chatMessages = ref<Array<{ type: "user" | "ai"; content: string }>>([]);
+const chatMessages = ref<ChatMessage[]>([]);
 const unreadCount = ref(0);
 
-// 添加好友相关
 const showAddFriendDialog = ref(false);
 const addingFriend = ref(false);
-const addFriendForm = ref({
-  userId: "",
-  remark: "",
-});
 
-// 消息容器引用
 const messagesContainer = ref<HTMLDivElement | null>(null);
-
-// 可拖拽机器人按钮 - 使用 right/bottom 定位
 const robotButton = ref<HTMLDivElement | null>(null);
+
+// 拖拽状态
 const robotPosition = ref({ right: 20, bottom: 20 });
 const isDragging = ref(false);
+const hasMoved = ref(false); // 🌟 修复：区分拖拽和点击
 const dragOffset = ref({ x: 0, y: 0 });
 
+// 分页状态
 const currentPage = ref(1);
-const pageSize = ref(10);
+const pageSize = ref(15);
 const total = ref(0);
 const loading = ref(false);
 const loadingMore = ref(false);
 const hasMore = ref(true);
 
-// 状态管理
 const isSubscribed = ref(false);
 
-// 选择用户
+// 4. 核心业务方法
+
 const selectUser = (user: User) => {
   selectedUser.value = user;
-  chatMessages.value = [];
-  if (user.userId === "ai") {
-    chatMessages.value.push({
-      type: "ai",
-      content: "你好！我是AI助手，有什么可以帮助你的吗？",
-    });
-  }
+  chatMessages.value = []; // 切换用户时清空当前聊天记录 (实际项目应做本地缓存)
 };
 
-// 更新用户状态
 const updateUserStatus = (userId: string, isActive: string) => {
-  const userIndex = onlineUsers.value.findIndex(
-    (user) => user.userId === userId,
-  );
-  if (userIndex !== -1) {
-    onlineUsers.value[userIndex].isActive = isActive;
-  }
-
-  const friendIndex = friendList.value.findIndex(
-    (friend) => friend.userId === userId,
-  );
-  if (friendIndex !== -1) {
-    friendList.value[friendIndex].isActive = isActive;
-  }
+  const updateList = (list: any[]) => {
+    const idx = list.findIndex(u => u.userId === userId);
+    if (idx !== -1) list[idx].isActive = isActive;
+  };
+  updateList(onlineUsers.value);
+  updateList(friendList.value);
 };
 
-// 批量更新用户状态
-const batchUpdateUserStatus = (
-  statusList: Array<{ userId: string; isActive: string }>,
-) => {
-  const statusMap = new Map(
-    statusList.map((item) => [item.userId, item.isActive]),
-  );
-  onlineUsers.value = onlineUsers.value.map((user) => ({
-    ...user,
-    isActive: statusMap.get(user.userId) || user.isActive,
-  }));
-  friendList.value = friendList.value.map((friend) => ({
-    ...friend,
-    isActive: statusMap.get(friend.userId) || friend.isActive,
-  }));
+const batchUpdateUserStatus = (statusList: Array<{ userId: string; isActive: string }>) => {
+  const statusMap = new Map(statusList.map(item => [item.userId, item.isActive]));
+  onlineUsers.value.forEach(u => { if (statusMap.has(u.userId)) u.isActive = statusMap.get(u.userId)!; });
+  friendList.value.forEach(f => { if (statusMap.has(f.userId)) f.isActive = statusMap.get(f.userId)!; });
 };
 
-// 订阅用户状态
 const subscribeUserStatus = () => {
-  if (
-    !isConnected.value ||
-    isSubscribed.value ||
-    (onlineUsers.value.length === 0 && friendList.value.length === 0)
-  ) {
-    return;
-  }
-
+  if (!isConnected.value || isSubscribed.value) return;
+  
   const targetUserIds = [
-    ...onlineUsers.value.map((user) => user.userId),
-    ...friendList.value.map((friend) => friend.userId),
+    ...onlineUsers.value.map(u => u.userId),
+    ...friendList.value.map(f => f.userId)
   ];
-  sendWsMessage({
-    type: "subscribe_status",
-    extraData: JSON.stringify({ targetUserIds }),
+  
+  if (targetUserIds.length === 0) return;
+
+  // 🌟 按照 WsEnvelope 协议发送订阅请求
+  sendWsMessage("status", {
+    action: "subscribe",
+    targetUserIds: targetUserIds
   });
 };
 
-// 重新订阅用户状态（用于重连后）
-const resubscribeUserStatus = () => {
-  isSubscribed.value = false;
-  nextTick(() => {
-    subscribeUserStatus();
+// 5. 消息发送逻辑
+
+const sendMessage = () => {
+  if (!userMessage.value.trim() || !isConnected.value || !selectedUser.value) return;
+
+  const content = userMessage.value;
+  
+  // 本地先渲染自己发的消息
+  chatMessages.value.push({ type: "user", content });
+  scrollToBottom();
+
+  // 🌟 按照 WsEnvelope 协议发送聊天消息
+  sendWsMessage("chat", {
+    to: selectedUser.value.userId,
+    content: content
   });
+
+  userMessage.value = "";
 };
 
-// 处理添加好友
-const handleAddFriend = async () => {
-  if (!addFriendForm.value.userId.trim()) {
-    ElMessage.warning("请输入用户ID");
-    return;
-  }
-
+const handleAddFriend = (formData: { userId: string; remark: string }) => {
   addingFriend.value = true;
-
   try {
-    sendWsMessage({
-      type: "add_friend",
-      extraData: JSON.stringify({
-        targetUserId: addFriendForm.value.userId,
-        remark: addFriendForm.value.remark,
-      }),
+    // 🌟 按照 WsEnvelope 协议发送好友请求
+    sendWsMessage("friend", {
+      action: "add",
+      targetUserId: formData.userId,
+      remark: formData.remark
     });
-
     ElMessage.success("好友请求已发送");
     showAddFriendDialog.value = false;
-    addFriendForm.value = {
-      userId: "",
-      remark: "",
-    };
   } catch (error) {
-    console.error("添加好友失败:", error);
-    ElMessage.error("添加好友失败");
+    ElMessage.error("发送失败");
   } finally {
     addingFriend.value = false;
   }
 };
 
-// 监听WebSocket消息并添加到聊天记录
-watch(
-  wsMessages,
-  (newMessages) => {
-    console.log("Received messages:", newMessages);
-    if (newMessages.length > 0) {
-      const latestMessage = newMessages[newMessages.length - 1];
+// 6. 消息接收与路由分发 (核心重构)
 
-      // 处理添加好友响应
-      if (latestMessage.type === "add_friend_response") {
-        try {
-          const responseData = JSON.parse(latestMessage.extraData || "{}");
-          if (responseData.success) {
-            ElMessage.success(responseData.message || "好友添加成功");
-            if (responseData.friend) {
-              friendList.value.push(responseData.friend);
-            }
-          } else {
-            ElMessage.error(responseData.message || "好友添加失败");
-          }
-        } catch (e) {
-          console.error("解析添加好友响应失败:", e);
-        }
-      }
+watch(wsMessages, (newMessages) => {
+  if (newMessages.length === 0) return;
+  
+  // 取出最新的一条信封消息
+  const envelope = newMessages[newMessages.length - 1];
+  const { topic, payload } = envelope;
 
-      // 处理服务器返回的消息格式
-      if (latestMessage.type === "chat") {
-        const currentUser = localStorage.getItem("user")
-          ? JSON.parse(localStorage.getItem("user")!).userId
-          : null;
+  // 🌟 根据 topic 路由到不同的处理函数
+  if (topic === "chat") handleChatMessage(payload);
+  else if (topic === "status") handleStatusMessage(payload);
+  else if (topic === "friend") handleFriendMessage(payload);
+}, { deep: true });
 
-        let relevantUser: User | null = null;
+const handleChatMessage = (payload: any) => {
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}").userId;
+  const isSender = payload.from === currentUser;
+  
+  // 查找发送者/接收者的信息
+  const targetUserId = isSender ? payload.to : payload.from;
+  const targetUser = onlineUsers.value.find(u => u.userId === targetUserId) 
+                  || friendList.value.find(f => f.userId === targetUserId);
 
-        if (latestMessage.to === currentUser) {
-          const senderUser =
-            onlineUsers.value.find(
-              (user) => user.userId === latestMessage.from,
-            ) ||
-            friendList.value.find(
-              (friend) => friend.userId === latestMessage.from,
-            );
-          if (senderUser) {
-            relevantUser = senderUser;
-            const senderIndex = onlineUsers.value.findIndex(
-              (user) => user.userId === latestMessage.from,
-            );
-            if (senderIndex !== -1) {
-              onlineUsers.value.splice(senderIndex, 1);
-              onlineUsers.value.unshift(senderUser);
-            }
-          }
-        } else if (latestMessage.from === currentUser) {
-          const receiverUser =
-            onlineUsers.value.find(
-              (user) => user.userId === latestMessage.to,
-            ) ||
-            friendList.value.find(
-              (friend) => friend.userId === latestMessage.to,
-            );
-          if (receiverUser) {
-            relevantUser = receiverUser;
-          }
-        }
-
-        if (relevantUser) {
-          if (
-            !selectedUser.value ||
-            selectedUser.value.userId !== relevantUser.userId
-          ) {
-            selectUser(relevantUser);
-          }
-
-          const messageType: "ai" | "user" =
-            latestMessage.from === currentUser ? "user" : "ai";
-          const chatMessage = {
-            type: messageType,
-            content: latestMessage.content || "",
-          };
-          chatMessages.value.push(chatMessage);
-          if (
-            latestMessage.to === currentUser &&
-            (!showRobotDialog.value ||
-              (selectedUser.value &&
-                selectedUser.value.userId !== relevantUser.userId))
-          ) {
-            unreadCount.value++;
-            ElNotification({
-              title: "新消息",
-              message: `${relevantUser.username}: ${latestMessage.content}`,
-              type: "info",
-              duration: 3000,
-              position: "bottom-right",
-            });
-          }
-          scrollToBottom();
-          if (
-            !selectedUser.value ||
-            selectedUser.value.userId !== relevantUser.userId
-          ) {
-            selectUser(relevantUser);
-          }
-        }
-      } else if (latestMessage.type === "status_update") {
-        if (latestMessage.extraData) {
-          try {
-            const statusData = JSON.parse(latestMessage.extraData);
-            if (statusData.userId && statusData.isActive !== undefined) {
-              updateUserStatus(statusData.userId, statusData.isActive);
-            }
-          } catch (e) {
-            console.error("解析用户状态数据失败:", e);
-          }
-        }
-      } else if (latestMessage.type === "status_batch_update") {
-        if (latestMessage.extraData) {
-          try {
-            const statusList = JSON.parse(latestMessage.extraData);
-            if (Array.isArray(statusList)) {
-              batchUpdateUserStatus(statusList);
-            }
-          } catch (e) {
-            console.error("解析批量用户状态数据失败:", e);
-          }
-        }
-      } else if (latestMessage.type === "subscribe_success") {
-        console.log("用户状态订阅成功:", latestMessage.content);
-        isSubscribed.value = true;
-      }
-    }
-  },
-  { deep: true },
-);
-
-// 组件挂载时恢复位置
-onMounted(() => {
-  const savedPosition = localStorage.getItem("robotPosition");
-  if (savedPosition) {
-    try {
-      const position = JSON.parse(savedPosition);
-      if (position.x !== undefined && position.y !== undefined) {
-        robotPosition.value = {
-          right: window.innerWidth - position.x - 60,
-          bottom: window.innerHeight - position.y - 60,
-        };
-      } else {
-        robotPosition.value = position;
-      }
-    } catch (e) {
-      console.error("Failed to parse robot position from localStorage");
-      robotPosition.value = { right: 20, bottom: 20 };
+  // 1. 处理未读消息和通知
+  if (!isSender) {
+    if (!showRobotDialog.value || selectedUser.value?.userId !== payload.from) {
+      unreadCount.value++;
+      ElNotification({
+        title: targetUser?.username || "新消息",
+        message: payload.content,
+        type: "info",
+        duration: 3000,
+        position: "bottom-right",
+      });
     }
   }
-  loading.value = true;
-  loadUserList(1);
-});
+
+  // 2. 如果当前正在和这个人聊天，追加到聊天记录
+  if (selectedUser.value && selectedUser.value.userId === targetUserId) {
+    chatMessages.value.push({ 
+      type: isSender ? "user" : "ai", 
+      content: payload.content 
+    });
+    scrollToBottom();
+  }
+  
+  // 3. 将发消息的人顶到列表最前面
+  if (targetUser) {
+    const idx = onlineUsers.value.findIndex(u => u.userId === targetUser.userId);
+    if (idx > 0) {
+      onlineUsers.value.splice(idx, 1);
+      onlineUsers.value.unshift(targetUser);
+    }
+  }
+};
+
+const handleStatusMessage = (payload: any) => {
+  if (payload.action === "update" && payload.userId) {
+    updateUserStatus(payload.userId, payload.isActive);
+  } else if (payload.action === "batch_update" && Array.isArray(payload.statusList)) {
+    batchUpdateUserStatus(payload.statusList);
+  } else if (payload.action === "subscribe_success") {
+    isSubscribed.value = true;
+  }
+};
+
+const handleFriendMessage = (payload: any) => {
+  if (payload.action === "add_response") {
+    if (payload.success) {
+      ElMessage.success(payload.message || "好友添加成功");
+      if (payload.friend) friendList.value.push(payload.friend);
+    } else {
+      ElMessage.error(payload.message || "好友添加失败");
+    }
+  }
+};
+
+// 7. 数据加载与 UI 辅助
 
 const loadUserList = async (page: number) => {
   try {
-    const response = await getUserActivePage({
-      currentPage: page,
-      pageSize: pageSize.value,
-    });
-    console.log("获取用户数据成功:", response);
+    if (page === 1) loading.value = true;
+    const response = await getUserActivePage({ currentPage: page, pageSize: pageSize.value });
+    
     if (response.code === 200) {
       const users = response.data.users || [];
-      if (page === 1) {
-        onlineUsers.value = users;
-      } else {
-        onlineUsers.value = [...onlineUsers.value, ...users];
-      }
+      if (page === 1) onlineUsers.value = users;
+      else onlineUsers.value = [...onlineUsers.value, ...users];
+      
       total.value = response.data.total || 0;
       hasMore.value = onlineUsers.value.length < total.value;
 
-      if (page === 1) {
-        nextTick(() => {
-          subscribeUserStatus();
-        });
-      }
-    } else {
-      ElMessage.error(response.message || "获取用户数据失败");
+      if (page === 1) nextTick(subscribeUserStatus);
     }
   } catch (error) {
-    console.error("Failed to load user list:", error);
     ElMessage.error("获取用户数据失败");
   } finally {
     loading.value = false;
@@ -586,7 +365,6 @@ const loadUserList = async (page: number) => {
   }
 };
 
-// 加载更多用户
 const loadMoreUsers = () => {
   if (!loadingMore.value && hasMore.value) {
     loadingMore.value = true;
@@ -595,19 +373,11 @@ const loadMoreUsers = () => {
   }
 };
 
-// 处理聊天列表滚动
 const handleChatListScroll = (event: any) => {
-  const scrollbar = event.target;
-  const scrollTop = scrollbar.scrollTop;
-  const clientHeight = scrollbar.clientHeight;
-  const scrollHeight = scrollbar.scrollHeight;
-
-  if (scrollTop + clientHeight >= scrollHeight - 10) {
-    loadMoreUsers();
-  }
+  const { scrollTop, clientHeight, scrollHeight } = event.target;
+  if (scrollTop + clientHeight >= scrollHeight - 20) loadMoreUsers();
 };
 
-// 自动滚动到底部
 const scrollToBottom = () => {
   nextTick(() => {
     if (messagesContainer.value) {
@@ -616,35 +386,16 @@ const scrollToBottom = () => {
   });
 };
 
-// 发送消息
-const sendMessage = () => {
-  if (!userMessage.value.trim() || !isConnected.value || !selectedUser.value)
-    return;
+// 8. 拖拽逻辑 (优化：防止拖拽结束时触发点击)
 
-  const userMsg = { type: "user" as const, content: userMessage.value };
-
-  scrollToBottom();
-
-  sendWsMessage({
-    type: "chat",
-    content: userMessage.value,
-    to: selectedUser.value.userId,
-  });
-
-  userMessage.value = "";
-};
-
-// 拖拽功能
 const startDrag = (e: MouseEvent) => {
   e.preventDefault();
   isDragging.value = true;
+  hasMoved.value = false; // 重置移动标记
 
   if (robotButton.value) {
     const rect = robotButton.value.getBoundingClientRect();
-    dragOffset.value = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
+    dragOffset.value = { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
   document.addEventListener("mousemove", handleDrag);
@@ -653,59 +404,58 @@ const startDrag = (e: MouseEvent) => {
 
 const handleDrag = (e: MouseEvent) => {
   if (!isDragging.value) return;
+  hasMoved.value = true; // 只要移动了就标记为 true
 
-  const newRight = window.innerWidth - e.clientX - dragOffset.value.x;
-  const newBottom = window.innerHeight - e.clientY - dragOffset.value.y;
+  const newRight = window.innerWidth - e.clientX - (60 - dragOffset.value.x);
+  const newBottom = window.innerHeight - e.clientY - (60 - dragOffset.value.y);
 
-  const minRight = 0;
-  const maxRight = window.innerWidth - 60;
-  const minBottom = 0;
-  const maxBottom = window.innerHeight - 60;
-
-  robotPosition.value.right = Math.max(minRight, Math.min(newRight, maxRight));
-  robotPosition.value.bottom = Math.max(
-    minBottom,
-    Math.min(newBottom, maxBottom),
-  );
+  robotPosition.value.right = Math.max(0, Math.min(newRight, window.innerWidth - 60));
+  robotPosition.value.bottom = Math.max(0, Math.min(newBottom, window.innerHeight - 60));
 };
 
 const stopDrag = () => {
   isDragging.value = false;
   document.removeEventListener("mousemove", handleDrag);
   document.removeEventListener("mouseup", stopDrag);
-
   localStorage.setItem("robotPosition", JSON.stringify(robotPosition.value));
 };
 
-// 切换机器人对话框
 const toggleRobotDialog = () => {
-  if (!isDragging.value) {
+  // 🌟 核心修复：只有没有发生过拖拽移动，才触发点击打开对话框
+  if (!hasMoved.value) {
     showRobotDialog.value = !showRobotDialog.value;
-
     if (showRobotDialog.value) {
-      nextTick(() => {
-        scrollToBottom();
-      });
       unreadCount.value = 0;
+      nextTick(scrollToBottom);
     }
   }
 };
 
-// 处理对话框关闭
-const handleDialogClose = () => {};
+const handleDialogClose = () => {
+  // 可以在这里做一些清理工作
+};
 
-// 监听WebSocket连接状态变化
+// 9. 生命周期与监听
+
+onMounted(() => {
+  // 恢复位置
+  const savedPosition = localStorage.getItem("robotPosition");
+  if (savedPosition) {
+    try { robotPosition.value = JSON.parse(savedPosition); } catch (e) {}
+  }
+  
+  // 建立 WS 连接 & 加载数据
+  connectWs();
+  loadUserList(1);
+});
+
 watch(isConnected, (connected) => {
   if (connected) {
-    nextTick(() => {
-      resubscribeUserStatus();
-    });
-  } else {
     isSubscribed.value = false;
+    nextTick(subscribeUserStatus);
   }
 });
 
-// 清理事件监听器
 onBeforeUnmount(() => {
   document.removeEventListener("mousemove", handleDrag);
   document.removeEventListener("mouseup", stopDrag);
@@ -714,63 +464,120 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 全局布局 */
+.chat-container {
+  height: 500px;
+  display: flex;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.left-panel {
+  width: 220px;
+  background: #fafafa;
+}
+
+.full-height-tabs {
+  height: 100%;
+}
+.full-height-tabs :deep(.el-tabs__content) {
+  height: calc(100% - 40px);
+  overflow: hidden;
+}
+
+.right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+/* 用户列表项 */
+.user-item {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.2s;
+}
+.user-item:hover { background: #f5f7fa; }
+.user-item.active { background: #ecf5ff; border-left: 3px solid #409eff; }
+.username { margin-left: 10px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend-info { margin-left: 10px; flex: 1; overflow: hidden; }
+.friend-info .remark { font-size: 12px; color: #909399; }
+.status-badge { margin-left: auto; }
+.loading-text { text-align: center; padding: 15px; color: #909399; font-size: 12px; }
+
+/* 聊天区域 */
+.chat-header {
+  padding: 12px 15px;
+  border-bottom: 1px solid #ebeef5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.messages-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  background: #f5f7fa;
+}
+
+.message-row { margin-bottom: 15px; }
+.msg-content { display: flex; align-items: flex-start; gap: 10px; max-width: 80%; }
+.user-msg { margin-left: auto; flex-direction: row-reverse; }
+.msg-text {
+  padding: 10px 14px;
+  border-radius: 8px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.user-msg .msg-text { background: #409eff; color: #fff; border-top-right-radius: 0; }
+.ai-msg .msg-text { background: #fff; color: #333; border-top-left-radius: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+
+.input-area {
+  padding: 15px;
+  border-top: 1px solid #ebeef5;
+  display: flex;
+  gap: 10px;
+}
+
+/* 悬浮按钮 */
 .draggable-robot-button {
   position: fixed;
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #4cc9f0, #6a89f7);
-  border: none;
-  box-shadow: 0 4px 20px rgba(76, 201, 240, 0.5);
-  cursor: move;
+  background: linear-gradient(135deg, #409eff, #6a89f7);
+  box-shadow: 0 4px 15px rgba(64, 158, 255, 0.4);
+  cursor: grab;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  transition:
-    transform 0.2s,
-    box-shadow 0.2s;
+  color: #fff;
+  transition: transform 0.2s;
+  user-select: none;
 }
-
-.draggable-robot-button:hover {
-  transform: scale(1.1);
-  box-shadow: 0 6px 25px rgba(76, 201, 240, 0.7);
-}
-
-.draggable-robot-button .el-icon {
-  font-size: 24px;
-  color: white;
-}
-
-.user-item {
-  display: flex;
-  align-items: center;
-  padding: 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-bottom: 5px;
-}
-
-.user-item:hover {
-  background-color: #f5f7fa;
-}
-
-.user-item.active {
-  background-color: #e6f7ff;
-  border-left: 3px solid #409eff;
-}
+.draggable-robot-button:hover { transform: scale(1.05); }
+.draggable-robot-button:active { cursor: grabbing; }
 
 .unread-badge {
   position: absolute;
   top: -5px;
   right: -5px;
-  background-color: #f56c6c;
-  color: white;
+  background: #f56c6c;
+  color: #fff;
   border-radius: 10px;
   padding: 2px 6px;
   font-size: 12px;
   min-width: 18px;
   text-align: center;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+  line-height: 14px;
+  box-shadow: 0 2px 6px rgba(245, 108, 108, 0.5);
 }
 </style>

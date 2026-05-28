@@ -1,5 +1,6 @@
 // composables/useWebSocket.ts
 import { ref, onBeforeUnmount } from "vue";
+import { createTicket } from "../api/im";
 
 export default function useWebSocket(url: string) {
   const messages = ref<any[]>([]);
@@ -9,18 +10,20 @@ export default function useWebSocket(url: string) {
   const MAX_RETRY = 5;
   let retryCount = 0;
 
-  const connect = () => {
+  const connect = async () => {
     // 安全关闭旧连接（如果存在）
     if (socket.value) {
       socket.value.close(1000, "reconnecting");
       socket.value = null;
     }
-    const user = localStorage.getItem("user");
-    if (!user) {
+    const res = await createTicket();
+    if (res.code !== 200) {
       return;
     }
-    const userJson = JSON.parse(user);
-    socket.value = new WebSocket(url + "?userId=" + userJson.userId);
+    const ticket = res.data.ticket;
+    const separator = url.includes("?") ? "&" : "?";
+    const wsUrl = `${url}${separator}ticket=${ticket}`;
+    socket.value = new WebSocket(wsUrl);
     socket.value.onopen = () => {
       isConnected.value = true;
       retryCount = 0;
@@ -48,12 +51,14 @@ export default function useWebSocket(url: string) {
     };
   };
 
-  const send = (data: any) => {
-    // 安全检查：仅当连接存在且打开时发送
+  const send = (topic: string, payload: any) => {
     if (socket.value?.readyState === WebSocket.OPEN) {
-      socket.value.send(JSON.stringify(data));
-    } else {
-      console.warn("无法发送：WebSocket 未连接");
+      const envelope = {
+        topic: topic,
+        msgId: crypto.randomUUID(), // 生成唯一消息ID
+        payload: payload,
+      };
+      socket.value.send(JSON.stringify(envelope));
     }
   };
 
@@ -83,5 +88,6 @@ export default function useWebSocket(url: string) {
     isConnected,
     send,
     close: safeClose, // 暴露给组件使用
+    connect,
   };
 }

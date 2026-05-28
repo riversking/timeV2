@@ -1,5 +1,6 @@
 package com.rivers.im.config;
 
+import com.rivers.im.service.impl.AuthHandshakeWebSocketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +17,8 @@ public class WebSocketConfig {
     // 只依赖 Handler，不再产生循环
     private final UnifiedWebSocketHandler unifiedHandler;
 
+    private final AuthHandshakeWebSocketService authHandshakeService;
+
     @Bean
     public HandlerMapping webSocketMapping() {
         SimpleUrlHandlerMapping mapping = new SimpleUrlHandlerMapping();
@@ -26,6 +29,7 @@ public class WebSocketConfig {
 
     @Bean
     public WebSocketHandlerAdapter handlerAdapter() {
-        return new WebSocketHandlerAdapter();
+        // 注入自定义的鉴权握手服务
+        return new WebSocketHandlerAdapter(authHandshakeService);
     }
 }

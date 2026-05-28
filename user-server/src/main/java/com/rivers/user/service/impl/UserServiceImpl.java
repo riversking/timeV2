@@ -388,7 +388,8 @@ public class UserServiceImpl implements IUserService {
                         ResultVO.ok(UserPageRes.newBuilder()
                                 .setTotal(total)
                                 .addAllUsers(i)
-                                .build())).onErrorResume(e -> {
+                                .build()))
+                .onErrorResume(e -> {
                     log.error("❌ Failed to batch query online status", e);
                     return Mono.just(ResultVO.fail("批量查询在线状态失败"));
                 });
