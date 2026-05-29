@@ -9,6 +9,7 @@
     }"
     @mousedown="startDrag"
     @click="toggleRobotDialog"
+    append-to-body
   >
     <div v-if="unreadCount > 0" class="unread-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</div>
     <el-icon :size="28"><ChatDotRound /></el-icon>
