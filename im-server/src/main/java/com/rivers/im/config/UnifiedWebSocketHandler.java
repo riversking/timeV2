@@ -7,7 +7,9 @@ import com.rivers.im.router.TopicHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.ReactiveSubscription;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -15,11 +17,14 @@ import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.ReactiveRedisMessageListenerContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
+import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.ObjectMapper;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +34,7 @@ import java.util.stream.Collectors;
 
 @Component
 @Slf4j
+@NullMarked
 public class UnifiedWebSocketHandler implements WebSocketHandler {
 
     private final Map<String, TopicHandler> routerMap;
@@ -36,71 +42,82 @@ public class UnifiedWebSocketHandler implements WebSocketHandler {
     private final ReactiveStringRedisTemplate redisTemplate;
     private final ReactiveRedisMessageListenerContainer listenerContainer;
     private final LocalSessionManager sessionManager;
+    private final String currentServerId;
 
-    @Value("${spring.cloud.client.hostname:127.0.0.1}:${server.port:8080}")
-    private String currentServerId;
+    @Nullable
+    private Disposable crossServerSubscription;
 
     public UnifiedWebSocketHandler(List<TopicHandler> handlers,
                                    ObjectMapper objectMapper,
                                    ReactiveStringRedisTemplate redisTemplate,
                                    ReactiveRedisMessageListenerContainer listenerContainer,
-                                   LocalSessionManager sessionManager) {
-        this.routerMap = handlers.stream().collect(Collectors.toMap(TopicHandler::getTopic, Function.identity()));
+                                   LocalSessionManager sessionManager,
+                                   @Value("${spring.cloud.client.hostname:127.0.0.1}:${server.port:8080}")
+                                   String currentServerId) {
+        this.routerMap = handlers.stream()
+                .collect(Collectors.toMap(TopicHandler::getTopic, Function.identity()));
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.listenerContainer = listenerContainer;
         this.sessionManager = sessionManager;
+        this.currentServerId = currentServerId;
         log.info("🚀 网关注册 Topics: {}", routerMap.keySet());
     }
 
     @PostConstruct
     public void init() {
         String channel = "ws:node:" + currentServerId;
-        listenerContainer.receive(ChannelTopic.of(channel))
+        crossServerSubscription = listenerContainer.receive(ChannelTopic.of(channel))
                 .map(ReactiveSubscription.Message::getMessage)
-                .subscribe(this::handleCrossServerMessage,
-                        e -> log.error("Redis Pub/Sub 监听异常", e));
+                .subscribe(
+                        this::handleCrossServerMessage,
+                        e -> log.error("❌ Redis Pub/Sub 监听异常，跨服消息将不可用", e)
+                );
         log.info("📡 节点 [{}] 已订阅跨服频道", currentServerId);
     }
 
     @PreDestroy
     public void destroy() {
-        log.info("🧹 网关节点关闭，清理本地连接...");
+        if (crossServerSubscription != null && !crossServerSubscription.isDisposed()) {
+            crossServerSubscription.dispose();
+            log.info("🧹 已取消跨服频道订阅: {}", currentServerId);
+        }
     }
 
     @Override
-    @NullMarked
     public Mono<Void> handle(WebSocketSession session) {
         String connId = UUID.randomUUID().toString();
         String userId = extractUserId(session);
-        if (userId == null) {
+        if (StringUtils.isBlank(userId)) {
+            log.warn("⚠️ 无法获取 userId，关闭连接: connId={}", connId);
             return session.close();
         }
-        // 1. 初始化上下文并注册到 Manager
         ConnectionContext ctx = new ConnectionContext(session, userId);
         sessionManager.register(connId, ctx);
-        // 2. Redis 分布式注册
         String routeKey = "ws:route:" + userId;
-        Mono<Void> register = redisTemplate.opsForHash().put(routeKey, connId, currentServerId)
+        Mono<Void> register = redisTemplate.opsForHash()
+                .put(routeKey, connId, currentServerId)
                 .then(redisTemplate.expire(routeKey, Duration.ofMinutes(5)))
+                .doOnError(e -> log.error("❌ Redis 路由注册失败: userId={}, connId={}", userId, connId, e))
                 .then();
-        // 3. 出站流 (从 Sinks 读取并发送给客户端)
-        Mono<Void> output = session.send(ctx.getOutboundSink().asFlux().map(session::textMessage));
-        // 4. 入站流 (接收、拆包、路由)
+        Mono<Void> output = session.send(
+                ctx.getOutboundSink().asFlux().map(session::textMessage)
+        );
         Mono<Void> input = session.receive()
-                .map(msg -> msg.getPayloadAsText())
-                .flatMap(raw -> dispatchMessage(userId, connId, raw))
+                .map(WebSocketMessage::getPayloadAsText)
+                .concatMap(raw -> dispatchMessage(userId, connId, raw), 1)
                 .then();
 
-        // 5. 心跳续期
         Flux<Void> heartbeat = Flux.interval(Duration.ofSeconds(25))
-                .takeWhile(_ -> session.isOpen())
-                .flatMap(_ -> redisTemplate.expire(routeKey, Duration.ofMinutes(5)).then())
-                .onErrorContinue((e, _) -> {
-                });
-
-        // 6. 合并流，任意一个结束则触发清理
+                .takeWhile(tick -> session.isOpen())
+                .concatMap(tick ->
+                        redisTemplate.expire(routeKey, Duration.ofMinutes(5))
+                                .doOnError(e -> log.warn("⚠️ 心跳续期失败: userId={}, connId={}", userId, connId))
+                                .onErrorComplete()
+                                .then()
+                );
         return Mono.when(register, input, output, heartbeat.then())
+                .doOnError(e -> log.error("❌ WebSocket 流异常: userId={}, connId={}", userId, connId, e))
                 .doFinally(sig -> cleanup(connId, userId));
     }
 
@@ -134,17 +151,30 @@ public class UnifiedWebSocketHandler implements WebSocketHandler {
     private void cleanup(String connId, String userId) {
         sessionManager.unregister(connId);
         String routeKey = "ws:route:" + userId;
-        redisTemplate.opsForHash().remove(routeKey, connId).subscribe();
+        redisTemplate.opsForHash()
+                .remove(routeKey, connId)
+                .subscribe(
+                        result -> {
+                        },
+                        e -> log.warn("⚠️ Redis 路由清理失败: connId={}, userId={}", connId, userId, e)
+                );
         log.info("🧹 连接清理: {} | user: {}", connId, userId);
     }
 
-    private String extractUserId(WebSocketSession session) {
-        // 生产环境从 Header/Token 获取，这里兼容 URL 参数测试
-        String query = session.getHandshakeInfo().getUri().getQuery();
-        if (query != null && query.contains("userId=")) {
-            return query.split("userId=")[1].split("&")[0];
-        }
+    private @Nullable String extractUserId(WebSocketSession session) {
         Object obj = session.getAttributes().get("userId");
-        return obj != null ? obj.toString() : null;
+        if (obj != null) {
+            return obj.toString();
+        }
+        URI uri = session.getHandshakeInfo().getUri();
+        if (uri.getQuery() != null) {
+            for (String param : uri.getQuery().split("&")) {
+                String[] kv = param.split("=", 2);
+                if (kv.length == 2 && "userId".equals(kv[0])) {
+                    return kv[1];
+                }
+            }
+        }
+        return null;
     }
 }

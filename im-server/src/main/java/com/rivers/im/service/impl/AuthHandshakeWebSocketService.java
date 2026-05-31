@@ -4,52 +4,71 @@ import com.rivers.im.service.IWsTicketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.server.support.HandshakeWebSocketService;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
+import java.util.List;
+
 @Component
 @Slf4j
 @RequiredArgsConstructor
+@NullMarked
 public class AuthHandshakeWebSocketService extends HandshakeWebSocketService {
 
     private final IWsTicketService wsTicketService;
 
     @Override
-    @NullMarked
     public Mono<Void> handleRequest(ServerWebExchange exchange, WebSocketHandler handler) {
-        String query = exchange.getRequest().getURI().getQuery();
-        String ticket = extractParam(query, "ticket");
-
-        if (ticket == null || ticket.isBlank()) {
+        String ticket = extractParam(exchange, "ticket");
+        if (ticket.isBlank()) {
             log.warn("❌ WS握手拒绝: 缺少 ticket");
-            return Mono.error(new RuntimeException("Missing ticket"));
+            return rejectHandshake(exchange, HttpStatus.BAD_REQUEST);
         }
-        return wsTicketService.consumeTicket(ticket)
-                .flatMap(userId -> {
-                    // 🌟 核心：将 userId 焊死在 Session Attributes 上
-                    exchange.getAttributes().put("userId", userId);
-                    log.info("✅ WS握手成功: userId={}", userId);
-                    return super.handleRequest(exchange, handler);
-                })
+        // 🌟 核心修复：将 switchIfEmpty 放在 flatMap 之前！
+        Mono<String> userIdMono = wsTicketService.consumeTicket(ticket)
+                .timeout(Duration.ofSeconds(5))
                 .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("❌ WS握手拒绝: ticket 无效或已过期");
-                    return Mono.error(new RuntimeException("Invalid ticket"));
-                }));
+                    log.warn("❌ WS握手拒绝: ticket 无效或已过期, ticket={}", ticket);
+                    return rejectHandshake(exchange, HttpStatus.UNAUTHORIZED).then(Mono.empty());
+                }))
+                .onErrorResume(e -> {
+                    log.error("❌ WS握手鉴权异常: {}", e.getMessage());
+                    return rejectHandshake(exchange, HttpStatus.UNAUTHORIZED).then(Mono.empty());
+                });
+        // ... existing code ...
+        // 只有当 userIdMono 有值时，才会执行这里的 flatMap
+        return userIdMono.flatMap(userId -> {
+            // 注意：之前提到过，exchange.getAttributes() 不会传递给 WebSocketSession
+            // 如果后续 Handler 需要 userId，建议使用装饰器模式（见下方补充）
+            WebSocketHandler decoratedHandler = session -> {
+                session.getAttributes().put("userId", userId);
+                return handler.handle(session);
+            };
+            log.info("✅ WS握手成功: userId={}", userId);
+            return super.handleRequest(exchange, decoratedHandler);
+        });
     }
 
-    private String extractParam(String query, String key) {
-        if (query == null) {
-            return null;
+    /**
+     * 优雅地拒绝握手，避免抛出 RuntimeException 导致 already committed 报错
+     */
+    private Mono<Void> rejectHandshake(ServerWebExchange exchange, HttpStatus status) {
+        ServerHttpResponse response = exchange.getResponse();
+        if (!response.isCommitted()) {
+            response.setStatusCode(status);
+            return response.setComplete();
         }
-        for (String param : query.split("&")) {
-            String[] kv = param.split("=", 2);
-            if (kv.length == 2 && kv[0].equals(key)) {
-                return java.net.URLDecoder.decode(kv[1], java.nio.charset.StandardCharsets.UTF_8);
-            }
-        }
-        return null;
+        return Mono.empty();
+    }
+
+    private String extractParam(ServerWebExchange exchange, String key) {
+        List<String> values = exchange.getRequest().getQueryParams().get(key);
+        return (values != null && !values.isEmpty()) ? values.getFirst() : "";
     }
 }

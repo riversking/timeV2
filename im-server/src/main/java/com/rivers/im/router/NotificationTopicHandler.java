@@ -1,12 +1,14 @@
 package com.rivers.im.router;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NullMarked;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 
 @Component
 @Slf4j
+@NullMarked
 public class NotificationTopicHandler implements TopicHandler {
     @Override
     public String getTopic() {

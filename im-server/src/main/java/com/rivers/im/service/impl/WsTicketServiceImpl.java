@@ -29,7 +29,7 @@ public class WsTicketServiceImpl implements IWsTicketService {
         LoginUser loginUser = createTicketReq.getLoginUser();
         String userId = loginUser.getUserId();
         return reactiveStringRedisTemplate.opsForValue()
-                .set(TICKET_PREFIX + ticket, userId, Duration.ofSeconds(30))
+                .set(TICKET_PREFIX + ticket, userId, Duration.ofMinutes(30))
                 .flatMap(success -> {
                     // 3. 🌟 校验 Redis 是否真正写入成功
                     if (success) {
