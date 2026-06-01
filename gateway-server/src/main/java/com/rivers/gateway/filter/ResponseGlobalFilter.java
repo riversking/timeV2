@@ -35,7 +35,6 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpResponse originalResponse = exchange.getResponse();
         HttpStatusCode statusCode = originalResponse.getStatusCode();
-
         if (Objects.equals(HttpStatus.OK, statusCode)) {
             return chain.filter(exchange);
         }
@@ -57,22 +56,17 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
                                 buffer -> {
                                     byte[] contentBytes = new byte[buffer.readableByteCount()];
                                     buffer.read(contentBytes);
-
                                     String originalBody = new String(contentBytes, StandardCharsets.UTF_8);
                                     log.info("Original Response Body: {}", originalBody);
-
                                     byte[] finalBytes = contentBytes;
                                     HttpStatusCode currentStatus = getStatusCode();
-
                                     if (currentStatus == null) {
                                         log.warn("Response status was null, returning raw content.");
                                     } else if (currentStatus != HttpStatus.UNAUTHORIZED) {
                                         finalBytes = DEFAULT_RES_BYTES;
                                     }
-
                                     getHeaders().setContentLength(finalBytes.length);
                                     setStatusCode(HttpStatus.OK);
-
                                     return getDelegate().writeWith(Flux.just(bufferFactory.wrap(finalBytes)));
                                 },
                                 DataBufferUtils::release
