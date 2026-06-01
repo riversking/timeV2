@@ -2,7 +2,6 @@ package com.rivers.gateway.filter;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.text.CharSequenceUtil;
-import com.alibaba.nacos.shaded.com.google.common.collect.Maps;
 import com.rivers.core.config.FilterIgnorePropertiesConfig;
 import com.rivers.core.entity.LoginUser;
 import com.rivers.core.util.JwtUtil;
@@ -43,16 +42,17 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class RequestGlobalFilter implements GlobalFilter, Ordered {
 
-    public static final String CODE_401 = "{\"code\":401,\"msg\":\"鉴权失败\"}";
+    private static final String CODE_401 = "{\"code\":401,\"msg\":\"鉴权失败\"}";
+    private static final String ATTR_CLAIMS = "gateway.claims";
+    private static final String ATTR_LOGIN_USER = "gateway.loginUser";
+
     private final GatewayFilter delegate;
-
     private final FilterIgnorePropertiesConfig filterIgnorePropertiesConfig;
-
     private final PathMatcher pathMatcher = new AntPathMatcher();
-
     private final StringRedisTemplate stringRedisTemplate;
 
-    public RequestGlobalFilter(FilterIgnorePropertiesConfig filterIgnorePropertiesConfig, StringRedisTemplate stringRedisTemplate) {
+    public RequestGlobalFilter(FilterIgnorePropertiesConfig filterIgnorePropertiesConfig,
+                               StringRedisTemplate stringRedisTemplate) {
         this.filterIgnorePropertiesConfig = filterIgnorePropertiesConfig;
         this.stringRedisTemplate = stringRedisTemplate;
         this.delegate = new ModifyRequestBodyGatewayFilterFactory().apply(this.getConfig());
@@ -75,56 +75,65 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
         HttpHeaders headers = request.getHeaders();
         String authorization = headers.getFirst(HttpHeaders.AUTHORIZATION);
         if (StringUtils.isBlank(authorization)) {
-            // 修改报文 返回401
-            // 构造响应数据
-            ServerHttpResponse response = exchange.getResponse();
-            // 写入响应体
-            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
-            return response.writeWith(Mono.just(buffer));
+            return respond401(exchange);
         }
         String token = CharSequenceUtil.subAfter(authorization, "Bearer ", false);
         Claims claims = JwtUtil.parseJwt(token);
+        if (claims == null) {
+            return respond401(exchange);
+        }
         String claimsId = claims.getId();
         String redisToken = stringRedisTemplate.opsForValue().get("token:" + claimsId);
         if (StringUtils.isBlank(redisToken)) {
-            // 修改报文 返回401
-            // 构造响应数据
-            ServerHttpResponse response = exchange.getResponse();
-            // 写入响应体
-            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
-            return response.writeWith(Mono.just(buffer));
+            return respond401(exchange);
         }
         if (!Objects.equals(redisToken, token)) {
-            // 修改报文 返回401
-            // 构造响应数据
-            ServerHttpResponse response = exchange.getResponse();
-            // 写入响应体
-            DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
-            return response.writeWith(Mono.just(buffer));
+            return respond401(exchange);
         }
         stringRedisTemplate.expire("token:" + claimsId, 30, TimeUnit.MINUTES);
-        if (request.getMethod() == HttpMethod.GET) {
-            URI uri = request.getURI();
-            StringBuilder query = new StringBuilder();
-            String originalQuery = uri.getRawQuery();
-            if (org.springframework.util.StringUtils.hasText(originalQuery)) {
-                query.append(originalQuery);
-                if (originalQuery.charAt(originalQuery.length() - 1) != '&') {
-                    query.append('&');
-                }
-            }
-            // 添加查询参数
-            query.append("&" + "userId" + "=" + "a");
-            // 替换查询参数
-            URI newUri = UriComponentsBuilder.fromUri(uri)
-                    .replaceQuery(query.toString())
-                    .build(true)
-                    .toUri();
-            ServerHttpRequest serverHttpRequest = request.mutate().uri(newUri).build();
-            return chain.filter(exchange.mutate().request(serverHttpRequest).build());
+        LoginUser loginUser = extractLoginUser(claims);
+        if (loginUser == null) {
+            return respond401(exchange);
         }
-        // post 请求 特殊处理
+        exchange.getAttributes().put(ATTR_LOGIN_USER, loginUser);
+        if (request.getMethod() == HttpMethod.GET) {
+            return handleGetRequest(exchange, chain, loginUser.getUserId());
+        }
         return delegate.filter(exchange, chain);
+    }
+
+    private LoginUser extractLoginUser(Claims claims) {
+        Object user = claims.get("loginUser");
+        if (user != null) {
+            return BeanUtil.toBean(user, LoginUser.class);
+        }
+        return null;
+    }
+
+    private Mono<Void> respond401(ServerWebExchange exchange) {
+        ServerHttpResponse response = exchange.getResponse();
+        DataBuffer buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
+    }
+
+    private Mono<Void> handleGetRequest(ServerWebExchange exchange, GatewayFilterChain chain, String userId) {
+        ServerHttpRequest request = exchange.getRequest();
+        URI uri = request.getURI();
+        StringBuilder query = new StringBuilder();
+        String originalQuery = uri.getRawQuery();
+        if (org.springframework.util.StringUtils.hasText(originalQuery)) {
+            query.append(originalQuery);
+            if (originalQuery.charAt(originalQuery.length() - 1) != '&') {
+                query.append('&');
+            }
+        }
+        query.append("userId=").append(userId);
+        URI newUri = UriComponentsBuilder.fromUri(uri)
+                .replaceQuery(query.toString())
+                .build(true)
+                .toUri();
+        ServerHttpRequest serverHttpRequest = request.mutate().uri(newUri).build();
+        return chain.filter(exchange.mutate().request(serverHttpRequest).build());
     }
 
     @Override
@@ -132,28 +141,19 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
         return -1000;
     }
 
-
     private RewriteFunction<Object, Object> getRewriteFunction() {
         return (serverWebExchange, body) -> {
-            // 这里的body就是请求体参数, 类型是LinkedHashMap, 可以根据需要转成JSON
-            ServerHttpRequest request = serverWebExchange.getRequest();
-            HttpHeaders headers = request.getHeaders();
-            String authorization = headers.getFirst(HttpHeaders.AUTHORIZATION);
-            String token = CharSequenceUtil.subAfter(authorization, "Bearer ", false);
-            Claims claims = JwtUtil.parseJwt(token);
+            LoginUser loginUser = serverWebExchange.getAttribute(ATTR_LOGIN_USER);
             LinkedHashMap<String, Object> map = body instanceof LinkedHashMap<?, ?> bodyMap
-                    ? (LinkedHashMap<String, Object>) bodyMap : Maps.newLinkedHashMap();
-            Optional.ofNullable(claims)
+                    ? (LinkedHashMap<String, Object>) bodyMap
+                    : new LinkedHashMap<>();
+            Optional.ofNullable(loginUser)
                     .ifPresent(i -> {
-                        Object user = i.get("loginUser");
-                        LoginUser loginUser = BeanUtil.toBean(user, LoginUser.class);
-                        map.put("loginUser", loginUser);
+                        map.put("loginUser", i);
                         log.info("登录用户信息: {}", loginUser);
                     });
             log.info("request body {}", map);
-            return Mono.just(map)
-                    .map(Object.class::cast)
-                    .doFinally(i -> map.clear());
+            return Mono.just(map).map(Object.class::cast);
         };
     }
 }
