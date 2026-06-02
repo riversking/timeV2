@@ -2,6 +2,7 @@ package com.rivers.im.entity;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
@@ -49,6 +50,7 @@ public class TimerFriendRequest {
     /**
      * 状态枚举
      */
+    @Getter
     public enum Status {
         PENDING(0, "待处理"),
         ACCEPTED(1, "已接受"),
@@ -62,12 +64,5 @@ public class TimerFriendRequest {
             this.desc = desc;
         }
 
-        public int getCode() {
-            return code;
-        }
-
-        public String getDesc() {
-            return desc;
-        }
     }
 }

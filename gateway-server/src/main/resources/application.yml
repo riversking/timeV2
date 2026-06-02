@@ -1,4 +1,7 @@
 spring:
+  reactor:
+    netty:
+      leak-detection: paranoid
   application:
     name: gateway-server
   config:
@@ -44,3 +47,4 @@ logging:
   level:
     org.springframework.cloud.gateway: DEBUG
     reactor.netty: DEBUG
+    io.netty.util.ResourceLeakDetector: DEBUG

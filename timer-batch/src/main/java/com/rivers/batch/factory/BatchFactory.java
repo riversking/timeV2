@@ -126,4 +126,8 @@ public class BatchFactory {
         dynamicSteps.remove(stepName);
         log.info("Removed dynamic job: {} and step: {}", taskName, stepName);
     }
+
+    public Job getOrCreateDynamicJob(String taskName) {
+        return dynamicJobs.computeIfAbsent(taskName, this::createDynamicJob);
+    }
 }

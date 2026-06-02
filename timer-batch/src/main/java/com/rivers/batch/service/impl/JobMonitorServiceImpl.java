@@ -10,7 +10,6 @@ import com.rivers.batch.vo.JobCountVO;
 import com.rivers.batch.vo.StatusCountVO;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
-import lombok.SneakyThrows;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,20 +30,17 @@ import java.util.stream.Collectors;
 
 import static com.google.common.collect.Maps.newHashMap;
 
-/**
- * @author xx
- */
 @Service
 public class JobMonitorServiceImpl implements IJobMonitorService {
 
-    public static final String COUNT = "count";
-    public static final String STATUS = "STATUS";
-    private final JdbcTemplate jdbcTemplate;
+    private static final String COUNT = "count";
+    private static final String STATUS = "STATUS";
 
+    private final NamedParameterJdbcTemplate namedJdbcTemplate;
     private final QrtzTriggersMapper qrtzTriggersMapper;
 
     public JobMonitorServiceImpl(JdbcTemplate jdbcTemplate, QrtzTriggersMapper qrtzTriggersMapper) {
-        this.jdbcTemplate = jdbcTemplate;
+        this.namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         this.qrtzTriggersMapper = qrtzTriggersMapper;
     }
 
@@ -56,9 +52,7 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
             long total = 0;
         };
         String sql = "SELECT STATUS, COUNT(*) AS count FROM BATCH_JOB_EXECUTION GROUP BY STATUS LIMIT :limit OFFSET :offset";
-        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         List<StatusCountVO> allStatusCounts = Lists.newArrayList();
-        // 使用RowMapper映射到自定义对象
         boolean shouldContinue = true;
         while (shouldContinue) {
             MapSqlParameterSource params = new MapSqlParameterSource();
@@ -87,7 +81,6 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
                                         .divide(BigDecimal.valueOf(ref.total), 2, RoundingMode.HALF_UP)))
                                 .build())
                 .toList();
-        // 5. 构建响应
         JobExecutionRes response = JobExecutionRes.newBuilder()
                 .addAllJobExecutionCounts(list)
                 .setTotalCount(ref.total)
@@ -95,35 +88,38 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         return ResultVO.ok(response);
     }
 
-    @SneakyThrows
     @Override
     public ResultVO<SchedulesRes> getSchedules() {
         List<QrtzTriggers> qrtzTriggers = qrtzTriggersMapper.selectList(Wrappers.emptyWrapper());
         if (CollectionUtils.isEmpty(qrtzTriggers)) {
-            return ResultVO.fail("没有任务");
+            return ResultVO.ok(SchedulesRes.newBuilder().build());
         }
-        String sql = "SELECT B.JOB_NAME,A.STATUS, COUNT(*) AS count FROM BATCH_JOB_EXECUTION A " +
-                "LEFT JOIN BATCH_JOB_INSTANCE B ON A.JOB_INSTANCE_ID = B.JOB_INSTANCE_ID " +
-                "WHERE B.JOB_NAME IN (:jobName) GROUP BY B.JOB_NAME, A.STATUS";
         List<String> jobNames = qrtzTriggers.stream()
                 .map(QrtzTriggers::getJobName)
                 .toList();
-        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
+        if (jobNames.isEmpty()) {
+            return ResultVO.ok(SchedulesRes.newBuilder().build());
+        }
+        String sql = "SELECT B.JOB_NAME, A.STATUS, COUNT(*) AS count FROM BATCH_JOB_EXECUTION A " +
+                "LEFT JOIN BATCH_JOB_INSTANCE B ON A.JOB_INSTANCE_ID = B.JOB_INSTANCE_ID " +
+                "WHERE B.JOB_NAME IN (:jobName) GROUP BY B.JOB_NAME, A.STATUS";
         MapSqlParameterSource params = new MapSqlParameterSource();
         params.addValue("jobName", jobNames);
         List<JobCountVO> jobCounts = namedJdbcTemplate.query(sql, params, new JobCountRowMapper());
         Map<String, Map<String, Long>> jobStatusCountMap = jobCounts.stream()
                 .collect(Collectors.groupingBy(JobCountVO::getJobName,
                         Collectors.groupingBy(JobCountVO::getStatus, Collectors.summingLong(JobCountVO::getCount))));
+
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        int cpuCores = runtime.availableProcessors();
+
         List<SchedulerStatusRes> list = qrtzTriggers.stream()
                 .map(i -> {
                     String jobName = i.getJobName();
-                    Runtime runtime = Runtime.getRuntime();
-                    long maxMemory = runtime.maxMemory();
-                    long totalMemory = runtime.totalMemory();
-                    long freeMemory = runtime.freeMemory();
-                    long usedMemory = totalMemory - freeMemory;
-                    int cpuCores = runtime.availableProcessors();
                     Map<String, Long> statusCount = jobStatusCountMap.getOrDefault(jobName, newHashMap());
                     long totalSum = statusCount.values().stream().mapToLong(Long::longValue).sum();
                     Long successCount = statusCount.getOrDefault("COMPLETED", 0L);
@@ -161,7 +157,6 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         String sql = "SELECT CREATE_TIME, STATUS, COUNT(*) AS count FROM BATCH_JOB_EXECUTION " +
                 "WHERE CREATE_TIME >= :startTime AND CREATE_TIME <= :endTime " +
                 "GROUP BY STATUS, CREATE_TIME";
-        NamedParameterJdbcTemplate namedJdbcTemplate = new NamedParameterJdbcTemplate(jdbcTemplate);
         MapSqlParameterSource params = new MapSqlParameterSource();
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(Long.parseLong(time));
@@ -203,7 +198,6 @@ public class JobMonitorServiceImpl implements IJobMonitorService {
         return ResultVO.ok(JobDateExecutionsRes.newBuilder().addAllJobDateExecutions(list).build());
     }
 
-    // RowMapper实现
     private static class StatusCountRowMapper implements RowMapper<StatusCountVO> {
         @Override
         public StatusCountVO mapRow(ResultSet rs, int rowNum) throws SQLException {

@@ -341,9 +341,9 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
   addingFriend.value = true;
   try {
     sendWsMessage("friend", {
-      action: "add",
-      targetUserId: formData.userId,
-      remark: formData.remark,
+      action: "request",
+      to: formData.userId,
+      msg: formData.remark,
     });
     ElMessage.success("好友请求已发送");
     showAddFriendDialog.value = false;
