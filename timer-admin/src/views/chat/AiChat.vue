@@ -9,7 +9,6 @@
     }"
     @mousedown="startDrag"
     @click="toggleRobotDialog"
-    append-to-body
   >
     <div v-if="unreadCount > 0" class="unread-badge">
       {{ unreadCount > 99 ? "99+" : unreadCount }}
@@ -34,6 +33,51 @@
           type="border-card"
           class="full-height-tabs"
         >
+          <!-- 好友请求Tab -->
+          <el-tab-pane name="requests">
+            <template #label>
+              <span>好友请求</span>
+              <el-badge
+                v-if="pendingRequestCount > 0"
+                :value="pendingRequestCount"
+                :max="99"
+                class="tab-badge"
+              />
+            </template>
+            <el-scrollbar style="height: 420px">
+              <div v-if="friendRequests.length === 0" class="empty-tip">
+                暂无好友请求
+              </div>
+              <div
+                v-for="request in friendRequests"
+                :key="request.requestId"
+                class="request-item"
+              >
+                <div class="request-info">
+                  <el-avatar size="small" :src="request.fromAvatar">
+                    {{ request.fromUsername?.charAt(0) }}
+                  </el-avatar>
+                  <div class="request-detail">
+                    <div class="request-username">{{ request.fromUsername }}</div>
+                    <div class="request-msg">{{ request.msg }}</div>
+                  </div>
+                </div>
+                <el-button
+                  v-if="request.status === 'pending'"
+                  type="primary"
+                  size="small"
+                  :loading="acceptingRequestId === request.requestId"
+                  @click="acceptFriendRequest(request.requestId)"
+                >
+                  同意
+                </el-button>
+                <el-tag v-else-if="request.status === 'accepted'" type="success" size="small">
+                  已添加
+                </el-tag>
+              </div>
+            </el-scrollbar>
+          </el-tab-pane>
+
           <!-- 聊天列表Tab -->
           <el-tab-pane label="在线用户" name="chat">
             <el-scrollbar
@@ -177,7 +221,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from "vue";
 import { ChatDotRound, Plus } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
@@ -212,6 +256,15 @@ interface ChatMessage {
   content: string;
 }
 
+interface FriendRequest {
+  requestId: number;
+  from: string;
+  fromUsername: string;
+  fromAvatar?: string;
+  msg: string;
+  status?: "pending" | "accepted" | "rejected";
+}
+
 // 状态响应式变量
 const onlineUsers = ref<User[]>([]);
 const friendList = ref<Friend[]>([]);
@@ -227,6 +280,8 @@ const lastMessageUser = ref<User | null>(null);
 
 const showAddFriendDialog = ref(false);
 const addingFriend = ref(false);
+const friendRequests = ref<FriendRequest[]>([]);
+const acceptingRequestId = ref<number | null>(null);
 
 const messagesContainer = ref<HTMLDivElement | null>(null);
 const robotButton = ref<HTMLDivElement | null>(null);
@@ -248,6 +303,10 @@ const hasMore = ref(true);
 const isSubscribed = ref(false);
 const currentUserId = ref("");
 
+const pendingRequestCount = computed(() => {
+  return friendRequests.value.filter((r) => r.status === "pending").length;
+});
+
 // 🌟 核心修复：使用 Map 记录已处理的消息指纹和时间戳，用于自动清理防内存泄漏
 const processedMsgMap = new Map<string, number>();
 let cleanUpTimer: any = null;
@@ -255,8 +314,9 @@ let cleanUpTimer: any = null;
 // 🌟 生成强哈希指纹（彻底解决接收方收到两条重复消息的问题）
 const generateMsgFingerprint = (payload: any): string => {
   // 优先使用后端返回的唯一ID
-  if (payload.msgId) return `id_${payload.msgId}`;
-
+  if (payload.msgId) {
+    return `id_${payload.msgId}`;
+  }
   // 🌟 致命修复：绝对不能使用 Date.now()！
   // 使用 发送者 + 内容 + 秒级时间戳。这样即使后端1秒内推送了两次，指纹也完全一样。
   const secondTimestamp = Math.floor(Date.now() / 1000);
@@ -274,7 +334,9 @@ const selectUser = (user: User) => {
 const updateUserStatus = (userId: string, isActive: string) => {
   const updateList = (list: any[]) => {
     const idx = list.findIndex((u) => u.userId === userId);
-    if (idx !== -1) list[idx].isActive = isActive;
+    if (idx !== -1) {
+      list[idx].isActive = isActive;
+    }
   };
   updateList(onlineUsers.value);
   updateList(friendList.value);
@@ -311,10 +373,8 @@ const subscribeUserStatus = () => {
 const sendMessage = () => {
   if (!userMessage.value.trim() || !isConnected.value || !selectedUser.value)
     return;
-
   const content = userMessage.value;
   const msgId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-
   // 本地先渲染自己发的消息，并加入防重 Map
   const userMsg: ChatMessage = { id: msgId, type: "user", content };
   chatMessages.value.push(userMsg);
@@ -325,15 +385,12 @@ const sendMessage = () => {
     messageCache.value.set(selectedUser.value.userId, []);
   }
   messageCache.value.get(selectedUser.value.userId)!.push(userMsg);
-
   scrollToBottom();
-
   sendWsMessage("chat", {
     msgId: msgId,
     to: selectedUser.value.userId,
     content: content,
   });
-
   userMessage.value = "";
 };
 
@@ -351,6 +408,28 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
     ElMessage.error("发送失败");
   } finally {
     addingFriend.value = false;
+  }
+};
+// ... existing code ...
+
+// 同意好友请求
+const acceptFriendRequest = (requestId: number) => {
+  acceptingRequestId.value = requestId;
+  try {
+    sendWsMessage("friend", {
+      action: "accept",
+      requestId: requestId,
+    });
+    // 更新本地状态
+    const request = friendRequests.value.find((r) => r.requestId === requestId);
+    if (request) {
+      request.status = "accepted";
+    }
+  } catch (error) {
+    console.error("同意好友请求失败:", error);
+    ElMessage.error("操作失败");
+  } finally {
+    acceptingRequestId.value = null;
   }
 };
 
@@ -379,7 +458,6 @@ const handleChatMessage = (payload: any) => {
   if (payload.from === currentUserId.value) {
     return;
   }
-
   // 2. 🌟 核心防重拦截（防止接收方展示两条）
   const fingerprint = generateMsgFingerprint(payload);
   if (processedMsgMap.has(fingerprint)) {
@@ -387,12 +465,10 @@ const handleChatMessage = (payload: any) => {
     return; // 直接丢弃
   }
   processedMsgMap.set(fingerprint, Date.now());
-
   const targetUserId = payload.from;
   const targetUser =
     onlineUsers.value.find((u) => u.userId === targetUserId) ||
     friendList.value.find((f) => f.userId === targetUserId);
-
   // 3. 处理未读消息和通知
   if (!showRobotDialog.value || selectedUser.value?.userId !== payload.from) {
     unreadCount.value++;
@@ -408,7 +484,6 @@ const handleChatMessage = (payload: any) => {
       position: "top-right",
     });
   }
-
   // 4. 🌟 核心修复：所有消息都缓存到对应用户
   const newMessage: ChatMessage = {
     id: fingerprint,
@@ -420,7 +495,6 @@ const handleChatMessage = (payload: any) => {
     messageCache.value.set(targetUserId, []);
   }
   messageCache.value.get(targetUserId)!.push(newMessage);
-
   // 如果当前正在和该用户聊天，同时显示
   if (selectedUser.value && selectedUser.value.userId === targetUserId) {
     chatMessages.value.push(newMessage);
@@ -453,12 +527,34 @@ const handleStatusMessage = (payload: any) => {
 };
 
 const handleFriendMessage = (payload: any) => {
-  if (payload.action === "add_response") {
+  if (payload.action === "request") {
+    // 收到好友请求
+    const request: FriendRequest = {
+      requestId: payload.requestId,
+      from: payload.from,
+      fromUsername: payload.fromUsername,
+      fromAvatar: payload.fromAvatar,
+      msg: payload.msg,
+      status: "pending",
+    };
+    friendRequests.value.push(request);
+    // 显示通知
+    ElNotification({
+      title: "好友请求",
+      message: `${payload.fromUsername} 请求添加你为好友：${payload.msg}`,
+      type: "info",
+      duration: 5000,
+      position: "bottom-right",
+    });
+  } else if (payload.action === "accept_response") {
+    // 收到同意/拒绝好友请求的响应
     if (payload.success) {
-      ElMessage.success(payload.message || "好友添加成功");
-      if (payload.friend) friendList.value.push(payload.friend);
+      ElMessage.success("已添加为好友");
+      if (payload.friend) {
+        friendList.value.push(payload.friend);
+      }
     } else {
-      ElMessage.error(payload.message || "好友添加失败");
+      ElMessage.error(payload.message || "操作失败");
     }
   }
 };
@@ -466,12 +562,13 @@ const handleFriendMessage = (payload: any) => {
 // 数据加载与 UI 辅助
 const loadUserList = async (page: number) => {
   try {
-    if (page === 1) loading.value = true;
+    if (page === 1) {
+      loading.value = true;
+    }
     const response = await getUserActivePage({
       currentPage: page,
       pageSize: pageSize.value,
     });
-
     if (response.code === 200) {
       const users = response.data.users || [];
       if (page === 1) onlineUsers.value = users;
@@ -516,23 +613,21 @@ const startDrag = (e: MouseEvent) => {
   e.preventDefault();
   isDragging.value = true;
   hasMoved.value = false;
-
   if (robotButton.value) {
     const rect = robotButton.value.getBoundingClientRect();
     dragOffset.value = { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
-
   document.addEventListener("mousemove", handleDrag);
   document.addEventListener("mouseup", stopDrag);
 };
 
 const handleDrag = (e: MouseEvent) => {
-  if (!isDragging.value) return;
+  if (!isDragging.value) {
+    return;
+  }
   hasMoved.value = true;
-
   const newRight = window.innerWidth - e.clientX - (60 - dragOffset.value.x);
   const newBottom = window.innerHeight - e.clientY - (60 - dragOffset.value.y);
-
   robotPosition.value.right = Math.max(
     0,
     Math.min(newRight, window.innerWidth - 60),
@@ -677,6 +772,46 @@ onBeforeUnmount(() => {
 }
 .status-badge {
   margin-left: auto;
+}
+.tab-badge {
+  margin-left: 6px;
+}
+
+/* 好友请求项 */
+.request-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.request-item:last-child {
+  border-bottom: none;
+}
+.request-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+.request-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.request-username {
+  font-weight: 500;
+  font-size: 14px;
+}
+.request-msg {
+  font-size: 12px;
+  color: #909399;
+}
+.empty-tip {
+  text-align: center;
+  padding: 40px;
+  color: #909399;
+  font-size: 14px;
 }
 .loading-text {
   text-align: center;

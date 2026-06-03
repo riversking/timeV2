@@ -78,7 +78,9 @@
 import { ref, watch } from "vue";
 import { Search, InfoFilled, Loading } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
-
+import {
+  getUserPage
+} from "@/api/user";
 interface User {
   userId: string;
   username: string;
@@ -102,6 +104,9 @@ const loading = ref(false);
 const searched = ref(false);
 const addingUserId = ref("");
 const userList = ref<User[]>([]);
+const currentPage = ref(1);
+const pageSize = ref(10);
+const total = ref(0);
 
 watch(
   () => props.modelValue,
@@ -134,26 +139,18 @@ const handleSearch = async () => {
   searched.value = false;
 
   try {
-    // TODO: 替换为实际的搜索用户API
-    // const response = await searchUser({ keyword: searchKeyword.value });
-    // userList.value = response.data.users || [];
-
-    // 模拟搜索请求
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // 模拟数据
-    userList.value = [
-      {
-        userId: "user001",
-        username: "测试用户1",
-        avatar: "",
-      },
-      {
-        userId: "user002",
-        username: "测试用户2",
-        avatar: "",
-      },
-    ];
+    const response = await getUserPage({
+      currentPage: currentPage.value,
+      pageSize: pageSize.value,
+      username: searchKeyword.value,
+    });
+    console.log("获取用户数据成功:", response);
+    if (response.code === 200) {
+      userList.value = response.data.users || [];
+      total.value = response.data.total || 0;
+    } else {
+      ElMessage.error(response.message || "获取用户数据失败");
+    }
 
     searched.value = true;
   } catch (error) {

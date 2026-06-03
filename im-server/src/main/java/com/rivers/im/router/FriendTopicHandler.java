@@ -122,25 +122,22 @@ public class FriendTopicHandler implements TopicHandler {
                     request.setUpdateUser(userId);
 
                     LocalDateTime now = LocalDateTime.now();
-                    TimerFriend friend1 = TimerFriend.builder()
+                    TimerFriend requestFriend = TimerFriend.builder()
                             .userId(request.getRequestUserId())
                             .friendId(request.getTargetUserId())
                             .remark(request.getRemark())
-                            .createTime(now)
                             .createUser(userId)
-                            .isDeleted(0)
+                            .updateUser(userId)
                             .build();
-                    TimerFriend friend2 = TimerFriend.builder()
+                    TimerFriend targetFriend = TimerFriend.builder()
                             .userId(request.getTargetUserId())
                             .friendId(request.getRequestUserId())
-                            .createTime(now)
                             .createUser(userId)
-                            .isDeleted(0)
+                            .updateUser(userId)
                             .build();
-
                     return friendRequestMapper.save(request)
-                            .then(friendMapper.save(friend1))
-                            .then(friendMapper.save(friend2))
+                            .then(friendMapper.save(requestFriend))
+                            .then(friendMapper.save(targetFriend))
                             .then(saveAndPush(request.getRequestUserId(), "friend_accept",
                                     request.getTargetUserId(), requestId))
                             .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已接受: {} <-> {}",
@@ -169,7 +166,6 @@ public class FriendTopicHandler implements TopicHandler {
                     request.setStatus(TimerFriendRequest.Status.REJECTED.getCode());
                     request.setUpdateTime(LocalDateTime.now());
                     request.setUpdateUser(userId);
-
                     return friendRequestMapper.save(request)
                             .then(saveAndPush(request.getRequestUserId(), "friend_reject",
                                     request.getTargetUserId(), requestId))
