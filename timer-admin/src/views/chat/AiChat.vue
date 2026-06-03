@@ -33,10 +33,42 @@
           type="border-card"
           class="full-height-tabs"
         >
-          <!-- 好友请求Tab -->
-          <el-tab-pane name="requests">
+          <!-- 聊天记录Tab -->
+          <el-tab-pane label="聊天记录" name="chat">
+            <el-scrollbar style="height: 460px">
+              <div v-if="chatHistoryList.length === 0" class="empty-tip">
+                暂无聊天记录
+              </div>
+              <div
+                v-for="item in chatHistoryList"
+                :key="item.userId"
+                :class="[
+                  'user-item',
+                  { active: selectedUser?.userId === item.userId },
+                ]"
+                @click="selectChatHistoryUser(item.userId)"
+              >
+                <el-avatar size="small" :src="item.avatar">{{
+                  item.username?.charAt(0)
+                }}</el-avatar>
+                <div class="friend-info">
+                  <div>{{ item.username }}</div>
+                  <div class="remark">{{ item.lastMessage }}</div>
+                </div>
+                <el-badge
+                  :value="item.unreadCount"
+                  :hidden="item.unreadCount === 0"
+                  :max="99"
+                  class="status-badge"
+                />
+              </div>
+            </el-scrollbar>
+          </el-tab-pane>
+
+          <!-- 好友Tab -->
+          <el-tab-pane name="friends">
             <template #label>
-              <span>好友请求</span>
+              <span>好友</span>
               <el-badge
                 v-if="pendingRequestCount > 0"
                 :value="pendingRequestCount"
@@ -44,78 +76,6 @@
                 class="tab-badge"
               />
             </template>
-            <el-scrollbar style="height: 420px">
-              <div v-if="friendRequests.length === 0" class="empty-tip">
-                暂无好友请求
-              </div>
-              <div
-                v-for="request in friendRequests"
-                :key="request.requestId"
-                class="request-item"
-              >
-                <div class="request-info">
-                  <el-avatar size="small" :src="request.fromAvatar">
-                    {{ request.fromUsername?.charAt(0) }}
-                  </el-avatar>
-                  <div class="request-detail">
-                    <div class="request-username">{{ request.fromUsername }}</div>
-                    <div class="request-msg">{{ request.msg }}</div>
-                  </div>
-                </div>
-                <el-button
-                  v-if="request.status === 'pending'"
-                  type="primary"
-                  size="small"
-                  :loading="acceptingRequestId === request.requestId"
-                  @click="acceptFriendRequest(request.requestId)"
-                >
-                  同意
-                </el-button>
-                <el-tag v-else-if="request.status === 'accepted'" type="success" size="small">
-                  已添加
-                </el-tag>
-              </div>
-            </el-scrollbar>
-          </el-tab-pane>
-
-          <!-- 聊天列表Tab -->
-          <el-tab-pane label="在线用户" name="chat">
-            <el-scrollbar
-              ref="chatListScrollbar"
-              style="height: 420px"
-              @scroll="handleChatListScroll"
-            >
-              <div
-                v-for="user in onlineUsers"
-                :key="user.userId"
-                :class="[
-                  'user-item',
-                  { active: selectedUser?.userId === user.userId },
-                ]"
-                @click="selectUser(user)"
-              >
-                <el-avatar size="small" :src="user.avatar">{{
-                  user.username?.charAt(0)
-                }}</el-avatar>
-                <span class="username">{{ user.username }}</span>
-                <el-badge
-                  is-dot
-                  :hidden="user.isActive !== '1'"
-                  class="status-badge"
-                />
-              </div>
-              <div v-if="loadingMore" class="loading-text">加载中...</div>
-              <div
-                v-else-if="!hasMore && onlineUsers.length > 0"
-                class="loading-text"
-              >
-                没有更多用户了
-              </div>
-            </el-scrollbar>
-          </el-tab-pane>
-
-          <!-- 好友列表Tab -->
-          <el-tab-pane label="我的好友" name="friends">
             <div style="padding: 10px">
               <el-button
                 type="primary"
@@ -127,6 +87,38 @@
               </el-button>
             </div>
             <el-scrollbar ref="friendListScrollbar" style="height: 380px">
+              <!-- 好友请求区域 -->
+              <div v-if="friendRequests.length > 0" class="request-section">
+                <div class="request-section-title">好友请求</div>
+                <div
+                  v-for="request in friendRequests"
+                  :key="request.requestId"
+                  class="request-item"
+                >
+                  <div class="request-info">
+                    <el-avatar size="small" :src="request.fromAvatar">
+                      {{ request.fromUsername?.charAt(0) }}
+                    </el-avatar>
+                    <div class="request-detail">
+                      <div class="request-username">{{ request.fromUsername }}</div>
+                      <div class="request-msg">{{ request.msg }}</div>
+                    </div>
+                  </div>
+                  <el-button
+                    v-if="request.status === 'pending'"
+                    type="primary"
+                    size="small"
+                    :loading="acceptingRequestId === request.requestId"
+                    @click="acceptFriendRequest(request.requestId)"
+                  >
+                    同意
+                  </el-button>
+                  <el-tag v-else-if="request.status === 'accepted'" type="success" size="small">
+                    已添加
+                  </el-tag>
+                </div>
+              </div>
+              <!-- 好友列表 -->
               <div
                 v-for="friend in friendList"
                 :key="friend.userId"
@@ -277,6 +269,8 @@ const chatMessages = ref<ChatMessage[]>([]);
 const unreadCount = ref(0);
 const messageCache = ref<Map<string, ChatMessage[]>>(new Map());
 const lastMessageUser = ref<User | null>(null);
+const userUnreadCounts = ref<Map<string, number>>(new Map());
+const chatHistoryUserIds = ref<string[]>([]);
 
 const showAddFriendDialog = ref(false);
 const addingFriend = ref(false);
@@ -307,6 +301,32 @@ const pendingRequestCount = computed(() => {
   return friendRequests.value.filter((r) => r.status === "pending").length;
 });
 
+const chatHistoryList = computed(() => {
+  return chatHistoryUserIds.value
+    .map((userId) => {
+      const msgs = messageCache.value.get(userId);
+      if (!msgs || msgs.length === 0) return null;
+      const lastMsg = msgs[msgs.length - 1];
+      const user =
+        onlineUsers.value.find((u) => u.userId === userId) ||
+        friendList.value.find((f) => f.userId === userId);
+      return {
+        userId,
+        username: user?.username || "未知用户",
+        avatar: user?.avatar,
+        lastMessage: lastMsg.content,
+        unreadCount: userUnreadCounts.value.get(userId) || 0,
+      };
+    })
+    .filter(Boolean) as Array<{
+    userId: string;
+    username: string;
+    avatar?: string;
+    lastMessage: string;
+    unreadCount: number;
+  }>;
+});
+
 // 🌟 核心修复：使用 Map 记录已处理的消息指纹和时间戳，用于自动清理防内存泄漏
 const processedMsgMap = new Map<string, number>();
 let cleanUpTimer: any = null;
@@ -326,9 +346,20 @@ const generateMsgFingerprint = (payload: any): string => {
 // 核心业务方法
 const selectUser = (user: User) => {
   selectedUser.value = user;
+  userUnreadCounts.value.set(user.userId, 0);
   const cached = messageCache.value.get(user.userId);
   chatMessages.value = cached ? [...cached] : [];
   nextTick(scrollToBottom);
+};
+
+const selectChatHistoryUser = (userId: string) => {
+  userUnreadCounts.value.set(userId, 0);
+  const user =
+    onlineUsers.value.find((u) => u.userId === userId) ||
+    friendList.value.find((f) => f.userId === userId);
+  if (user) {
+    selectUser(user);
+  }
 };
 
 const updateUserStatus = (userId: string, isActive: string) => {
@@ -385,6 +416,11 @@ const sendMessage = () => {
     messageCache.value.set(selectedUser.value.userId, []);
   }
   messageCache.value.get(selectedUser.value.userId)!.push(userMsg);
+
+  if (!chatHistoryUserIds.value.includes(selectedUser.value.userId)) {
+    chatHistoryUserIds.value.unshift(selectedUser.value.userId);
+  }
+
   scrollToBottom();
   sendWsMessage("chat", {
     msgId: msgId,
@@ -410,7 +446,6 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
     addingFriend.value = false;
   }
 };
-// ... existing code ...
 
 // 同意好友请求
 const acceptFriendRequest = (requestId: number) => {
@@ -472,6 +507,10 @@ const handleChatMessage = (payload: any) => {
   // 3. 处理未读消息和通知
   if (!showRobotDialog.value || selectedUser.value?.userId !== payload.from) {
     unreadCount.value++;
+    userUnreadCounts.value.set(
+      targetUserId,
+      (userUnreadCounts.value.get(targetUserId) || 0) + 1,
+    );
     // 🌟 记录最后发消息的用户
     if (targetUser && !showRobotDialog.value) {
       lastMessageUser.value = targetUser;
@@ -495,6 +534,11 @@ const handleChatMessage = (payload: any) => {
     messageCache.value.set(targetUserId, []);
   }
   messageCache.value.get(targetUserId)!.push(newMessage);
+
+  if (!chatHistoryUserIds.value.includes(targetUserId)) {
+    chatHistoryUserIds.value.unshift(targetUserId);
+  }
+
   // 如果当前正在和该用户聊天，同时显示
   if (selectedUser.value && selectedUser.value.userId === targetUserId) {
     chatMessages.value.push(newMessage);
@@ -650,6 +694,7 @@ const toggleRobotDialog = () => {
     showRobotDialog.value = !showRobotDialog.value;
     if (showRobotDialog.value) {
       unreadCount.value = 0;
+      userUnreadCounts.value.clear();
       // 🌟 打开对话框时，如果有最后发消息的用户且当前没有选中用户，自动选中
       if (lastMessageUser.value && !selectedUser.value) {
         selectUser(lastMessageUser.value);
@@ -662,7 +707,10 @@ const toggleRobotDialog = () => {
   }
 };
 
-const handleDialogClose = () => {};
+const handleDialogClose = () => {
+  selectedUser.value = null;
+  chatMessages.value = [];
+};
 
 // 生命周期与监听
 onMounted(() => {
@@ -775,6 +823,19 @@ onBeforeUnmount(() => {
 }
 .tab-badge {
   margin-left: 6px;
+}
+
+/* 好友请求分区 */
+.request-section {
+  border-bottom: 1px solid #ebeef5;
+  margin-bottom: 4px;
+}
+.request-section-title {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #909399;
+  font-weight: 500;
+  background: #fafafa;
 }
 
 /* 好友请求项 */
