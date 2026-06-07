@@ -31,5 +31,13 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
     /**
      * 统计待处理请求数
      */
-    Mono<Long> countByTargetUserIdAndStatus(String targetUserId, Integer status);
+    Mono<Long> countByTargetUserId(String targetUserId);
+
+    @Query("SELECT * FROM timer_friend_request " +
+            "WHERE target_user_id = :targetUserId " +
+            "AND is_deleted = 0 " +
+            "ORDER BY create_time DESC " +
+            "LIMIT :limit OFFSET :offset")
+    Flux<TimerFriendRequest> findPageByTargetUserIdAndStatus(
+            String targetUserId, long limit, long offset);
 }
