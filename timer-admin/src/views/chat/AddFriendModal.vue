@@ -134,10 +134,8 @@ const handleSearch = async () => {
     ElMessage.warning("请输入搜索关键词");
     return;
   }
-
   loading.value = true;
   searched.value = false;
-
   try {
     const response = await getUserPage({
       currentPage: currentPage.value,
@@ -151,7 +149,6 @@ const handleSearch = async () => {
     } else {
       ElMessage.error(response.message || "获取用户数据失败");
     }
-
     searched.value = true;
   } catch (error) {
     console.error("搜索用户失败:", error);
@@ -175,8 +172,6 @@ const handleAddFriend = async (user: User) => {
       userId: user.userId,
       remark: "",
     });
-
-    ElMessage.success("好友请求已发送");
   } catch (error) {
     console.error("添加好友失败:", error);
     ElMessage.error("添加好友失败");

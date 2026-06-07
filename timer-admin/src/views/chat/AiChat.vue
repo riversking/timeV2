@@ -100,7 +100,9 @@
                       {{ request.fromUsername?.charAt(0) }}
                     </el-avatar>
                     <div class="request-detail">
-                      <div class="request-username">{{ request.fromUsername }}</div>
+                      <div class="request-username">
+                        {{ request.fromUsername }}
+                      </div>
                       <div class="request-msg">{{ request.msg }}</div>
                     </div>
                   </div>
@@ -113,7 +115,11 @@
                   >
                     同意
                   </el-button>
-                  <el-tag v-else-if="request.status === 'accepted'" type="success" size="small">
+                  <el-tag
+                    v-else-if="request.status === 'accepted'"
+                    type="success"
+                    size="small"
+                  >
                     已添加
                   </el-tag>
                 </div>
@@ -213,7 +219,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from "vue";
+import {
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  nextTick,
+  watch,
+  computed,
+} from "vue";
 import { ChatDotRound, Plus } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
@@ -481,7 +494,7 @@ watch(
         const { topic, payload } = envelope;
         if (topic === "chat") handleChatMessage(payload);
         else if (topic === "status") handleStatusMessage(payload);
-        else if (topic === "friend") handleFriendMessage(payload);
+        else if (topic === "notification") handleFriendMessage(payload);
       }
     }
   },
@@ -571,7 +584,7 @@ const handleStatusMessage = (payload: any) => {
 };
 
 const handleFriendMessage = (payload: any) => {
-  if (payload.action === "request") {
+  if (payload.action === "friend_request") {
     // 收到好友请求
     const request: FriendRequest = {
       requestId: payload.requestId,
@@ -585,10 +598,10 @@ const handleFriendMessage = (payload: any) => {
     // 显示通知
     ElNotification({
       title: "好友请求",
-      message: `${payload.fromUsername} 请求添加你为好友：${payload.msg}`,
+      message: `${payload.from} 请求添加你为好友`,
       type: "info",
       duration: 5000,
-      position: "bottom-right",
+      position: "top-right",
     });
   } else if (payload.action === "accept_response") {
     // 收到同意/拒绝好友请求的响应

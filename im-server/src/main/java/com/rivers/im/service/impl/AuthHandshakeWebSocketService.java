@@ -41,7 +41,6 @@ public class AuthHandshakeWebSocketService extends HandshakeWebSocketService {
                     log.error("❌ WS握手鉴权异常: {}", e.getMessage());
                     return rejectHandshake(exchange, HttpStatus.UNAUTHORIZED).then(Mono.empty());
                 });
-        // ... existing code ...
         // 只有当 userIdMono 有值时，才会执行这里的 flatMap
         return userIdMono.flatMap(userId -> {
             // 注意：之前提到过，exchange.getAttributes() 不会传递给 WebSocketSession

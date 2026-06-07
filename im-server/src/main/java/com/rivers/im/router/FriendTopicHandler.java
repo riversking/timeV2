@@ -77,10 +77,10 @@ public class FriendTopicHandler implements TopicHandler {
         }
         String msg = payload.path("msg").asString("");
         return friendRequestMapper
-                .existsByRequestUserIdAndTargetUserIdAndStatus(
+                .existsTargetUserIdAndStatus(
                         userId, targetUserId, TimerFriendRequest.Status.PENDING.getCode())
                 .flatMap(exists -> {
-                    if (Boolean.TRUE.equals(exists)) {
+                    if (exists == 1) {
                         log.info("👥 [Friend] 已存在待处理请求: {} -> {}", userId, targetUserId);
                         return Mono.empty();
                     }
@@ -91,7 +91,7 @@ public class FriendTopicHandler implements TopicHandler {
                             .status(TimerFriendRequest.Status.PENDING.getCode())
                             .createTime(LocalDateTime.now())
                             .createUser(userId)
-                            .isDeleted(0)
+                            .updateUser(userId)
                             .build();
                     return friendRequestMapper.save(request)
                             .flatMap(saved -> saveAndPush(
@@ -120,8 +120,6 @@ public class FriendTopicHandler implements TopicHandler {
                     request.setStatus(TimerFriendRequest.Status.ACCEPTED.getCode());
                     request.setUpdateTime(LocalDateTime.now());
                     request.setUpdateUser(userId);
-
-                    LocalDateTime now = LocalDateTime.now();
                     TimerFriend requestFriend = TimerFriend.builder()
                             .userId(request.getRequestUserId())
                             .friendId(request.getTargetUserId())
@@ -205,6 +203,7 @@ public class FriendTopicHandler implements TopicHandler {
         msg.setSentTime(now);
         msg.setCreateTime(now);
         msg.setCreateUser(fromUserId);
+        msg.setUpdateUser(fromUserId);
         return messageMapper.save(msg)
                 .doOnSuccess(saved -> log.debug("📝 离线通知已保存: to={}, action={}", toUserId, action))
                 .onErrorResume(e -> {

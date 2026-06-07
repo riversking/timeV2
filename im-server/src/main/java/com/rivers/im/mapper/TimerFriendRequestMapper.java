@@ -1,6 +1,7 @@
 package com.rivers.im.mapper;
 
 import com.rivers.im.entity.TimerFriendRequest;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,7 +21,12 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
     /**
      * 检查是否存在待处理的请求
      */
-    Mono<Boolean> existsByRequestUserIdAndTargetUserIdAndStatus(String requestUserId, String targetUserId, Integer status);
+    @Query("SELECT EXISTS(SELECT 1 FROM timer_friend_request " +
+            "WHERE request_user_id = :requestUserId " +
+            "AND target_user_id = :targetUserId " +
+            "AND status = :status " +
+            "AND is_deleted = 0)")
+    Mono<Integer> existsTargetUserIdAndStatus(String requestUserId, String targetUserId, Integer status);
 
     /**
      * 统计待处理请求数
