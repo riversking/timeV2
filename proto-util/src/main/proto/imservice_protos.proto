@@ -64,7 +64,7 @@ message CreateTicketRes {
     string ticket = 1;
 }
 
-message FriendRequestDetailRes {
+message FriendRequestRes {
     string friendId = 1;
     string friendName = 2;
     string friendAvatar = 3;
@@ -73,13 +73,14 @@ message FriendRequestDetailRes {
 }
 
 message FriendRequestPageReq {
-    int32 currentPage = 1;
-    int32 pageSize = 2;
-    string friendName = 3;
-    LoginUser loginUser = 4;
+    int32 pageSize = 1;
+    int64 lastId = 2;
+    string lastCreateTime = 3;
+    string friendName = 4;
+    LoginUser loginUser = 5;
 }
 
 message FriendRequestPageRes {
-    int64 total = 1;
-    repeated FriendRequestDetailRes friendRequests = 2;
+    int32 hasMore = 1;
+    repeated FriendRequestRes friendRequests = 2;
 }

@@ -17,20 +17,23 @@ public class TimerFriendRequest {
     @Id
     private Long id;
 
-    @Column("request_user_id")
-    private String requestUserId; // 请求方
+    @Column("user_id")
+    private String userId;
 
-    @Column("target_user_id")
-    private String targetUserId; // 目标用户
+    @Column("opponent_id")
+    private String opponentId;
 
-    @Column("remark")
-    private String remark; // 备注
-
-    @Column("request_msg")
-    private String requestMsg; // 验证消息
+    @Column("direction")
+    private Integer direction;
 
     @Column("status")
-    private Integer status; // 0-待处理, 1-已接受, 2-已拒绝
+    private Integer status;
+
+    @Column("message")
+    private String message;
+
+    @Column("relation_id")
+    private Long relationId;
 
     @Column("create_time")
     private LocalDateTime createTime;
@@ -47,19 +50,40 @@ public class TimerFriendRequest {
     @Column("is_deleted")
     private Integer isDeleted;
 
-    /**
-     * 状态枚举
-     */
     @Getter
     public enum Status {
         PENDING(0, "待处理"),
-        ACCEPTED(1, "已接受"),
+        ACCEPTED(1, "已同意"),
         REJECTED(2, "已拒绝");
 
         private final int code;
         private final String desc;
 
         Status(int code, String desc) {
+            this.code = code;
+            this.desc = desc;
+        }
+
+        public static Status of(int code) {
+            for (Status value : Status.values()) {
+                if (value.code == code) {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+    }
+
+    @Getter
+    public enum Direction {
+        SENT(1, "我发出的"),
+        RECEIVED(2, "我收到的");
+
+        private final int code;
+        private final String desc;
+
+        Direction(int code, String desc) {
             this.code = code;
             this.desc = desc;
         }
