@@ -60,7 +60,7 @@ public class FriendServiceImpl implements IFriendService {
                 .flatMap(i -> {
                     if (CollectionUtils.isEmpty(i)) {
                         return Mono.just(ResultVO.ok(FriendRequestPageRes.newBuilder()
-                                .setHasMore(0)
+                                .setHasMore("0")
                                 .build()));
                     }
                     boolean hasMore = i.size() == pageSize;
@@ -85,11 +85,17 @@ public class FriendServiceImpl implements IFriendService {
                                                                     .of(f.getStatus()))
                                                             .map(TimerFriendRequest.Status::getDesc)
                                                             .orElse(""))
+                                                    .setDirection(Optional.ofNullable(TimerFriendRequest.Direction
+                                                                    .of(f.getDirection()))
+                                                            .map(TimerFriendRequest.Direction::getDesc)
+                                                            .orElse(""))
+                                                    .setUpdateTime(f.getCreateTime()
+                                                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
                                                     .build();
                                         })
                                         .toList();
                                 FriendRequestPageRes friendRequestPageRes = FriendRequestPageRes.newBuilder()
-                                        .setHasMore(hasMore ? 1 : 0)
+                                        .setHasMore(hasMore ? "1" : "0")
                                         .addAllFriendRequests(list)
                                         .build();
                                 return ResultVO.ok(friendRequestPageRes);

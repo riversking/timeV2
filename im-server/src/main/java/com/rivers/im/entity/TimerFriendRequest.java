@@ -88,5 +88,13 @@ public class TimerFriendRequest {
             this.desc = desc;
         }
 
+        public static Direction of(int code) {
+            for (Direction value : Direction.values()) {
+                if (value.code == code) {
+                    return value;
+                }
+            }
+            return null;
+        }
     }
 }

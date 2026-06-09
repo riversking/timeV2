@@ -70,6 +70,8 @@ message FriendRequestRes {
     string friendAvatar = 3;
     string remark = 4;
     string status = 5;
+    string updateTime = 6;
+    string direction = 7;
 }
 
 message FriendRequestPageReq {
@@ -81,6 +83,6 @@ message FriendRequestPageReq {
 }
 
 message FriendRequestPageRes {
-    int32 hasMore = 1;
+    string hasMore = 1;
     repeated FriendRequestRes friendRequests = 2;
 }

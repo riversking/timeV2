@@ -26,7 +26,9 @@ public class FriendTopicHandler implements TopicHandler {
     public static final String ACTION = "action";
     public static final String NOTIFICATION = "notification";
     public static final String REQUEST_ID = "requestId";
-    /** 系统通知消息类型 */
+    /**
+     * 系统通知消息类型
+     */
     private static final int MSG_TYPE_NOTIFY = 6;
 
     private final TimerFriendRequestMapper friendRequestMapper;
@@ -73,6 +75,10 @@ public class FriendTopicHandler implements TopicHandler {
      * 发送好友请求 —— 写扩散模型
      * 创建两条记录（发送方 + 接收方），用 relation_id 绑定，一条 SQL 即可双向同步状态
      */
+    /**
+     * 发送好友请求 —— 写扩散模型
+     * 创建两条记录（发送方 + 接收方），用 relation_id 绑定，一条 SQL 即可双向同步状态
+     */
     private Mono<Void> handleRequest(String userId, JsonNode payload) {
         String targetUserId = payload.path("to").asString("");
         if (targetUserId.isEmpty()) {
@@ -85,12 +91,20 @@ public class FriendTopicHandler implements TopicHandler {
         }
         String msg = payload.path("msg").asString("");
         return friendRequestMapper
-                .existsPendingBetweenUsers(userId, targetUserId)
-                .flatMap(exists -> {
-                    if (exists == 1) {
-                        log.info("👥 [Friend] 已存在待处理请求: {} <-> {}", userId, targetUserId);
-                        return Mono.empty();
+                .findByUserIdAndOpponentId(userId, targetUserId)
+                .flatMap(existing -> {
+                    if (existing.getStatus() == TimerFriendRequest.Status.PENDING.getCode()) {
+                        log.info("👥 [Friend] 已存在待处理请求，更新更新时间: {} <-> {}", userId, targetUserId);
+                        return friendRequestMapper
+                                .updateTimeByRelationId(existing.getRelationId(), LocalDateTime.now())
+                                .then(friendRequestMapper.findByRelationIdAndUserId(existing.getRelationId(), targetUserId))
+                                .flatMap(receiverRecord ->
+                                        saveAndPush(targetUserId, "friend_request", userId, receiverRecord.getId()));
                     }
+                    log.info("👥 [Friend] 请求已处理，无需重复操作: {} <-> {}", userId, targetUserId);
+                    return Mono.empty();
+                })
+                .switchIfEmpty(Mono.defer(() -> {
                     long relationId = snowflakeIdGenerator.nextId();
                     TimerFriendRequest senderRecord = TimerFriendRequest.builder()
                             .userId(userId)
@@ -112,10 +126,13 @@ public class FriendTopicHandler implements TopicHandler {
                             .createUser(userId)
                             .updateUser(userId)
                             .build();
-                    return friendRequestMapper.save(senderRecord)
-                            .then(friendRequestMapper.save(receiverRecord))
-                            .then(saveAndPush(targetUserId, "friend_request", userId, receiverRecord.getId()));
-                })
+                    return Mono.zip(
+                                    friendRequestMapper.save(senderRecord),
+                                    friendRequestMapper.save(receiverRecord)
+                            )
+                            .flatMap(tuple ->
+                                    saveAndPush(targetUserId, "friend_request", userId, tuple.getT2().getId()));
+                }))
                 .doOnError(e -> log.error("❌ [Friend] 发送好友请求失败: {} -> {}", userId, targetUserId, e))
                 .onErrorResume(e -> Mono.empty());
     }
@@ -157,7 +174,7 @@ public class FriendTopicHandler implements TopicHandler {
                             .updateUser(userId)
                             .build();
                     return friendRequestMapper
-                            .updateStatusByRelationId(request.getRelationId(),
+                            .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.ACCEPTED.getCode())
                             .then(friendMapper.save(requestFriend))
                             .then(friendMapper.save(targetFriend))
@@ -194,7 +211,7 @@ public class FriendTopicHandler implements TopicHandler {
                     }
 
                     return friendRequestMapper
-                            .updateStatusByRelationId(request.getRelationId(),
+                            .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.REJECTED.getCode())
                             .then(saveAndPush(request.getOpponentId(), "friend_reject", userId, requestId))
                             .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已拒绝: {} -> {}",
