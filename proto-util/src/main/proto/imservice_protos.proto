@@ -32,10 +32,11 @@ message DeleteFriendReq {
 }
 
 message FriendDetailRes {
-    string friendId = 1;
-    string remark = 2;
-    string friendName = 3;
-    string friendAvatar = 4;
+    int64 id = 1;
+    string friendId = 2;
+    string remark = 3;
+    string friendName = 4;
+    string friendAvatar = 5;
 }
 
 message FriendDetailReq {
@@ -85,4 +86,12 @@ message FriendRequestPageReq {
 message FriendRequestPageRes {
     string hasMore = 1;
     repeated FriendRequestRes friendRequests = 2;
+}
+
+message FriendListReq {
+    LoginUser loginUser = 1;
+}
+
+message FriendListRes {
+    repeated FriendDetailRes friendList = 1;
 }

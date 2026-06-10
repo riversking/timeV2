@@ -1,16 +1,14 @@
 package com.rivers.im.service.impl;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.im.entity.TimerFriend;
 import com.rivers.im.entity.TimerFriendRequest;
 import com.rivers.im.entity.TimerUser;
 import com.rivers.im.mapper.TimerFriendMapper;
 import com.rivers.im.mapper.TimerFriendRequestMapper;
 import com.rivers.im.mapper.TimerUserMapper;
 import com.rivers.im.service.IFriendService;
-import com.rivers.proto.FriendRequestPageReq;
-import com.rivers.proto.FriendRequestPageRes;
-import com.rivers.proto.FriendRequestRes;
-import com.rivers.proto.LoginUser;
+import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -22,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -30,9 +29,7 @@ import java.util.stream.Collectors;
 public class FriendServiceImpl implements IFriendService {
 
     private final TimerFriendRequestMapper friendRequestMapper;
-
     private final TimerFriendMapper friendMapper;
-
     private final TimerUserMapper userMapper;
 
     public FriendServiceImpl(TimerFriendRequestMapper friendRequestMapper, TimerFriendMapper friendMapper,
@@ -72,10 +69,16 @@ public class FriendServiceImpl implements IFriendService {
                     return timerUserFlux.collectList()
                             .map(u -> {
                                 Map<String, TimerUser> userMap = u.stream()
-                                        .collect(Collectors.toMap(TimerUser::getUserId, v -> v));
+                                        .collect(Collectors.toMap(TimerUser::getUserId, v -> v,
+                                                (a, _) -> a));
                                 List<FriendRequestRes> list = i.stream()
                                         .map(f -> {
-                                            TimerUser user = userMap.getOrDefault(f.getOpponentId(), new TimerUser());
+                                            TimerUser user = userMap.get(f.getOpponentId());
+                                            if (user == null) {
+                                                return FriendRequestRes.newBuilder()
+                                                        .setFriendName("用户已注销")
+                                                        .build();
+                                            }
                                             return FriendRequestRes.newBuilder()
                                                     .setFriendId(user.getUserId())
                                                     .setFriendName(user.getUsername())
@@ -100,6 +103,59 @@ public class FriendServiceImpl implements IFriendService {
                                         .build();
                                 return ResultVO.ok(friendRequestPageRes);
                             });
+                })
+                .onErrorResume(e -> {
+                    log.error("❌ [Friend] 获取好友请求分页失败: userId={}", userId, e);
+                    return Mono.just(ResultVO.fail("获取好友请求失败"));
+                });
+    }
+
+    @Override
+    public Mono<ResultVO<FriendListRes>> getFriendList(FriendListReq friendListReq) {
+        LoginUser loginUser = friendListReq.getLoginUser();
+        String userId = loginUser.getUserId();
+        Flux<TimerFriend> timerFriendFlux = friendMapper.selectAllFriendsByUserId(userId);
+        return timerFriendFlux.collectList()
+                .flatMap(i -> {
+                    if (CollectionUtils.isEmpty(i)) {
+                        return Mono.just(ResultVO.ok(FriendListRes.newBuilder().build()));
+                    }
+                    List<String> friendIds = i.stream()
+                            .map(TimerFriend::getFriendId)
+                            .distinct()
+                            .toList();
+                    Flux<TimerUser> timerUserFlux = userMapper.selectByUserIds(friendIds);
+                    return timerUserFlux.collectList()
+                            .map(u -> {
+                                Map<String, TimerUser> userMap = u.stream()
+                                        .collect(Collectors.toMap(TimerUser::getUserId, v -> v,
+                                                (a, _) -> a));
+                                List<FriendDetailRes> list = i.stream()
+                                        .map(f -> {
+                                            TimerUser user = userMap.get(f.getFriendId());
+                                            if (user == null) {
+                                                return FriendDetailRes.newBuilder()
+                                                        .setFriendName("用户已注销")
+                                                        .build();
+                                            }
+                                            return FriendDetailRes.newBuilder()
+                                                    .setId(f.getId())
+                                                    .setFriendId(user.getUserId())
+                                                    .setFriendName(user.getUsername())
+                                                    .setFriendAvatar(user.getAvatar())
+                                                    .setRemark(f.getRemark())
+                                                    .build();
+                                        })
+                                        .toList();
+                                FriendListRes friendListRes = FriendListRes.newBuilder()
+                                        .addAllFriendList(list)
+                                        .build();
+                                return ResultVO.ok(friendListRes);
+                            });
+                })
+                .onErrorResume(e -> {
+                    log.error("❌ [Friend] 获取好友列表失败: userId={}", userId, e);
+                    return Mono.just(ResultVO.fail("获取好友列表失败"));
                 });
     }
 }

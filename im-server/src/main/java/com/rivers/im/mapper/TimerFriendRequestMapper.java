@@ -46,10 +46,11 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
             @Param("lastId") Long lastId,
             @Param("limit") Integer limit);
 
-    @Query("SELECT user_id,opponent_id,direction,status,message FROM timer_friend_request " +
+    @Query("SELECT user_id,opponent_id,direction,status,message " +
+            "FROM timer_friend_request " +
             "WHERE user_id = :userId AND opponent_id = :opponentId " +
             "AND is_deleted = 0 LIMIT 1")
-    Mono<TimerFriendRequest> findByUserIdAndOpponentId(@Param("userId") String userId,
+    Mono<TimerFriendRequest> selectByUserIdAndOpponentId(@Param("userId") String userId,
                                                        @Param("opponentId") String opponentId);
 
     /**
@@ -66,6 +67,6 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
     @Query("SELECT user_id,opponent_id,direction,status,message FROM timer_friend_request " +
             "WHERE relation_id = :relationId AND user_id = :userId " +
             "AND is_deleted = 0 LIMIT 1")
-    Mono<TimerFriendRequest> findByRelationIdAndUserId(@Param("relationId") Long relationId,
+    Mono<TimerFriendRequest> selectByRelationIdAndUserId(@Param("relationId") Long relationId,
                                                        @Param("userId") String userId);
 }

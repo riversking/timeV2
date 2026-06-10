@@ -93,7 +93,10 @@
                 @click="showRequestList = !showRequestList"
               >
                 <div class="toggle-left">
-                  <el-icon class="toggle-arrow" :class="{ expanded: showRequestList }">
+                  <el-icon
+                    class="toggle-arrow"
+                    :class="{ expanded: showRequestList }"
+                  >
                     <ArrowRight />
                   </el-icon>
                   <span>已请求好友</span>
@@ -149,42 +152,89 @@
                     已拒绝
                   </el-tag>
                 </div>
+
+                <div
+                  v-if="requestHasMore"
+                  class="load-more"
+                  @click="loadMoreFriendRequests"
+                >
+                  <span v-if="requestLoadingMore">
+                    <el-icon class="is-loading"><Loading /></el-icon>
+                    加载中...
+                  </span>
+                  <span v-else>加载更多</span>
+                </div>
                 <div v-if="friendRequests.length === 0" class="loading-text">
                   暂无好友请求
                 </div>
               </div>
 
-              <!-- 已添加好友列表 -->
+              <!-- 已添加好友列表（按字母分组 + 右侧字母索引） -->
               <div class="friend-section">
                 <div class="section-title">
                   已添加好友 ({{ friendList.length }})
                 </div>
-                <div
-                  v-for="friend in friendList"
-                  :key="friend.userId"
-                  :class="[
-                    'user-item',
-                    { active: selectedUser?.userId === friend.userId },
-                  ]"
-                  @click="selectUser(friend)"
-                >
-                  <el-avatar size="small" :src="friend.avatar">{{
-                    friend.username?.charAt(0)
-                  }}</el-avatar>
-                  <div class="friend-info">
-                    <div>{{ friend.username }}</div>
-                    <div v-if="friend.remark" class="remark">
-                      {{ friend.remark }}
-                    </div>
-                  </div>
-                  <el-badge
-                    is-dot
-                    :hidden="friend.isActive !== '1'"
-                    class="status-badge"
-                  />
-                </div>
+
                 <div v-if="friendList.length === 0" class="loading-text">
                   暂无好友
+                </div>
+
+                <div v-else class="friend-index-layout">
+                  <!-- 分组好友列表 -->
+                  <div class="friend-groups">
+                    <div
+                      v-for="group in groupedFriends"
+                      :key="group.letter"
+                      :id="`friend-group-${group.letter}`"
+                      class="group-block"
+                    >
+                      <div class="group-letter">{{ group.letter }}</div>
+                      <div
+                        v-for="friend in group.items"
+                        :key="friend.userId"
+                        :class="[
+                          'user-item',
+                          { active: selectedUser?.userId === friend.userId },
+                        ]"
+                        @click="selectUser(friend)"
+                      >
+                        <el-avatar size="small" :src="friend.avatar">{{
+                          friend.username?.charAt(0)
+                        }}</el-avatar>
+                        <div class="friend-info">
+                          <div>{{ friend.username }}</div>
+                          <div v-if="friend.remark" class="remark">
+                            {{ friend.remark }}
+                          </div>
+                        </div>
+                        <el-badge
+                          is-dot
+                          :hidden="friend.isActive !== '1'"
+                          class="status-badge"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 右侧字母索引栏 -->
+                  <div
+                    class="letter-index-bar"
+                    @touchstart.prevent="handleLetterTouchStart"
+                    @touchmove.prevent="handleLetterTouchMove"
+                    @touchend="activeLetter = ''"
+                  >
+                    <div
+                      v-for="letter in alphabetIndex"
+                      :key="letter"
+                      class="letter-index-item"
+                      :class="{ active: letter === activeLetter }"
+                      @click="scrollToLetter(letter)"
+                      @mouseenter="activeLetter = letter"
+                      @mouseleave="activeLetter = ''"
+                    >
+                      {{ letter }}
+                    </div>
+                  </div>
                 </div>
               </div>
             </el-scrollbar>
@@ -262,7 +312,7 @@ import {
   watch,
   computed,
 } from "vue";
-import { ChatDotRound, Plus, ArrowRight } from "@element-plus/icons-vue";
+import { ChatDotRound, Plus, ArrowRight, Loading } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
 import { getUserActivePage } from "@/api/user";
@@ -303,6 +353,7 @@ interface FriendRequest {
   fromAvatar?: string;
   msg: string;
   status?: "pending" | "accepted" | "rejected";
+  createTime?: string;
 }
 
 const onlineUsers = ref<User[]>([]);
@@ -324,6 +375,13 @@ const addingFriend = ref(false);
 const friendRequests = ref<FriendRequest[]>([]);
 const acceptingRequestId = ref<number | null>(null);
 const showRequestList = ref(false);
+
+const requestLastId = ref("");
+const requestLastCreateTime = ref("");
+const requestHasMore = ref(true);
+const requestLoadingMore = ref(false);
+
+const activeLetter = ref("");
 
 const messagesContainer = ref<HTMLDivElement | null>(null);
 const robotButton = ref<HTMLDivElement | null>(null);
@@ -372,6 +430,71 @@ const chatHistoryList = computed(() => {
     unreadCount: number;
   }>;
 });
+
+const groupedFriends = computed(() => {
+  const sorted = [...friendList.value].sort((a, b) =>
+    (a.username || "").localeCompare(b.username || "", "zh-CN"),
+  );
+
+  const groups: Map<string, Friend[]> = new Map();
+
+  for (const friend of sorted) {
+    const firstChar = (friend.username || "#").charAt(0).toUpperCase();
+    const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
+    if (!groups.has(letter)) {
+      groups.set(letter, []);
+    }
+    groups.get(letter)!.push(friend);
+  }
+
+  const result = Array.from(groups.entries()).map(([letter, items]) => ({
+    letter,
+    items,
+  }));
+
+  result.sort((a, b) => {
+    if (a.letter === "#") return 1;
+    if (b.letter === "#") return -1;
+    return a.letter.localeCompare(b.letter);
+  });
+
+  return result;
+});
+
+const alphabetIndex = computed(() => {
+  return groupedFriends.value.map((g) => g.letter);
+});
+
+const scrollToLetter = (letter: string) => {
+  activeLetter.value = letter;
+  const el = document.getElementById(`friend-group-${letter}`);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  setTimeout(() => {
+    activeLetter.value = "";
+  }, 800);
+};
+
+const handleLetterTouchStart = (e: TouchEvent) => {
+  const touch = e.touches[0];
+  updateLetterFromTouch(touch);
+};
+
+const handleLetterTouchMove = (e: TouchEvent) => {
+  const touch = e.touches[0];
+  updateLetterFromTouch(touch);
+};
+
+const updateLetterFromTouch = (touch: Touch) => {
+  const target = document.elementFromPoint(touch.clientX, touch.clientY);
+  if (target) {
+    const letter = (target as HTMLElement).textContent?.trim();
+    if (letter && alphabetIndex.value.includes(letter)) {
+      scrollToLetter(letter);
+    }
+  }
+};
 
 const processedMsgMap = new Map<string, number>();
 let cleanUpTimer: any = null;
@@ -503,15 +626,46 @@ const acceptFriendRequest = (requestId: number) => {
   }
 };
 
-const loadFriendRequests = async () => {
+const loadFriendRequests = async (append = false) => {
   try {
-    const response = await getFriendRequestPage();
+    if (append) {
+      requestLoadingMore.value = true;
+    }
+    const response = await getFriendRequestPage({
+      pageSize: 20,
+      lastId: append ? requestLastId.value : "",
+      lastCreateTime: append ? requestLastCreateTime.value : "",
+    });
     if (response.code === 200) {
-      const list = response.data?.records || response.data?.list || response.data || [];
-      friendRequests.value = Array.isArray(list) ? list : [];
+      const list =
+        response.data?.records || response.data?.list || response.data || [];
+      const items = Array.isArray(list) ? list : [];
+
+      if (append) {
+        friendRequests.value = [...friendRequests.value, ...items];
+      } else {
+        friendRequests.value = items;
+      }
+
+      if (items.length > 0) {
+        const lastItem = items[items.length - 1];
+        requestLastId.value = lastItem.requestId || lastItem.id || "";
+        requestLastCreateTime.value = lastItem.createTime || "";
+        requestHasMore.value = items.length >= 20;
+      } else {
+        requestHasMore.value = false;
+      }
     }
   } catch (error) {
     console.error("获取好友请求列表失败:", error);
+  } finally {
+    requestLoadingMore.value = false;
+  }
+};
+
+const loadMoreFriendRequests = () => {
+  if (!requestLoadingMore.value && requestHasMore.value) {
+    loadFriendRequests(true);
   }
 };
 
@@ -519,7 +673,8 @@ const loadFriendList = async () => {
   try {
     const response = await getFriendPage();
     if (response.code === 200) {
-      const list = response.data?.records || response.data?.list || response.data || [];
+      const list =
+        response.data?.records || response.data?.list || response.data || [];
       friendList.value = Array.isArray(list) ? list : [];
     }
   } catch (error) {
@@ -630,6 +785,7 @@ const handleFriendMessage = (payload: any) => {
       fromAvatar: payload.fromAvatar,
       msg: payload.msg,
       status: "pending",
+      createTime: payload.createTime || new Date().toISOString(),
     };
     friendRequests.value.unshift(request);
     ElNotification({
@@ -746,6 +902,9 @@ const toggleRobotDialog = () => {
     if (showRobotDialog.value) {
       unreadCount.value = 0;
       userUnreadCounts.value.clear();
+      requestLastId.value = "";
+      requestLastCreateTime.value = "";
+      requestHasMore.value = true;
       loadFriendRequests();
       loadFriendList();
       if (lastMessageUser.value && !selectedUser.value) {
@@ -836,7 +995,7 @@ onBeforeUnmount(() => {
 .user-item {
   display: flex;
   align-items: center;
-  padding: 10px;
+  padding: 8px 10px;
   cursor: pointer;
   border-bottom: 1px solid #f0f0f0;
   transition: background 0.2s;
@@ -874,7 +1033,6 @@ onBeforeUnmount(() => {
   margin-left: 6px;
 }
 
-/* 折叠按钮 */
 .request-toggle {
   display: flex;
   align-items: center;
@@ -910,7 +1068,6 @@ onBeforeUnmount(() => {
   color: #c0c4cc;
 }
 
-/* 好友请求列表 */
 .request-section {
   border-bottom: 1px solid #ebeef5;
 }
@@ -944,7 +1101,19 @@ onBeforeUnmount(() => {
   color: #909399;
 }
 
-/* 好友列表分区 */
+.load-more {
+  text-align: center;
+  padding: 12px;
+  font-size: 12px;
+  color: #409eff;
+  cursor: pointer;
+  transition: background 0.2s;
+  border-top: 1px solid #f0f0f0;
+}
+.load-more:hover {
+  background: #ecf5ff;
+}
+
 .friend-section {
   margin-top: 0;
 }
@@ -955,6 +1124,62 @@ onBeforeUnmount(() => {
   font-weight: 500;
   background: #fafafa;
   border-bottom: 1px solid #ebeef5;
+}
+
+/* 字母索引布局 */
+.friend-index-layout {
+  position: relative;
+}
+
+.friend-groups {
+  padding-right: 24px;
+}
+
+.group-block {
+  /* 分组容器 */
+}
+.group-letter {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #909399;
+  background: #f5f7fa;
+  border-bottom: 1px solid #ebeef5;
+  line-height: 20px;
+}
+
+/* 右侧字母索引栏 */
+.letter-index-bar {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 10;
+  padding: 4px 0;
+}
+.letter-index-item {
+  width: 18px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #409eff;
+  cursor: pointer;
+  border-radius: 2px;
+  user-select: none;
+  transition: all 0.15s;
+}
+.letter-index-item:hover,
+.letter-index-item.active {
+  background: #409eff;
+  color: #fff;
+  font-weight: 600;
+  transform: scale(1.2);
 }
 
 .empty-tip {

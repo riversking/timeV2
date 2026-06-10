@@ -17,6 +17,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Component
 @Slf4j
@@ -75,10 +76,6 @@ public class FriendTopicHandler implements TopicHandler {
      * 发送好友请求 —— 写扩散模型
      * 创建两条记录（发送方 + 接收方），用 relation_id 绑定，一条 SQL 即可双向同步状态
      */
-    /**
-     * 发送好友请求 —— 写扩散模型
-     * 创建两条记录（发送方 + 接收方），用 relation_id 绑定，一条 SQL 即可双向同步状态
-     */
     private Mono<Void> handleRequest(String userId, JsonNode payload) {
         String targetUserId = payload.path("to").asString("");
         if (targetUserId.isEmpty()) {
@@ -91,48 +88,51 @@ public class FriendTopicHandler implements TopicHandler {
         }
         String msg = payload.path("msg").asString("");
         return friendRequestMapper
-                .findByUserIdAndOpponentId(userId, targetUserId)
-                .flatMap(existing -> {
+                .selectByUserIdAndOpponentId(userId, targetUserId)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(optional -> {
+                    if (optional.isEmpty()) {
+                        long relationId = snowflakeIdGenerator.nextId();
+                        TimerFriendRequest senderRecord = TimerFriendRequest.builder()
+                                .userId(userId)
+                                .opponentId(targetUserId)
+                                .direction(TimerFriendRequest.Direction.SENT.getCode())
+                                .status(TimerFriendRequest.Status.PENDING.getCode())
+                                .message(msg)
+                                .relationId(relationId)
+                                .createUser(userId)
+                                .updateUser(userId)
+                                .build();
+                        TimerFriendRequest receiverRecord = TimerFriendRequest.builder()
+                                .userId(targetUserId)
+                                .opponentId(userId)
+                                .direction(TimerFriendRequest.Direction.RECEIVED.getCode())
+                                .status(TimerFriendRequest.Status.PENDING.getCode())
+                                .message(msg)
+                                .relationId(relationId)
+                                .createUser(userId)
+                                .updateUser(userId)
+                                .build();
+                        return Mono.zip(
+                                        friendRequestMapper.save(senderRecord),
+                                        friendRequestMapper.save(receiverRecord)
+                                )
+                                .flatMap(tuple ->
+                                        saveAndPush(targetUserId, "friend_request", userId, tuple.getT2().getId()));
+                    }
+                    TimerFriendRequest existing = optional.get();
                     if (existing.getStatus() == TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 已存在待处理请求，更新更新时间: {} <-> {}", userId, targetUserId);
                         return friendRequestMapper
                                 .updateTimeByRelationId(existing.getRelationId(), LocalDateTime.now())
-                                .then(friendRequestMapper.findByRelationIdAndUserId(existing.getRelationId(), targetUserId))
+                                .then(friendRequestMapper.selectByRelationIdAndUserId(existing.getRelationId(), targetUserId))
                                 .flatMap(receiverRecord ->
                                         saveAndPush(targetUserId, "friend_request", userId, receiverRecord.getId()));
                     }
                     log.info("👥 [Friend] 请求已处理，无需重复操作: {} <-> {}", userId, targetUserId);
                     return Mono.empty();
                 })
-                .switchIfEmpty(Mono.defer(() -> {
-                    long relationId = snowflakeIdGenerator.nextId();
-                    TimerFriendRequest senderRecord = TimerFriendRequest.builder()
-                            .userId(userId)
-                            .opponentId(targetUserId)
-                            .direction(TimerFriendRequest.Direction.SENT.getCode())
-                            .status(TimerFriendRequest.Status.PENDING.getCode())
-                            .message(msg)
-                            .relationId(relationId)
-                            .createUser(userId)
-                            .updateUser(userId)
-                            .build();
-                    TimerFriendRequest receiverRecord = TimerFriendRequest.builder()
-                            .userId(targetUserId)
-                            .opponentId(userId)
-                            .direction(TimerFriendRequest.Direction.RECEIVED.getCode())
-                            .status(TimerFriendRequest.Status.PENDING.getCode())
-                            .message(msg)
-                            .relationId(relationId)
-                            .createUser(userId)
-                            .updateUser(userId)
-                            .build();
-                    return Mono.zip(
-                                    friendRequestMapper.save(senderRecord),
-                                    friendRequestMapper.save(receiverRecord)
-                            )
-                            .flatMap(tuple ->
-                                    saveAndPush(targetUserId, "friend_request", userId, tuple.getT2().getId()));
-                }))
                 .doOnError(e -> log.error("❌ [Friend] 发送好友请求失败: {} -> {}", userId, targetUserId, e))
                 .onErrorResume(e -> Mono.empty());
     }

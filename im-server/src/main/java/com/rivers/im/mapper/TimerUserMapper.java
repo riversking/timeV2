@@ -12,7 +12,7 @@ public interface TimerUserMapper extends ReactiveCrudRepository<TimerUser, Long>
 
     @Query("SELECT user_id, username,avatar " +
             "FROM timer_user " +
-            "WHERE user_id IN :userIds")
+            "WHERE user_id IN (:userIds) AND is_deleted = 0")
     Flux<TimerUser> selectByUserIds(List<String> userIds);
 
 }
