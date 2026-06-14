@@ -80,6 +80,7 @@ public class FriendServiceImpl implements IFriendService {
                                                         .build();
                                             }
                                             return FriendRequestRes.newBuilder()
+                                                    .setRequestId(f.getId())
                                                     .setFriendId(user.getUserId())
                                                     .setFriendName(user.getUsername())
                                                     .setFriendAvatar(user.getAvatar())
@@ -92,7 +93,7 @@ public class FriendServiceImpl implements IFriendService {
                                                                     .of(f.getDirection()))
                                                             .map(TimerFriendRequest.Direction::getDesc)
                                                             .orElse(""))
-                                                    .setUpdateTime(f.getCreateTime()
+                                                    .setUpdateTime(f.getUpdateTime()
                                                             .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
                                                     .build();
                                         })

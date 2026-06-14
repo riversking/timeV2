@@ -9,7 +9,7 @@ import reactor.core.publisher.Flux;
 public interface TimerFriendMapper extends ReactiveCrudRepository<TimerFriend, Long> {
 
 
-    @Query("SELECT id, user_id, friend_id " +
+    @Query("SELECT id, user_id, friend_id,remark " +
             "FROM timer_friend " +
             "WHERE user_id = :userId " +
             "  AND is_deleted = 0")

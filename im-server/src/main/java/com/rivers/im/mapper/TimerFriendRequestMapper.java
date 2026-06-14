@@ -14,7 +14,7 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
     /**
      * 根据 relationId 批量更新状态（一条 SQL 同时更新发送方和接收方的记录）
      */
-    @Query("UPDATE timer_friend_request SET status = :status AND update_user = :userId" +
+    @Query("UPDATE timer_friend_request SET status = :status, update_user = :userId " +
             "WHERE relation_id = :relationId AND is_deleted = 0")
     Mono<Integer> updateStatusByRelationId(
             @Param("relationId") Long relationId,
@@ -33,7 +33,7 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
 
 
     @Query("""
-            SELECT user_id,opponent_id,direction,status,message,update_time\s
+            SELECT id,user_id,opponent_id,direction,status,message,update_time\s
              FROM timer_friend_request
             WHERE user_id = :userId\s
               AND is_deleted = 0

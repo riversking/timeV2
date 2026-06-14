@@ -44,7 +44,7 @@
 
           <div v-for="user in userList" :key="user.userId" class="user-item">
             <div class="user-info">
-              <el-avatar size="medium" :src="user.avatar">
+              <el-avatar size="small" :src="user.avatar">
                 {{ user.username?.charAt(0) }}
               </el-avatar>
               <div class="user-detail">
@@ -89,7 +89,7 @@ interface User {
 
 const props = defineProps<{
   modelValue: boolean;
-  friendList: Array<{ userId: string }>;
+  friendList: Array<{ friendId: string }>;
 }>();
 
 const emit = defineEmits<{
@@ -181,7 +181,7 @@ const handleAddFriend = async (user: User) => {
 };
 
 const isFriend = (userId: string) => {
-  return props.friendList.some((friend) => friend.userId === userId);
+  return props.friendList.some((friend) => friend.friendId === userId);
 };
 
 const handleClose = () => {

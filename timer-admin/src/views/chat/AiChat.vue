@@ -44,7 +44,7 @@
                 :key="item.userId"
                 :class="[
                   'user-item',
-                  { active: selectedUser?.userId === item.userId },
+                  { active: selectedUser?.friendId === item.userId },
                 ]"
                 @click="selectChatHistoryUser(item.userId)"
               >
@@ -107,29 +107,31 @@
                     class="toggle-badge"
                   />
                 </div>
-                <span class="toggle-count">共 {{ friendRequests.length }} 条</span>
+                <span class="toggle-count"
+                  >共 {{ friendRequests.length }} 条</span
+                >
               </div>
 
               <!-- 好友请求列表（可折叠） -->
               <div v-show="showRequestList" class="request-section">
                 <div
                   v-for="request in friendRequests"
-                  :key="request.requestId"
+                  :key="request.requestId || request.friendId"
                   class="request-item"
                 >
                   <div class="request-info">
-                    <el-avatar size="small" :src="request.fromAvatar">
-                      {{ request.fromUsername?.charAt(0) }}
+                    <el-avatar size="small" :src="request.friendAvatar">
+                      {{ request.friendName?.charAt(0) }}
                     </el-avatar>
                     <div class="request-detail">
                       <div class="request-username">
-                        {{ request.fromUsername }}
+                        {{ request.friendName }}
                       </div>
-                      <div class="request-msg">{{ request.msg }}</div>
+                      <div class="request-msg">{{ request.remark }}</div>
                     </div>
                   </div>
                   <el-button
-                    v-if="request.status === 'pending'"
+                    v-if="request.status === '待处理'"
                     type="primary"
                     size="small"
                     :loading="acceptingRequestId === request.requestId"
@@ -138,18 +140,25 @@
                     同意
                   </el-button>
                   <el-tag
-                    v-else-if="request.status === 'accepted'"
+                    v-else-if="request.status === '已同意'"
                     type="success"
                     size="small"
                   >
                     已添加
                   </el-tag>
                   <el-tag
-                    v-else-if="request.status === 'rejected'"
+                    v-else-if="request.status === '已拒绝'"
                     type="info"
                     size="small"
                   >
                     已拒绝
+                  </el-tag>
+                  <el-tag
+                    v-else-if="request.status === '等待中'"
+                    type="warning"
+                    size="small"
+                  >
+                    等待中
                   </el-tag>
                 </div>
 
@@ -180,7 +189,6 @@
                 </div>
 
                 <div v-else class="friend-index-layout">
-                  <!-- 分组好友列表 -->
                   <div class="friend-groups">
                     <div
                       v-for="group in groupedFriends"
@@ -191,32 +199,26 @@
                       <div class="group-letter">{{ group.letter }}</div>
                       <div
                         v-for="friend in group.items"
-                        :key="friend.userId"
+                        :key="friend.friendId"
                         :class="[
                           'user-item',
-                          { active: selectedUser?.userId === friend.userId },
+                          { active: selectedUser?.friendId === friend.friendId },
                         ]"
                         @click="selectUser(friend)"
                       >
-                        <el-avatar size="small" :src="friend.avatar">{{
-                          friend.username?.charAt(0)
+                        <el-avatar size="small" :src="friend.friendAvatar">{{
+                          friend.friendName?.charAt(0)
                         }}</el-avatar>
                         <div class="friend-info">
-                          <div>{{ friend.username }}</div>
+                          <div>{{ friend.friendName }}</div>
                           <div v-if="friend.remark" class="remark">
                             {{ friend.remark }}
                           </div>
                         </div>
-                        <el-badge
-                          is-dot
-                          :hidden="friend.isActive !== '1'"
-                          class="status-badge"
-                        />
                       </div>
                     </div>
                   </div>
 
-                  <!-- 右侧字母索引栏 -->
                   <div
                     class="letter-index-bar"
                     @touchstart.prevent="handleLetterTouchStart"
@@ -246,7 +248,7 @@
       <div class="right-panel">
         <div class="chat-header">
           <span v-if="selectedUser"
-            >与 <b>{{ selectedUser.username }}</b> 聊天中</span
+            >与 <b>{{ selectedUser.friendName }}</b> 聊天中</span
           >
           <span v-else style="color: #909399">请选择一个用户开始聊天</span>
           <el-tag v-if="isConnected" type="success" size="small" effect="plain"
@@ -265,12 +267,12 @@
             :class="msg.type"
           >
             <div v-if="msg.type === 'user'" class="msg-content user-msg">
-              <span class="msg-text">{{ msg.content }}</span>
               <el-avatar size="small" style="background: #409eff">我</el-avatar>
+              <span class="msg-text">{{ msg.content }}</span>
             </div>
             <div v-else class="msg-content ai-msg">
-              <el-avatar size="small" :src="selectedUser?.avatar">{{
-                selectedUser?.username?.charAt(0) || "AI"
+              <el-avatar size="small" :src="selectedUser?.friendAvatar">{{
+                selectedUser?.friendName?.charAt(0) || "AI"
               }}</el-avatar>
               <span class="msg-text">{{ msg.content }}</span>
             </div>
@@ -312,14 +314,20 @@ import {
   watch,
   computed,
 } from "vue";
-import { ChatDotRound, Plus, ArrowRight, Loading } from "@element-plus/icons-vue";
+import {
+  ChatDotRound,
+  Plus,
+  ArrowRight,
+  Loading,
+} from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage } from "element-plus";
-import { getUserActivePage } from "@/api/user";
 import { getFriendRequestPage, getFriendPage } from "@/api/im";
+import { useUserStore } from "@/store/user";
 import AddFriendModal from "./AddFriendModal.vue";
 
 const WS_URL = "/websocket/im-server/ws";
+const userStore = useUserStore();
 
 const {
   messages: wsMessages,
@@ -329,15 +337,14 @@ const {
   connect: connectWs,
 } = useWebSocket(WS_URL);
 
-interface User {
-  userId: string;
-  username: string;
-  avatar?: string;
-  isActive: string;
-}
-
-interface Friend extends User {
+interface Friend {
+  requestId: number;
+  friendId: string;
+  friendName: string;
+  friendAvatar?: string;
+  status: string;
   remark?: string;
+  updateTime?: string;
 }
 
 interface ChatMessage {
@@ -346,19 +353,9 @@ interface ChatMessage {
   content: string;
 }
 
-interface FriendRequest {
-  requestId: number;
-  from: string;
-  fromUsername: string;
-  fromAvatar?: string;
-  msg: string;
-  status?: "pending" | "accepted" | "rejected";
-  createTime?: string;
-}
-
-const onlineUsers = ref<User[]>([]);
+const onlineUsers = ref<Friend[]>([]);
 const friendList = ref<Friend[]>([]);
-const selectedUser = ref<User | null>(null);
+const selectedUser = ref<Friend | null>(null);
 const activeTab = ref("chat");
 
 const showRobotDialog = ref(false);
@@ -366,13 +363,13 @@ const userMessage = ref("");
 const chatMessages = ref<ChatMessage[]>([]);
 const unreadCount = ref(0);
 const messageCache = ref<Map<string, ChatMessage[]>>(new Map());
-const lastMessageUser = ref<User | null>(null);
+const lastMessageUser = ref<Friend | null>(null);
 const userUnreadCounts = ref<Map<string, number>>(new Map());
 const chatHistoryUserIds = ref<string[]>([]);
 
 const showAddFriendDialog = ref(false);
 const addingFriend = ref(false);
-const friendRequests = ref<FriendRequest[]>([]);
+const friendRequests = ref<Friend[]>([]);
 const acceptingRequestId = ref<number | null>(null);
 const showRequestList = ref(false);
 
@@ -391,18 +388,11 @@ const isDragging = ref(false);
 const hasMoved = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
 
-const currentPage = ref(1);
-const pageSize = ref(15);
-const total = ref(0);
-const loading = ref(false);
-const loadingMore = ref(false);
-const hasMore = ref(true);
-
 const isSubscribed = ref(false);
 const currentUserId = ref("");
 
 const pendingRequestCount = computed(() => {
-  return friendRequests.value.filter((r) => r.status === "pending").length;
+  return friendRequests.value.filter((r) => r.status === "待处理").length;
 });
 
 const chatHistoryList = computed(() => {
@@ -412,12 +402,12 @@ const chatHistoryList = computed(() => {
       if (!msgs || msgs.length === 0) return null;
       const lastMsg = msgs[msgs.length - 1];
       const user =
-        onlineUsers.value.find((u) => u.userId === userId) ||
-        friendList.value.find((f) => f.userId === userId);
+        onlineUsers.value.find((u) => u.friendId === userId) ||
+        friendList.value.find((f) => f.friendId === userId);
       return {
         userId,
-        username: user?.username || "未知用户",
-        avatar: user?.avatar,
+        username: user?.friendName || "未知用户",
+        avatar: user?.friendAvatar,
         lastMessage: lastMsg.content,
         unreadCount: userUnreadCounts.value.get(userId) || 0,
       };
@@ -433,13 +423,13 @@ const chatHistoryList = computed(() => {
 
 const groupedFriends = computed(() => {
   const sorted = [...friendList.value].sort((a, b) =>
-    (a.username || "").localeCompare(b.username || "", "zh-CN"),
+    (a.friendName || "").localeCompare(b.friendName || "", "zh-CN"),
   );
 
   const groups: Map<string, Friend[]> = new Map();
 
   for (const friend of sorted) {
-    const firstChar = (friend.username || "#").charAt(0).toUpperCase();
+    const firstChar = (friend.friendName || "#").charAt(0).toUpperCase();
     const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
     if (!groups.has(letter)) {
       groups.set(letter, []);
@@ -507,10 +497,10 @@ const generateMsgFingerprint = (payload: any): string => {
   return `hash_${payload.from}_${payload.content}_${secondTimestamp}`;
 };
 
-const selectUser = (user: User) => {
+const selectUser = (user: Friend) => {
   selectedUser.value = user;
-  userUnreadCounts.value.set(user.userId, 0);
-  const cached = messageCache.value.get(user.userId);
+  userUnreadCounts.value.set(user.friendId, 0);
+  const cached = messageCache.value.get(user.friendId);
   chatMessages.value = cached ? [...cached] : [];
   nextTick(scrollToBottom);
 };
@@ -518,8 +508,8 @@ const selectUser = (user: User) => {
 const selectChatHistoryUser = (userId: string) => {
   userUnreadCounts.value.set(userId, 0);
   const user =
-    onlineUsers.value.find((u) => u.userId === userId) ||
-    friendList.value.find((f) => f.userId === userId);
+    onlineUsers.value.find((u) => u.friendId === userId) ||
+    friendList.value.find((f) => f.friendId === userId);
   if (user) {
     selectUser(user);
   }
@@ -536,25 +526,11 @@ const updateUserStatus = (userId: string, isActive: string) => {
   updateList(friendList.value);
 };
 
-const batchUpdateUserStatus = (
-  statusList: Array<{ userId: string; isActive: string }>,
-) => {
-  const statusMap = new Map(
-    statusList.map((item) => [item.userId, item.isActive]),
-  );
-  onlineUsers.value.forEach((u) => {
-    if (statusMap.has(u.userId)) u.isActive = statusMap.get(u.userId)!;
-  });
-  friendList.value.forEach((f) => {
-    if (statusMap.has(f.userId)) f.isActive = statusMap.get(f.userId)!;
-  });
-};
-
 const subscribeUserStatus = () => {
   if (!isConnected.value || isSubscribed.value) return;
   const targetUserIds = [
-    ...onlineUsers.value.map((u) => u.userId),
-    ...friendList.value.map((f) => f.userId),
+    ...onlineUsers.value.map((u) => u.friendId),
+    ...friendList.value.map((f) => f.friendId),
   ];
   if (targetUserIds.length === 0) return;
   sendWsMessage("status", {
@@ -572,19 +548,18 @@ const sendMessage = () => {
   chatMessages.value.push(userMsg);
   processedMsgMap.set(msgId, Date.now());
 
-  if (!messageCache.value.has(selectedUser.value.userId)) {
-    messageCache.value.set(selectedUser.value.userId, []);
+  if (!messageCache.value.has(selectedUser.value.friendId)) {
+    messageCache.value.set(selectedUser.value.friendId, []);
   }
-  messageCache.value.get(selectedUser.value.userId)!.push(userMsg);
+  messageCache.value.get(selectedUser.value.friendId)!.push(userMsg);
 
-  if (!chatHistoryUserIds.value.includes(selectedUser.value.userId)) {
-    chatHistoryUserIds.value.unshift(selectedUser.value.userId);
+  if (!chatHistoryUserIds.value.includes(selectedUser.value.friendId)) {
+    chatHistoryUserIds.value.unshift(selectedUser.value.friendId);
   }
-
   scrollToBottom();
   sendWsMessage("chat", {
     msgId: msgId,
-    to: selectedUser.value.userId,
+    to: selectedUser.value.friendId,
     content: content,
   });
   userMessage.value = "";
@@ -598,6 +573,15 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
       to: formData.userId,
       msg: formData.remark,
     });
+    const localRequest: Friend = {
+      requestId: 0,
+      friendId: formData.userId,
+      friendName: formData.userId,
+      friendAvatar: "",
+      status: "等待中",
+      remark: formData.remark,
+    };
+    friendRequests.value.unshift(localRequest);
     ElMessage.success("好友请求已发送");
     showAddFriendDialog.value = false;
   } catch (error) {
@@ -607,7 +591,7 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
   }
 };
 
-const acceptFriendRequest = (requestId: number) => {
+const acceptFriendRequest = async (requestId: number) => {
   acceptingRequestId.value = requestId;
   try {
     sendWsMessage("friend", {
@@ -616,8 +600,12 @@ const acceptFriendRequest = (requestId: number) => {
     });
     const request = friendRequests.value.find((r) => r.requestId === requestId);
     if (request) {
-      request.status = "accepted";
+      request.status = "已同意";
     }
+    ElMessage.success("已同意好友请求");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await loadFriendList();
+    await loadFriendRequests();
   } catch (error) {
     console.error("同意好友请求失败:", error);
     ElMessage.error("操作失败");
@@ -633,16 +621,22 @@ const loadFriendRequests = async (append = false) => {
     }
     const response = await getFriendRequestPage({
       pageSize: 20,
-      lastId: append ? requestLastId.value : "",
+      lastId: append ? requestLastId.value : 0,
       lastCreateTime: append ? requestLastCreateTime.value : "",
     });
     if (response.code === 200) {
       const list =
-        response.data?.records || response.data?.list || response.data || [];
+        response.data?.friendRequests ||
+        response.data?.list ||
+        response.data ||
+        [];
       const items = Array.isArray(list) ? list : [];
-
       if (append) {
-        friendRequests.value = [...friendRequests.value, ...items];
+        const existingIds = new Set(friendRequests.value.map((r) => r.requestId));
+        const newItems = items.filter(
+          (item: Friend) => !existingIds.has(item.requestId),
+        );
+        friendRequests.value = [...friendRequests.value, ...newItems];
       } else {
         friendRequests.value = items;
       }
@@ -674,7 +668,7 @@ const loadFriendList = async () => {
     const response = await getFriendPage();
     if (response.code === 200) {
       const list =
-        response.data?.records || response.data?.list || response.data || [];
+        response.data?.friendList || response.data?.list || response.data || [];
       friendList.value = Array.isArray(list) ? list : [];
     }
   } catch (error) {
@@ -707,15 +701,14 @@ const handleChatMessage = (payload: any) => {
   }
   const fingerprint = generateMsgFingerprint(payload);
   if (processedMsgMap.has(fingerprint)) {
-    console.warn("拦截到重复消息:", fingerprint);
     return;
   }
   processedMsgMap.set(fingerprint, Date.now());
   const targetUserId = payload.from;
   const targetUser =
-    onlineUsers.value.find((u) => u.userId === targetUserId) ||
-    friendList.value.find((f) => f.userId === targetUserId);
-  if (!showRobotDialog.value || selectedUser.value?.userId !== payload.from) {
+    onlineUsers.value.find((u) => u.friendId === targetUserId) ||
+    friendList.value.find((f) => f.friendId === targetUserId);
+  if (!showRobotDialog.value || selectedUser.value?.friendId !== payload.from) {
     unreadCount.value++;
     userUnreadCounts.value.set(
       targetUserId,
@@ -725,7 +718,7 @@ const handleChatMessage = (payload: any) => {
       lastMessageUser.value = targetUser;
     }
     ElNotification({
-      title: targetUser?.username || "新消息",
+      title: targetUser?.friendName || "新消息",
       message: payload.content,
       type: "info",
       duration: 3000,
@@ -747,30 +740,15 @@ const handleChatMessage = (payload: any) => {
     chatHistoryUserIds.value.unshift(targetUserId);
   }
 
-  if (selectedUser.value && selectedUser.value.userId === targetUserId) {
+  if (selectedUser.value && selectedUser.value.friendId === targetUserId) {
     chatMessages.value.push(newMessage);
     scrollToBottom();
-  }
-
-  if (targetUser) {
-    const idx = onlineUsers.value.findIndex(
-      (u) => u.userId === targetUser.userId,
-    );
-    if (idx > 0) {
-      onlineUsers.value.splice(idx, 1);
-      onlineUsers.value.unshift(targetUser);
-    }
   }
 };
 
 const handleStatusMessage = (payload: any) => {
   if (payload.action === "update" && payload.userId) {
     updateUserStatus(payload.userId, payload.isActive);
-  } else if (
-    payload.action === "batch_update" &&
-    Array.isArray(payload.statusList)
-  ) {
-    batchUpdateUserStatus(payload.statusList);
   } else if (payload.action === "subscribe_success") {
     isSubscribed.value = true;
   }
@@ -778,16 +756,21 @@ const handleStatusMessage = (payload: any) => {
 
 const handleFriendMessage = (payload: any) => {
   if (payload.action === "friend_request") {
-    const request: FriendRequest = {
+    const request: Friend = {
       requestId: payload.requestId,
-      from: payload.from,
-      fromUsername: payload.fromUsername,
-      fromAvatar: payload.fromAvatar,
-      msg: payload.msg,
-      status: "pending",
-      createTime: payload.createTime || new Date().toISOString(),
+      friendId: payload.from,
+      friendName: payload.fromUsername || "",
+      friendAvatar: payload.fromAvatar,
+      remark: payload.msg,
+      status: "待处理",
+      updateTime: payload.createTime || new Date().toISOString(),
     };
-    friendRequests.value.unshift(request);
+    const exists = friendRequests.value.some(
+      (r) => r.requestId === request.requestId,
+    );
+    if (!exists) {
+      friendRequests.value.unshift(request);
+    }
     ElNotification({
       title: "好友请求",
       message: `${payload.fromUsername || payload.from} 请求添加你为好友`,
@@ -795,61 +778,24 @@ const handleFriendMessage = (payload: any) => {
       duration: 5000,
       position: "top-right",
     });
-  } else if (payload.action === "accept_response") {
-    if (payload.success) {
-      ElMessage.success("已添加为好友");
-      if (payload.friend) {
-        const exists = friendList.value.some(
-          (f) => f.userId === payload.friend.userId,
-        );
-        if (!exists) {
-          friendList.value.unshift(payload.friend);
-        }
-      }
-    } else {
-      ElMessage.error(payload.message || "操作失败");
+  } else if (payload.action === "friend_accept") {
+    const matched = friendRequests.value.find(
+      (r) => r.requestId === payload.requestId,
+    );
+    if (matched) {
+      matched.status = "已同意";
     }
-  }
-};
-
-const loadUserList = async (page: number) => {
-  try {
-    if (page === 1) {
-      loading.value = true;
+    ElMessage.success("对方已同意你的好友请求");
+    loadFriendList();
+  } else if (payload.action === "friend_reject") {
+    const matched = friendRequests.value.find(
+      (r) => r.requestId === payload.requestId,
+    );
+    if (matched) {
+      matched.status = "已拒绝";
     }
-    const response = await getUserActivePage({
-      currentPage: page,
-      pageSize: pageSize.value,
-    });
-    if (response.code === 200) {
-      const users = response.data.users || [];
-      if (page === 1) onlineUsers.value = users;
-      else onlineUsers.value = [...onlineUsers.value, ...users];
-
-      total.value = response.data.total || 0;
-      hasMore.value = onlineUsers.value.length < total.value;
-
-      if (page === 1) nextTick(subscribeUserStatus);
-    }
-  } catch (error) {
-    ElMessage.error("获取用户数据失败");
-  } finally {
-    loading.value = false;
-    loadingMore.value = false;
+    ElMessage.info("对方已拒绝你的好友请求");
   }
-};
-
-const loadMoreUsers = () => {
-  if (!loadingMore.value && hasMore.value) {
-    loadingMore.value = true;
-    currentPage.value++;
-    loadUserList(currentPage.value);
-  }
-};
-
-const handleChatListScroll = (event: any) => {
-  const { scrollTop, clientHeight, scrollHeight } = event.target;
-  if (scrollTop + clientHeight >= scrollHeight - 20) loadMoreUsers();
 };
 
 const scrollToBottom = () => {
@@ -873,9 +819,7 @@ const startDrag = (e: MouseEvent) => {
 };
 
 const handleDrag = (e: MouseEvent) => {
-  if (!isDragging.value) {
-    return;
-  }
+  if (!isDragging.value) return;
   hasMoved.value = true;
   const newRight = window.innerWidth - e.clientX - (60 - dragOffset.value.x);
   const newBottom = window.innerHeight - e.clientY - (60 - dragOffset.value.y);
@@ -910,7 +854,7 @@ const toggleRobotDialog = () => {
       if (lastMessageUser.value && !selectedUser.value) {
         selectUser(lastMessageUser.value);
       } else if (selectedUser.value) {
-        const cached = messageCache.value.get(selectedUser.value.userId);
+        const cached = messageCache.value.get(selectedUser.value.friendId);
         chatMessages.value = cached ? [...cached] : [];
         nextTick(scrollToBottom);
       }
@@ -924,12 +868,15 @@ const handleDialogClose = () => {
 };
 
 onMounted(() => {
-  try {
-    currentUserId.value =
-      JSON.parse(localStorage.getItem("user") || "{}").userId || "";
-  } catch (e) {
-    currentUserId.value = "";
-  }
+  currentUserId.value =
+    userStore.userInfo?.userId ||
+    (() => {
+      try {
+        return JSON.parse(localStorage.getItem("user") || "{}").userId || "";
+      } catch {
+        return "";
+      }
+    })();
   const savedPosition = localStorage.getItem("robotPosition");
   if (savedPosition) {
     try {
@@ -937,7 +884,6 @@ onMounted(() => {
     } catch (e) {}
   }
   connectWs();
-  loadUserList(1);
   cleanUpTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, time] of processedMsgMap.entries()) {
@@ -1006,13 +952,6 @@ onBeforeUnmount(() => {
 .user-item.active {
   background: #ecf5ff;
   border-left: 3px solid #409eff;
-}
-.username {
-  margin-left: 10px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .friend-info {
   margin-left: 10px;
@@ -1126,17 +1065,12 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid #ebeef5;
 }
 
-/* 字母索引布局 */
 .friend-index-layout {
   position: relative;
 }
 
 .friend-groups {
   padding-right: 24px;
-}
-
-.group-block {
-  /* 分组容器 */
 }
 .group-letter {
   padding: 4px 12px;
@@ -1148,7 +1082,6 @@ onBeforeUnmount(() => {
   line-height: 20px;
 }
 
-/* 右侧字母索引栏 */
 .letter-index-bar {
   position: absolute;
   right: 2px;

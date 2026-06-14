@@ -66,13 +66,14 @@ message CreateTicketRes {
 }
 
 message FriendRequestRes {
-    string friendId = 1;
-    string friendName = 2;
-    string friendAvatar = 3;
-    string remark = 4;
-    string status = 5;
-    string updateTime = 6;
-    string direction = 7;
+    int64 requestId = 1;
+    string friendId = 2;
+    string friendName = 3;
+    string friendAvatar = 4;
+    string remark = 5;
+    string status = 6;
+    string updateTime = 7;
+    string direction = 8;
 }
 
 message FriendRequestPageReq {
