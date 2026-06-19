@@ -1,4 +1,4 @@
-package com.rivers.im.router;
+package com.rivers.im.router.handler;
 
 import com.rivers.im.entity.TimerFriend;
 import com.rivers.im.entity.TimerFriendRequest;
@@ -6,6 +6,7 @@ import com.rivers.im.entity.TimerMessage;
 import com.rivers.im.mapper.TimerFriendMapper;
 import com.rivers.im.mapper.TimerFriendRequestMapper;
 import com.rivers.im.mapper.TimerMessageMapper;
+import com.rivers.im.router.TopicHandler;
 import com.rivers.im.service.IWebSocketPushService;
 import com.rivers.im.util.SnowflakeIdGenerator;
 import lombok.extern.slf4j.Slf4j;
@@ -32,26 +33,24 @@ public class FriendTopicHandler implements TopicHandler {
      */
     private static final int MSG_TYPE_NOTIFY = 6;
 
-    private final TimerFriendRequestMapper friendRequestMapper;
-    private final TimerFriendMapper friendMapper;
-    private final TimerMessageMapper messageMapper;
-    private final IWebSocketPushService pushService;
+    private final TimerFriendRequestMapper timerFriendRequestMapper;
+    private final TimerFriendMapper timerFriendMapper;
+    private final TimerMessageMapper timerMessageMapper;
+    private final IWebSocketPushService webSocketPushService;
     private final ObjectMapper objectMapper;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
 
-    public FriendTopicHandler(TimerFriendRequestMapper friendRequestMapper,
-                              TimerFriendMapper friendMapper,
-                              TimerMessageMapper messageMapper,
-                              IWebSocketPushService pushService,
-                              ObjectMapper objectMapper,
-                              SnowflakeIdGenerator snowflakeIdGenerator) {
-        this.friendRequestMapper = friendRequestMapper;
-        this.friendMapper = friendMapper;
-        this.messageMapper = messageMapper;
-        this.pushService = pushService;
+    public FriendTopicHandler(TimerFriendRequestMapper timerFriendRequestMapper, TimerFriendMapper timerFriendMapper,
+                              TimerMessageMapper timerMessageMapper, IWebSocketPushService webSocketPushService,
+                              ObjectMapper objectMapper, SnowflakeIdGenerator snowflakeIdGenerator) {
+        this.timerFriendRequestMapper = timerFriendRequestMapper;
+        this.timerFriendMapper = timerFriendMapper;
+        this.timerMessageMapper = timerMessageMapper;
+        this.webSocketPushService = webSocketPushService;
         this.objectMapper = objectMapper;
         this.snowflakeIdGenerator = snowflakeIdGenerator;
     }
+
 
     @Override
     public String getTopic() {
@@ -87,7 +86,7 @@ public class FriendTopicHandler implements TopicHandler {
             return Mono.empty();
         }
         String msg = payload.path("msg").asString("");
-        return friendRequestMapper
+        return timerFriendRequestMapper
                 .selectByUserIdAndOpponentId(userId, targetUserId)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
@@ -115,8 +114,8 @@ public class FriendTopicHandler implements TopicHandler {
                                 .updateUser(userId)
                                 .build();
                         return Mono.zip(
-                                        friendRequestMapper.save(senderRecord),
-                                        friendRequestMapper.save(receiverRecord)
+                                        timerFriendRequestMapper.save(senderRecord),
+                                        timerFriendRequestMapper.save(receiverRecord)
                                 )
                                 .flatMap(tuple ->
                                         saveAndPush(targetUserId, "friend_request", userId, tuple.getT2().getId()));
@@ -124,9 +123,9 @@ public class FriendTopicHandler implements TopicHandler {
                     TimerFriendRequest existing = optional.get();
                     if (existing.getStatus() == TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 已存在待处理请求，更新更新时间: {} <-> {}", userId, targetUserId);
-                        return friendRequestMapper
+                        return timerFriendRequestMapper
                                 .updateTimeByRelationId(existing.getRelationId(), LocalDateTime.now())
-                                .then(friendRequestMapper.selectByRelationIdAndUserId(existing.getRelationId(), targetUserId))
+                                .then(timerFriendRequestMapper.selectByRelationIdAndUserId(existing.getRelationId(), targetUserId))
                                 .flatMap(receiverRecord ->
                                         saveAndPush(targetUserId, "friend_request", userId, receiverRecord.getId()));
                     }
@@ -134,7 +133,7 @@ public class FriendTopicHandler implements TopicHandler {
                     return Mono.empty();
                 })
                 .doOnError(e -> log.error("❌ [Friend] 发送好友请求失败: {} -> {}", userId, targetUserId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(_ -> Mono.empty());
     }
 
     /**
@@ -146,7 +145,7 @@ public class FriendTopicHandler implements TopicHandler {
             log.warn("👥 [Friend] 接受请求缺少 requestId: userId={}", userId);
             return Mono.empty();
         }
-        return friendRequestMapper.findById(requestId)
+        return timerFriendRequestMapper.findById(requestId)
                 .flatMap(request -> {
                     if (request.getStatus() != TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 请求已处理，无需重复操作: requestId={}", requestId);
@@ -173,11 +172,11 @@ public class FriendTopicHandler implements TopicHandler {
                             .createUser(userId)
                             .updateUser(userId)
                             .build();
-                    return friendRequestMapper
+                    return timerFriendRequestMapper
                             .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.ACCEPTED.getCode())
-                            .then(friendMapper.save(requestFriend))
-                            .then(friendMapper.save(targetFriend))
+                            .then(timerFriendMapper.save(requestFriend))
+                            .then(timerFriendMapper.save(targetFriend))
                             .then(saveAndPush(opponentId, "friend_accept", userId, requestId))
                             .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已接受: {} <-> {}",
                                     opponentId, userId));
@@ -195,7 +194,7 @@ public class FriendTopicHandler implements TopicHandler {
             log.warn("👥 [Friend] 拒绝请求缺少 requestId: userId={}", userId);
             return Mono.empty();
         }
-        return friendRequestMapper.findById(requestId)
+        return timerFriendRequestMapper.findById(requestId)
                 .flatMap(request -> {
                     if (request.getStatus() != TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 请求已处理，无需重复操作: requestId={}", requestId);
@@ -210,7 +209,7 @@ public class FriendTopicHandler implements TopicHandler {
                         return Mono.empty();
                     }
 
-                    return friendRequestMapper
+                    return timerFriendRequestMapper
                             .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.REJECTED.getCode())
                             .then(saveAndPush(request.getOpponentId(), "friend_reject", userId, requestId))
@@ -224,7 +223,8 @@ public class FriendTopicHandler implements TopicHandler {
     /**
      * 保存离线通知 + 尝试实时推送（best effort）。
      */
-    private Mono<Void> saveAndPush(String toUserId, String action, String fromUserId, long requestId) {
+    private Mono<Void> saveAndPush(String toUserId, String action,
+                                   String fromUserId, long requestId) {
         return saveOfflineMessage(toUserId, action, fromUserId, requestId)
                 .then(Mono.defer(() -> pushRealtime(toUserId, action, fromUserId, requestId)));
     }
@@ -232,7 +232,8 @@ public class FriendTopicHandler implements TopicHandler {
     /**
      * 持久化离线通知消息到 timer_message 表
      */
-    private Mono<Void> saveOfflineMessage(String toUserId, String action, String fromUserId, long requestId) {
+    private Mono<Void> saveOfflineMessage(String toUserId, String action,
+                                          String fromUserId, long requestId) {
         ObjectNode content = objectMapper.createObjectNode()
                 .put(ACTION, action)
                 .put(REQUEST_ID, requestId)
@@ -249,7 +250,7 @@ public class FriendTopicHandler implements TopicHandler {
         msg.setCreateTime(now);
         msg.setCreateUser(fromUserId);
         msg.setUpdateUser(fromUserId);
-        return messageMapper.save(msg)
+        return timerMessageMapper.save(msg)
                 .doOnSuccess(saved -> log.debug("📝 离线通知已保存: to={}, action={}", toUserId, action))
                 .onErrorResume(e -> {
                     log.warn("⚠️ 离线通知保存失败: to={}, action={}", toUserId, action, e);
@@ -267,7 +268,7 @@ public class FriendTopicHandler implements TopicHandler {
                 .put(REQUEST_ID, requestId)
                 .put("from", fromUserId)
                 .put("ts", System.currentTimeMillis());
-        return pushService.pushToUser(toUserId, NOTIFICATION, data)
+        return webSocketPushService.pushToUser(toUserId, NOTIFICATION, data)
                 .doOnSuccess(v -> log.info("👥 [Friend] 实时通知已推送: to={}, action={}", toUserId, action))
                 .onErrorResume(e -> {
                     log.debug("📭 用户离线或推送失败，通知已入库: to={}, action={}", toUserId, action);

@@ -9,7 +9,6 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.Date;
 
 /**
  * <p>
@@ -40,13 +39,13 @@ public class TimerGroupMember implements Serializable {
      * 用户ID
      */
     @Column("user_id")
-    private Long userId;
+    private String userId;
 
     /**
      * 角色: 1-普通成员, 2-管理员, 3-群主
      */
     @Column("role")
-    private Byte role;
+    private Integer role;
 
     /**
      * 群内昵称
@@ -58,7 +57,7 @@ public class TimerGroupMember implements Serializable {
      * 加入时间
      */
     @Column("joined_at")
-    private Date joinedAt;
+    private LocalDateTime joinedAt;
 
     /**
      * 创建人

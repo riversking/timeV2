@@ -1,5 +1,6 @@
-package com.rivers.im.router;
+package com.rivers.im.router.handler;
 
+import com.rivers.im.router.TopicHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
 import org.springframework.stereotype.Component;

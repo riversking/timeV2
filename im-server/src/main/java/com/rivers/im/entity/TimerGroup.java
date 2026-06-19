@@ -45,6 +45,9 @@ public class TimerGroup implements Serializable {
     @Column("description")
     private String description;
 
+    @Column("announcement")
+    private String announcement;
+
     /**
      * 最大成员数
      */
