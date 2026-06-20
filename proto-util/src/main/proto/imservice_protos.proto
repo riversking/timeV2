@@ -96,3 +96,37 @@ message FriendListReq {
 message FriendListRes {
     repeated FriendDetailRes friendList = 1;
 }
+
+message GroupDetailRes {
+    int64 groupId = 1;
+    string groupName = 2;
+    string groupAvatar = 3;
+    string groupDesc = 4;
+    string announcement = 5;
+    string createTime = 6;
+}
+
+message MyGroupsReq {
+    LoginUser loginUser = 1;
+}
+
+message MyGroupsRes {
+    repeated GroupDetailRes groups = 1;
+}
+
+message GroupMemberDetailRes {
+    int64 groupId = 1;
+    string userId = 2;
+    string userName = 3;
+    string userAvatar = 4;
+    int32 role = 5;
+    string joinAt = 6;
+}
+
+message GroupMembersReq {
+    int64 groupId = 1;
+}
+
+message GroupMembersRes {
+    repeated GroupMemberDetailRes groupMembers = 1;
+}

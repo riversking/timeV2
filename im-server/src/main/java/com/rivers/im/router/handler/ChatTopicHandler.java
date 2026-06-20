@@ -21,7 +21,8 @@ public class ChatTopicHandler implements TopicHandler {
     private final TimerGroupMemberMapper timerGroupMemberMapper;
     private final ObjectMapper objectMapper;
 
-    public ChatTopicHandler(IWebSocketPushService pushService, TimerGroupMemberMapper timerGroupMemberMapper, ObjectMapper objectMapper) {
+    public ChatTopicHandler(IWebSocketPushService pushService, TimerGroupMemberMapper timerGroupMemberMapper,
+                            ObjectMapper objectMapper) {
         this.webSocketPushService = pushService;
         this.timerGroupMemberMapper = timerGroupMemberMapper;
         this.objectMapper = objectMapper;
