@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GroupServiceImpl implements IGroupService {
 
+    private static final String YYYY_MM_DD_HH_MM_SS = "yyyy-MM-dd HH:mm:ss";
+
     private final TimerGroupMapper timerGroupMapper;
 
     private final TimerGroupMemberMapper timerGroupMemberMapper;
@@ -57,14 +59,15 @@ public class GroupServiceImpl implements IGroupService {
                                                         .setGroupDesc(g.getDescription())
                                                         .setAnnouncement(g.getAnnouncement())
                                                         .setCreateTime(DateTimeFormatter
-                                                                .ofPattern("yyyy-MM-dd HH:mm:ss")
+                                                                .ofPattern(YYYY_MM_DD_HH_MM_SS)
                                                                 .format(g.getCreateTime()))
                                                         .build())
                                         .toList();
-                                return ResultVO.ok(MyGroupsRes.newBuilder()
+                                return MyGroupsRes.newBuilder()
                                         .addAllGroups(list)
-                                        .build());
-                            });
+                                        .build();
+                            })
+                            .map(ResultVO::ok);
                 })
                 .onErrorResume(e -> {
                     log.error("❌ [Group] 获取我的群组失败: userId={}", userId, e);
@@ -102,19 +105,43 @@ public class GroupServiceImpl implements IGroupService {
                                                     .setUserAvatar(user != null ? user.getAvatar() : "")
                                                     .setRole(m.getRole())
                                                     .setJoinAt(DateTimeFormatter
-                                                            .ofPattern("yyyy-MM-dd HH:mm:ss")
+                                                            .ofPattern(YYYY_MM_DD_HH_MM_SS)
                                                             .format(m.getJoinedAt()))
                                                     .build();
                                         })
                                         .toList();
-                                return ResultVO.ok(GroupMembersRes.newBuilder()
+                                return GroupMembersRes.newBuilder()
                                         .addAllGroupMembers(list)
-                                        .build());
-                            });
+                                        .build();
+                            })
+                            .map(ResultVO::ok);
                 })
                 .onErrorResume(e -> {
                     log.error("❌ [Group] 获取群成员失败: groupId={}", groupId, e);
                     return Mono.just(ResultVO.fail("获取群成员失败"));
+                });
+    }
+
+    @Override
+    public Mono<ResultVO<GroupDetailRes>> getGroupDetail(GroupDetailReq groupDetailReq) {
+        long groupId = groupDetailReq.getGroupId();
+        return timerGroupMapper.findById(groupId)
+                .map(i ->
+                        GroupDetailRes.newBuilder()
+                                .setGroupId(i.getId())
+                                .setGroupName(i.getName())
+                                .setGroupAvatar(i.getAvatar())
+                                .setGroupDesc(i.getDescription())
+                                .setAnnouncement(i.getAnnouncement())
+                                .setCreateTime(DateTimeFormatter
+                                        .ofPattern(YYYY_MM_DD_HH_MM_SS)
+                                        .format(i.getCreateTime()))
+                                .build())
+                .map(ResultVO::ok)
+                .switchIfEmpty(Mono.just(ResultVO.fail("群组不存在")))
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 获取群信息失败: groupId={}", groupId, e);
+                    return Mono.just(ResultVO.fail("获取群信息失败"));
                 });
     }
 }

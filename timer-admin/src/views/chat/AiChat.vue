@@ -16,7 +16,7 @@
     <el-icon :size="28"><ChatDotRound /></el-icon>
   </div>
 
-  <!-- 机器人对话框 -->
+  <!-- 消息中心对话框 -->
   <el-dialog
     v-model="showRobotDialog"
     title="消息中心"
@@ -42,10 +42,7 @@
               <div
                 v-for="item in chatHistoryList"
                 :key="item.userId"
-                :class="[
-                  'user-item',
-                  { active: selectedUser?.friendId === item.userId },
-                ]"
+                :class="['user-item', { active: isActiveChat(item.userId) }]"
                 @click="selectChatHistoryUser(item.userId)"
               >
                 <el-avatar size="small" :src="item.avatar">{{
@@ -65,10 +62,10 @@
             </el-scrollbar>
           </el-tab-pane>
 
-          <!-- 好友Tab -->
+          <!-- 通讯录Tab -->
           <el-tab-pane name="friends">
             <template #label>
-              <span>好友</span>
+              <span>通讯录</span>
               <el-badge
                 v-if="pendingRequestCount > 0"
                 :value="pendingRequestCount"
@@ -202,7 +199,9 @@
                         :key="friend.friendId"
                         :class="[
                           'user-item',
-                          { active: selectedUser?.friendId === friend.friendId },
+                          {
+                            active: selectedUser?.friendId === friend.friendId,
+                          },
                         ]"
                         @click="selectUser(friend)"
                       >
@@ -239,6 +238,56 @@
                   </div>
                 </div>
               </div>
+
+              <!-- 群组列表 -->
+              <div class="friend-section" style="margin-top: 12px">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 8px 12px;
+                    background: #fafafa;
+                    border-bottom: 1px solid #ebeef5;
+                  "
+                >
+                  <span
+                    style="font-size: 12px; color: #909399; font-weight: 500"
+                  >
+                    群组 ({{ groupList.length }})
+                  </span>
+                  <el-button
+                    size="small"
+                    text
+                    type="primary"
+                    @click="openCreateGroupDialog"
+                  >
+                    <el-icon><Plus /></el-icon> 创建
+                  </el-button>
+                </div>
+                <div v-if="groupList.length === 0" class="loading-text">
+                  暂无群组
+                </div>
+                <div
+                  v-for="group in groupList"
+                  :key="group.groupId"
+                  :class="[
+                    'user-item',
+                    { active: selectedGroup?.groupId === group.groupId },
+                  ]"
+                  @click="selectGroup(group)"
+                >
+                  <el-avatar size="small" :src="group.avatar">
+                    {{ group.name?.charAt(0) }}
+                  </el-avatar>
+                  <div class="friend-info">
+                    <div>{{ group.name }}</div>
+                    <div class="remark">
+                      {{ group.announcement || group.description || "" }}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </el-scrollbar>
           </el-tab-pane>
         </el-tabs>
@@ -247,7 +296,13 @@
       <!-- 右侧聊天框 -->
       <div class="right-panel">
         <div class="chat-header">
-          <span v-if="selectedUser"
+          <span v-if="selectedGroup">
+            群聊 <b>{{ selectedGroup.name }}</b>
+            <span style="color: #909399; font-size: 12px">
+              ({{ groupMembers.length }}人)
+            </span>
+          </span>
+          <span v-else-if="selectedUser"
             >与 <b>{{ selectedUser.friendName }}</b> 聊天中</span
           >
           <span v-else style="color: #909399">请选择一个用户开始聊天</span>
@@ -271,12 +326,119 @@
               <span class="msg-text">{{ msg.content }}</span>
             </div>
             <div v-else class="msg-content ai-msg">
-              <el-avatar size="small" :src="selectedUser?.friendAvatar">{{
-                selectedUser?.friendName?.charAt(0) || "AI"
-              }}</el-avatar>
+              <el-avatar
+                size="small"
+                :src="selectedGroup?.avatar || selectedUser?.friendAvatar"
+                >{{
+                  selectedGroup?.name?.charAt(0) ||
+                  selectedUser?.friendName?.charAt(0) ||
+                  "AI"
+                }}</el-avatar
+              >
               <span class="msg-text">{{ msg.content }}</span>
             </div>
           </div>
+        </div>
+
+        <!-- 群操作栏 -->
+        <div v-if="selectedGroup" class="group-toolbar">
+          <el-button
+            size="small"
+            @click="showGroupMemberPanel = !showGroupMemberPanel"
+          >
+            <el-icon><UserFilled /></el-icon> 成员
+          </el-button>
+          <el-button
+            size="small"
+            @click="showGroupAnnounceInput = !showGroupAnnounceInput"
+          >
+            公告
+          </el-button>
+          <el-button size="small" @click="openInviteDialog">
+            <el-icon><Plus /></el-icon> 邀请
+          </el-button>
+          <el-button
+            v-if="!isGroupOwner"
+            size="small"
+            type="warning"
+            @click="handleLeaveGroup"
+          >
+            退出
+          </el-button>
+          <el-button
+            v-if="isGroupOwner"
+            size="small"
+            type="danger"
+            @click="handleDismissGroup"
+          >
+            解散
+          </el-button>
+        </div>
+
+        <!-- 群公告编辑 -->
+        <div
+          v-if="selectedGroup && showGroupAnnounceInput"
+          class="announce-input-area"
+        >
+          <el-input
+            v-model="groupAnnounceText"
+            :placeholder="selectedGroup.announcement || '输入群公告...'"
+            size="small"
+            @keyup.enter="handleAnnounce"
+          />
+          <el-button size="small" type="primary" @click="handleAnnounce"
+            >发布</el-button
+          >
+        </div>
+
+        <!-- 群成员面板 -->
+        <div
+          v-if="selectedGroup && showGroupMemberPanel"
+          class="group-member-panel"
+        >
+          <div class="panel-title">群成员 ({{ groupMembers.length }})</div>
+          <el-scrollbar max-height="150px">
+            <div
+              v-for="member in groupMembers"
+              :key="member.userId"
+              class="member-item"
+            >
+              <el-avatar size="small" :src="member.avatar">
+                {{ member.username?.charAt(0) }}
+              </el-avatar>
+              <span class="member-name">{{ member.username }}</span>
+              <el-tag
+                :type="
+                  member.role === 3
+                    ? 'danger'
+                    : member.role === 2
+                      ? 'warning'
+                      : ''
+                "
+                size="small"
+                effect="plain"
+              >
+                {{
+                  member.role === 3 ? "群主" : member.role === 2 ? "管理员" : ""
+                }}
+              </el-tag>
+              <el-button
+                v-if="
+                  isGroupAdmin &&
+                  member.userId !== currentUserId &&
+                  member.role <
+                    (groupMembers.find((m) => m.userId === currentUserId)
+                      ?.role || 0)
+                "
+                size="small"
+                type="danger"
+                text
+                @click="handleKickMember(member.userId, member.username)"
+              >
+                踢出
+              </el-button>
+            </div>
+          </el-scrollbar>
         </div>
 
         <div class="input-area">
@@ -284,12 +446,12 @@
             v-model="userMessage"
             placeholder="请输入消息..."
             @keyup.enter="sendMessage"
-            :disabled="!isConnected || !selectedUser"
+            :disabled="!isConnected || (!selectedUser && !selectedGroup)"
           />
           <el-button
             type="primary"
             @click="sendMessage"
-            :disabled="!isConnected || !selectedUser"
+            :disabled="!isConnected || (!selectedUser && !selectedGroup)"
             >发送</el-button
           >
         </div>
@@ -303,6 +465,99 @@
     :friend-list="friendList"
     @add-friend="handleAddFriend"
   />
+
+  <!-- 创建群组对话框 -->
+  <el-dialog
+    v-model="showCreateGroupDialog"
+    title="创建群组"
+    width="420px"
+    :close-on-click-modal="false"
+  >
+    <el-input
+      v-model="groupNameInput"
+      placeholder="请输入群名称"
+      style="margin-bottom: 12px"
+    />
+    <div class="select-friends-title">
+      选择好友
+      <span style="color: #909399; font-size: 12px"
+        >(已选 {{ selectedFriendIds.size }} 人)</span
+      >
+    </div>
+    <el-scrollbar max-height="300px">
+      <div
+        v-for="friend in friendList"
+        :key="friend.friendId"
+        class="select-friend-item"
+        :class="{ selected: selectedFriendIds.has(friend.friendId) }"
+        @click="toggleFriendSelect(friend.friendId)"
+      >
+        <el-checkbox :model-value="selectedFriendIds.has(friend.friendId)" />
+        <el-avatar size="small" :src="friend.friendAvatar">
+          {{ friend.friendName?.charAt(0) }}
+        </el-avatar>
+        <span>{{ friend.friendName }}</span>
+      </div>
+      <div v-if="friendList.length === 0" class="loading-text">
+        暂无好友可选
+      </div>
+    </el-scrollbar>
+    <template #footer>
+      <el-button @click="showCreateGroupDialog = false">取消</el-button>
+      <el-button
+        type="primary"
+        :disabled="!groupNameInput.trim() || selectedFriendIds.size === 0"
+        :loading="creatingGroup"
+        @click="handleCreateGroup"
+      >
+        创建
+      </el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 邀请入群对话框 -->
+  <el-dialog
+    v-model="showInviteDialog"
+    title="邀请好友入群"
+    width="420px"
+    :close-on-click-modal="false"
+  >
+    <div class="select-friends-title">
+      选择好友
+      <span style="color: #909399; font-size: 12px"
+        >(已选 {{ inviteSelectedIds.size }} 人)</span
+      >
+    </div>
+    <el-scrollbar max-height="300px">
+      <div
+        v-for="friend in availableInviteFriends"
+        :key="friend.friendId"
+        class="select-friend-item"
+        :class="{ selected: inviteSelectedIds.has(friend.friendId) }"
+        @click="toggleInviteSelect(friend.friendId)"
+      >
+        <el-checkbox :model-value="inviteSelectedIds.has(friend.friendId)" />
+        <el-avatar size="small" :src="friend.friendAvatar">
+          {{ friend.friendName?.charAt(0) }}
+        </el-avatar>
+        <span>{{ friend.friendName }}</span>
+      </div>
+      <div v-if="availableInviteFriends.length === 0" class="loading-text">
+        暂无可邀请的好友
+      </div>
+    </el-scrollbar>
+    <template #footer>
+      <el-button @click="showInviteDialog = false">取消</el-button>
+      <el-button
+        type="primary"
+        :disabled="inviteSelectedIds.size === 0"
+        :loading="invitingMembers"
+        @click="handleInviteMembers"
+      >
+        邀请
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -319,10 +574,16 @@ import {
   Plus,
   ArrowRight,
   Loading,
+  UserFilled,
 } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
-import { ElNotification, ElMessage } from "element-plus";
-import { getFriendRequestPage, getFriendPage } from "@/api/im";
+import { ElNotification, ElMessage, ElMessageBox } from "element-plus";
+import {
+  getFriendRequestPage,
+  getFriendPage,
+  getMyGroups,
+  getGroupMembers,
+} from "@/api/im";
 import { useUserStore } from "@/store/user";
 import AddFriendModal from "./AddFriendModal.vue";
 
@@ -353,6 +614,29 @@ interface ChatMessage {
   content: string;
 }
 
+interface Group {
+  groupId: number;
+  name: string;
+  avatar?: string;
+  description?: string;
+  announcement?: string;
+  maxMembers: number;
+  ownerId: string;
+  createTime: string;
+}
+
+interface GroupMember {
+  id: number;
+  groupId: number;
+  userId: string;
+  username: string;
+  avatar?: string;
+  role: number;
+  nickname?: string;
+  joinedAt: string;
+}
+
+// ========== 基础状态 ==========
 const onlineUsers = ref<Friend[]>([]);
 const friendList = ref<Friend[]>([]);
 const selectedUser = ref<Friend | null>(null);
@@ -391,25 +675,81 @@ const dragOffset = ref({ x: 0, y: 0 });
 const isSubscribed = ref(false);
 const currentUserId = ref("");
 
+// ========== 群组相关状态 ==========
+const groupList = ref<Group[]>([]);
+const selectedGroup = ref<Group | null>(null);
+const groupMembers = ref<GroupMember[]>([]);
+const showCreateGroupDialog = ref(false);
+const creatingGroup = ref(false);
+const groupNameInput = ref("");
+const selectedFriendIds = ref<Set<string>>(new Set());
+const showGroupMemberPanel = ref(false);
+const showGroupAnnounceInput = ref(false);
+const groupAnnounceText = ref("");
+const showInviteDialog = ref(false);
+const inviteSelectedIds = ref<Set<string>>(new Set());
+const invitingMembers = ref(false);
+
+// ========== 计算属性 ==========
 const pendingRequestCount = computed(() => {
   return friendRequests.value.filter((r) => r.status === "待处理").length;
 });
 
+const chatCacheKey = computed(() => {
+  if (selectedGroup.value) return `group:${selectedGroup.value.groupId}`;
+  if (selectedUser.value) return selectedUser.value.friendId;
+  return "";
+});
+
+const isGroupOwner = computed(() => {
+  if (!selectedGroup.value) return false;
+  return selectedGroup.value.ownerId === currentUserId.value;
+});
+
+const isGroupAdmin = computed(() => {
+  if (!selectedGroup.value) return false;
+  const me = groupMembers.value.find((m) => m.userId === currentUserId.value);
+  return me ? me.role >= 2 : false;
+});
+
+const availableInviteFriends = computed(() => {
+  const memberIds = new Set(groupMembers.value.map((m) => m.userId));
+  return friendList.value.filter((f) => !memberIds.has(f.friendId));
+});
+
+const isActiveChat = (id: string) => {
+  if (id.startsWith("group:")) {
+    return selectedGroup.value?.groupId === Number(id.slice(6));
+  }
+  return selectedUser.value?.friendId === id;
+};
+
 const chatHistoryList = computed(() => {
   return chatHistoryUserIds.value
-    .map((userId) => {
-      const msgs = messageCache.value.get(userId);
+    .map((id) => {
+      const msgs = messageCache.value.get(id);
       if (!msgs || msgs.length === 0) return null;
       const lastMsg = msgs[msgs.length - 1];
+      if (id.startsWith("group:")) {
+        const gid = Number(id.slice(6));
+        const g = groupList.value.find((x) => x.groupId === gid);
+        return {
+          userId: id,
+          username: g?.name || "群聊",
+          avatar: g?.avatar,
+          lastMessage: lastMsg.content,
+          unreadCount: 0,
+        };
+      }
       const user =
-        onlineUsers.value.find((u) => u.friendId === userId) ||
-        friendList.value.find((f) => f.friendId === userId);
+        onlineUsers.value.find((u) => u.friendId === id) ||
+        friendList.value.find((f) => f.friendId === id);
       return {
-        userId,
+        userId: id,
         username: user?.friendName || "未知用户",
         avatar: user?.friendAvatar,
         lastMessage: lastMsg.content,
-        unreadCount: userUnreadCounts.value.get(userId) || 0,
+        unreadCount: userUnreadCounts.value.get(id) || 0,
       };
     })
     .filter(Boolean) as Array<{
@@ -425,79 +765,62 @@ const groupedFriends = computed(() => {
   const sorted = [...friendList.value].sort((a, b) =>
     (a.friendName || "").localeCompare(b.friendName || "", "zh-CN"),
   );
-
   const groups: Map<string, Friend[]> = new Map();
-
   for (const friend of sorted) {
     const firstChar = (friend.friendName || "#").charAt(0).toUpperCase();
     const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
-    if (!groups.has(letter)) {
-      groups.set(letter, []);
-    }
+    if (!groups.has(letter)) groups.set(letter, []);
     groups.get(letter)!.push(friend);
   }
-
   const result = Array.from(groups.entries()).map(([letter, items]) => ({
     letter,
     items,
   }));
-
   result.sort((a, b) => {
     if (a.letter === "#") return 1;
     if (b.letter === "#") return -1;
     return a.letter.localeCompare(b.letter);
   });
-
   return result;
 });
 
-const alphabetIndex = computed(() => {
-  return groupedFriends.value.map((g) => g.letter);
-});
+const alphabetIndex = computed(() => groupedFriends.value.map((g) => g.letter));
 
+// ========== 字母索引 ==========
 const scrollToLetter = (letter: string) => {
   activeLetter.value = letter;
   const el = document.getElementById(`friend-group-${letter}`);
-  if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   setTimeout(() => {
     activeLetter.value = "";
   }, 800);
 };
 
-const handleLetterTouchStart = (e: TouchEvent) => {
-  const touch = e.touches[0];
-  updateLetterFromTouch(touch);
-};
-
-const handleLetterTouchMove = (e: TouchEvent) => {
-  const touch = e.touches[0];
-  updateLetterFromTouch(touch);
-};
+const handleLetterTouchStart = (e: TouchEvent) =>
+  updateLetterFromTouch(e.touches[0]);
+const handleLetterTouchMove = (e: TouchEvent) =>
+  updateLetterFromTouch(e.touches[0]);
 
 const updateLetterFromTouch = (touch: Touch) => {
   const target = document.elementFromPoint(touch.clientX, touch.clientY);
   if (target) {
     const letter = (target as HTMLElement).textContent?.trim();
-    if (letter && alphabetIndex.value.includes(letter)) {
-      scrollToLetter(letter);
-    }
+    if (letter && alphabetIndex.value.includes(letter)) scrollToLetter(letter);
   }
 };
 
+// ========== 消息处理 ==========
 const processedMsgMap = new Map<string, number>();
 let cleanUpTimer: any = null;
 
 const generateMsgFingerprint = (payload: any): string => {
-  if (payload.msgId) {
-    return `id_${payload.msgId}`;
-  }
+  if (payload.msgId) return `id_${payload.msgId}`;
   const secondTimestamp = Math.floor(Date.now() / 1000);
   return `hash_${payload.from}_${payload.content}_${secondTimestamp}`;
 };
 
 const selectUser = (user: Friend) => {
+  selectedGroup.value = null;
   selectedUser.value = user;
   userUnreadCounts.value.set(user.friendId, 0);
   const cached = messageCache.value.get(user.friendId);
@@ -505,25 +828,38 @@ const selectUser = (user: Friend) => {
   nextTick(scrollToBottom);
 };
 
-const selectChatHistoryUser = (userId: string) => {
-  userUnreadCounts.value.set(userId, 0);
-  const user =
-    onlineUsers.value.find((u) => u.friendId === userId) ||
-    friendList.value.find((f) => f.friendId === userId);
-  if (user) {
-    selectUser(user);
+const selectGroup = async (group: Group) => {
+  selectedUser.value = null;
+  selectedGroup.value = group;
+  const cacheKey = `group:${group.groupId}`;
+  const cached = messageCache.value.get(cacheKey);
+  chatMessages.value = cached ? [...cached] : [];
+  showGroupMemberPanel.value = false;
+  showGroupAnnounceInput.value = false;
+  groupAnnounceText.value = group.announcement || "";
+  nextTick(scrollToBottom);
+  loadGroupMembers(group.groupId);
+};
+
+const selectChatHistoryUser = (id: string) => {
+  if (id.startsWith("group:")) {
+    const gid = Number(id.slice(6));
+    const g = groupList.value.find((x) => x.groupId === gid);
+    if (g) selectGroup(g);
+    return;
   }
+  userUnreadCounts.value.set(id, 0);
+  const user =
+    onlineUsers.value.find((u) => u.friendId === id) ||
+    friendList.value.find((f) => f.friendId === id);
+  if (user) selectUser(user);
 };
 
 const updateUserStatus = (userId: string, isActive: string) => {
-  const updateList = (list: any[]) => {
-    const idx = list.findIndex((u) => u.userId === userId);
-    if (idx !== -1) {
-      list[idx].isActive = isActive;
-    }
-  };
-  updateList(onlineUsers.value);
-  updateList(friendList.value);
+  [onlineUsers.value, friendList.value].forEach((list) => {
+    const idx = list.findIndex((u: any) => u.userId === userId);
+    // if (idx !== -1) list[idx].isActive = isActive;
+  });
 };
 
 const subscribeUserStatus = () => {
@@ -533,38 +869,47 @@ const subscribeUserStatus = () => {
     ...friendList.value.map((f) => f.friendId),
   ];
   if (targetUserIds.length === 0) return;
-  sendWsMessage("status", {
-    action: "subscribe",
-    targetUserIds: targetUserIds,
-  });
+  sendWsMessage("status", { action: "subscribe", targetUserIds });
 };
 
 const sendMessage = () => {
-  if (!userMessage.value.trim() || !isConnected.value || !selectedUser.value)
-    return;
+  if (!userMessage.value.trim() || !isConnected.value) return;
+  if (!selectedUser.value && !selectedGroup.value) return;
+
   const content = userMessage.value;
   const msgId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   const userMsg: ChatMessage = { id: msgId, type: "user", content };
   chatMessages.value.push(userMsg);
   processedMsgMap.set(msgId, Date.now());
 
-  if (!messageCache.value.has(selectedUser.value.friendId)) {
-    messageCache.value.set(selectedUser.value.friendId, []);
-  }
-  messageCache.value.get(selectedUser.value.friendId)!.push(userMsg);
+  const cacheKey = chatCacheKey.value;
+  if (!messageCache.value.has(cacheKey)) messageCache.value.set(cacheKey, []);
+  messageCache.value.get(cacheKey)!.push(userMsg);
+  if (!chatHistoryUserIds.value.includes(cacheKey))
+    chatHistoryUserIds.value.unshift(cacheKey);
 
-  if (!chatHistoryUserIds.value.includes(selectedUser.value.friendId)) {
-    chatHistoryUserIds.value.unshift(selectedUser.value.friendId);
+  if (selectedGroup.value) {
+    sendWsMessage("chat", {
+      msgId,
+      to: `group:${selectedGroup.value.groupId}`,
+      content,
+    });
+  } else if (selectedUser.value) {
+    sendWsMessage("chat", { msgId, to: selectedUser.value.friendId, content });
   }
   scrollToBottom();
-  sendWsMessage("chat", {
-    msgId: msgId,
-    to: selectedUser.value.friendId,
-    content: content,
-  });
   userMessage.value = "";
 };
 
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    }
+  });
+};
+
+// ========== 好友请求 ==========
 const handleAddFriend = (formData: { userId: string; remark: string }) => {
   addingFriend.value = true;
   try {
@@ -584,7 +929,7 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
     friendRequests.value.unshift(localRequest);
     ElMessage.success("好友请求已发送");
     showAddFriendDialog.value = false;
-  } catch (error) {
+  } catch {
     ElMessage.error("发送失败");
   } finally {
     addingFriend.value = false;
@@ -594,20 +939,14 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
 const acceptFriendRequest = async (requestId: number) => {
   acceptingRequestId.value = requestId;
   try {
-    sendWsMessage("friend", {
-      action: "accept",
-      requestId: requestId,
-    });
+    sendWsMessage("friend", { action: "accept", requestId });
     const request = friendRequests.value.find((r) => r.requestId === requestId);
-    if (request) {
-      request.status = "已同意";
-    }
+    if (request) request.status = "已同意";
     ElMessage.success("已同意好友请求");
     await new Promise((resolve) => setTimeout(resolve, 500));
     await loadFriendList();
     await loadFriendRequests();
-  } catch (error) {
-    console.error("同意好友请求失败:", error);
+  } catch {
     ElMessage.error("操作失败");
   } finally {
     acceptingRequestId.value = null;
@@ -616,9 +955,7 @@ const acceptFriendRequest = async (requestId: number) => {
 
 const loadFriendRequests = async (append = false) => {
   try {
-    if (append) {
-      requestLoadingMore.value = true;
-    }
+    if (append) requestLoadingMore.value = true;
     const response = await getFriendRequestPage({
       pageSize: 20,
       lastId: append ? requestLastId.value : 0,
@@ -632,15 +969,16 @@ const loadFriendRequests = async (append = false) => {
         [];
       const items = Array.isArray(list) ? list : [];
       if (append) {
-        const existingIds = new Set(friendRequests.value.map((r) => r.requestId));
-        const newItems = items.filter(
-          (item: Friend) => !existingIds.has(item.requestId),
+        const existingIds = new Set(
+          friendRequests.value.map((r) => r.requestId),
         );
-        friendRequests.value = [...friendRequests.value, ...newItems];
+        friendRequests.value = [
+          ...friendRequests.value,
+          ...items.filter((i: Friend) => !existingIds.has(i.requestId)),
+        ];
       } else {
         friendRequests.value = items;
       }
-
       if (items.length > 0) {
         const lastItem = items[items.length - 1];
         requestLastId.value = lastItem.requestId || lastItem.id || "";
@@ -650,17 +988,16 @@ const loadFriendRequests = async (append = false) => {
         requestHasMore.value = false;
       }
     }
-  } catch (error) {
-    console.error("获取好友请求列表失败:", error);
+  } catch {
+    /* silent */
   } finally {
     requestLoadingMore.value = false;
   }
 };
 
 const loadMoreFriendRequests = () => {
-  if (!requestLoadingMore.value && requestHasMore.value) {
+  if (!requestLoadingMore.value && requestHasMore.value)
     loadFriendRequests(true);
-  }
 };
 
 const loadFriendList = async () => {
@@ -671,11 +1008,195 @@ const loadFriendList = async () => {
         response.data?.friendList || response.data?.list || response.data || [];
       friendList.value = Array.isArray(list) ? list : [];
     }
-  } catch (error) {
-    console.error("获取好友列表失败:", error);
+  } catch {
+    /* silent */
   }
 };
 
+// ========== 群组操作 ==========
+const loadMyGroups = async () => {
+  try {
+    const res = await getMyGroups({ userId: currentUserId.value });
+    if (res.code === 200)
+      groupList.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    /* silent */
+  }
+};
+
+const loadGroupMembers = async (groupId: number) => {
+  try {
+    const res = await getGroupMembers({ groupId });
+    if (res.code === 200)
+      groupMembers.value = Array.isArray(res.data) ? res.data : [];
+  } catch {
+    /* silent */
+  }
+};
+
+const openCreateGroupDialog = () => {
+  groupNameInput.value = "";
+  selectedFriendIds.value = new Set();
+  showCreateGroupDialog.value = true;
+};
+
+const toggleFriendSelect = (friendId: string) => {
+  const next = new Set(selectedFriendIds.value);
+  next.has(friendId) ? next.delete(friendId) : next.add(friendId);
+  selectedFriendIds.value = next;
+};
+
+const handleCreateGroup = async () => {
+  if (!groupNameInput.value.trim() || selectedFriendIds.value.size === 0)
+    return;
+  creatingGroup.value = true;
+  try {
+    sendWsMessage("group", {
+      action: "create",
+      name: groupNameInput.value.trim(),
+      userIds: [...selectedFriendIds.value],
+    });
+    ElMessage.success("群组创建成功");
+    showCreateGroupDialog.value = false;
+    setTimeout(() => loadMyGroups(), 600);
+  } catch {
+    ElMessage.error("创建群组失败");
+  } finally {
+    creatingGroup.value = false;
+  }
+};
+
+const openInviteDialog = () => {
+  inviteSelectedIds.value = new Set();
+  showInviteDialog.value = true;
+};
+
+const toggleInviteSelect = (friendId: string) => {
+  const next = new Set(inviteSelectedIds.value);
+  next.has(friendId) ? next.delete(friendId) : next.add(friendId);
+  inviteSelectedIds.value = next;
+};
+
+const handleInviteMembers = async () => {
+  if (!selectedGroup.value || inviteSelectedIds.value.size === 0) return;
+  invitingMembers.value = true;
+  try {
+    sendWsMessage("group", {
+      action: "invite",
+      groupId: selectedGroup.value.groupId,
+      userIds: [...inviteSelectedIds.value],
+    });
+    ElMessage.success("邀请已发送");
+    showInviteDialog.value = false;
+    setTimeout(() => {
+      if (selectedGroup.value) loadGroupMembers(selectedGroup.value.groupId);
+    }, 500);
+  } catch {
+    ElMessage.error("邀请失败");
+  } finally {
+    invitingMembers.value = false;
+  }
+};
+
+const handleKickMember = async (userId: string, username: string) => {
+  const group = selectedGroup.value;
+  if (!group) return;
+  try {
+    await ElMessageBox.confirm(`确定要将 ${username} 踢出群组？`, "踢出成员", {
+      type: "warning",
+    });
+  } catch {
+    return;
+  }
+  sendWsMessage("group", {
+    action: "kick",
+    groupId: group.groupId,
+    targetUserId: userId,
+  });
+  ElMessage.success(`已将 ${username} 踢出`);
+  loadGroupMembers(group.groupId);
+};
+
+const handleLeaveGroup = async () => {
+  const group = selectedGroup.value;
+  if (!group) return;
+  try {
+    await ElMessageBox.confirm("确定要退出该群组？", "退出群组", {
+      type: "warning",
+    });
+  } catch {
+    return;
+  }
+  sendWsMessage("group", { action: "leave", groupId: group.groupId });
+  ElMessage.success("已退出群组");
+  selectedGroup.value = null;
+  chatMessages.value = [];
+  loadMyGroups();
+};
+
+const handleDismissGroup = async () => {
+  const group = selectedGroup.value;
+  if (!group) return;
+  try {
+    await ElMessageBox.confirm(
+      "确定要解散该群组？所有成员将被移除。",
+      "解散群组",
+      { type: "error" },
+    );
+  } catch {
+    return;
+  }
+  sendWsMessage("group", { action: "dismiss", groupId: group.groupId });
+  ElMessage.success("群组已解散");
+  selectedGroup.value = null;
+  chatMessages.value = [];
+  loadMyGroups();
+};
+
+const handleAnnounce = () => {
+  if (!selectedGroup.value || !groupAnnounceText.value.trim()) return;
+  sendWsMessage("group", {
+    action: "announce",
+    groupId: selectedGroup.value.groupId,
+    announcement: groupAnnounceText.value.trim(),
+  });
+  selectedGroup.value.announcement = groupAnnounceText.value.trim();
+  ElMessage.success("公告已发布");
+  showGroupAnnounceInput.value = false;
+};
+
+const handleGroupNotification = (payload: any) => {
+  const group = selectedGroup.value;
+  switch (payload.action) {
+    case "group_created":
+      loadMyGroups();
+      break;
+    case "group_dismissed":
+      if (group !== null && group.groupId === payload.groupId) {
+        selectedGroup.value = null;
+        chatMessages.value = [];
+      }
+      loadMyGroups();
+      break;
+    case "group_left":
+    case "kicked_from_group":
+      loadMyGroups();
+      break;
+    case "members_invited":
+      if (group !== null && group.groupId === payload.groupId)
+        loadGroupMembers(payload.groupId);
+      break;
+    case "group_announce":
+      if (group !== null && group.groupId === payload.groupId) {
+        group.announcement = payload.announcement;
+        groupAnnounceText.value = payload.announcement || "";
+      }
+      loadMyGroups();
+      break;
+  }
+};
+
+// ========== WebSocket 消息路由 ==========
 watch(
   () => wsMessages.value.length,
   (newLen, oldLen) => {
@@ -684,11 +1205,20 @@ watch(
       for (let i = prevLen; i < newLen; i++) {
         const envelope = wsMessages.value[i];
         if (!envelope) continue;
-
         const { topic, payload } = envelope;
         if (topic === "chat") handleChatMessage(payload);
         else if (topic === "status") handleStatusMessage(payload);
-        else if (topic === "notification") handleFriendMessage(payload);
+        else if (topic === "notification") {
+          if (
+            payload.action?.startsWith("group_") ||
+            payload.action === "members_invited" ||
+            payload.action === "kicked_from_group"
+          ) {
+            handleGroupNotification(payload);
+          } else {
+            handleFriendMessage(payload);
+          }
+        }
       }
     }
   },
@@ -696,62 +1226,66 @@ watch(
 );
 
 const handleChatMessage = (payload: any) => {
-  if (payload.from === currentUserId.value) {
-    return;
-  }
+  if (payload.from === currentUserId.value) return;
   const fingerprint = generateMsgFingerprint(payload);
-  if (processedMsgMap.has(fingerprint)) {
-    return;
-  }
+  if (processedMsgMap.has(fingerprint)) return;
   processedMsgMap.set(fingerprint, Date.now());
-  const targetUserId = payload.from;
-  const targetUser =
-    onlineUsers.value.find((u) => u.friendId === targetUserId) ||
-    friendList.value.find((f) => f.friendId === targetUserId);
-  if (!showRobotDialog.value || selectedUser.value?.friendId !== payload.from) {
+
+  const isGroupMsg = payload.chatType === "group";
+  const targetId = isGroupMsg ? `group:${payload.groupId}` : payload.from;
+  const targetName = isGroupMsg
+    ? groupList.value.find((g) => g.groupId === payload.groupId)?.name || "群聊"
+    : (
+        onlineUsers.value.find((u) => u.friendId === payload.from) ||
+        friendList.value.find((f) => f.friendId === payload.from)
+      )?.friendName;
+
+  const isCurrentChat = isGroupMsg
+    ? selectedGroup.value?.groupId === payload.groupId
+    : selectedUser.value?.friendId === payload.from;
+
+  if (!showRobotDialog.value || !isCurrentChat) {
     unreadCount.value++;
-    userUnreadCounts.value.set(
-      targetUserId,
-      (userUnreadCounts.value.get(targetUserId) || 0) + 1,
-    );
-    if (targetUser && !showRobotDialog.value) {
-      lastMessageUser.value = targetUser;
+    if (!isGroupMsg) {
+      userUnreadCounts.value.set(
+        targetId,
+        (userUnreadCounts.value.get(targetId) || 0) + 1,
+      );
     }
-    ElNotification({
-      title: targetUser?.friendName || "新消息",
-      message: payload.content,
-      type: "info",
-      duration: 3000,
-      position: "top-right",
-    });
+    if (!showRobotDialog.value) {
+      ElNotification({
+        title: targetName || "新消息",
+        message: payload.content,
+        type: "info",
+        duration: 3000,
+        position: "top-right",
+      });
+    }
   }
+
   const newMessage: ChatMessage = {
     id: fingerprint,
     type: "ai",
     content: payload.content,
   };
+  if (!messageCache.value.has(targetId)) messageCache.value.set(targetId, []);
+  messageCache.value.get(targetId)!.push(newMessage);
+  if (!chatHistoryUserIds.value.includes(targetId))
+    chatHistoryUserIds.value.unshift(targetId);
 
-  if (!messageCache.value.has(targetUserId)) {
-    messageCache.value.set(targetUserId, []);
-  }
-  messageCache.value.get(targetUserId)!.push(newMessage);
-
-  if (!chatHistoryUserIds.value.includes(targetUserId)) {
-    chatHistoryUserIds.value.unshift(targetUserId);
-  }
-
-  if (selectedUser.value && selectedUser.value.friendId === targetUserId) {
+  if (isGroupMsg && selectedGroup.value?.groupId === payload.groupId) {
+    chatMessages.value.push(newMessage);
+    scrollToBottom();
+  } else if (!isGroupMsg && selectedUser.value?.friendId === payload.from) {
     chatMessages.value.push(newMessage);
     scrollToBottom();
   }
 };
 
 const handleStatusMessage = (payload: any) => {
-  if (payload.action === "update" && payload.userId) {
+  if (payload.action === "update" && payload.userId)
     updateUserStatus(payload.userId, payload.isActive);
-  } else if (payload.action === "subscribe_success") {
-    isSubscribed.value = true;
-  }
+  else if (payload.action === "subscribe_success") isSubscribed.value = true;
 };
 
 const handleFriendMessage = (payload: any) => {
@@ -765,10 +1299,7 @@ const handleFriendMessage = (payload: any) => {
       status: "待处理",
       updateTime: payload.createTime || new Date().toISOString(),
     };
-    const exists = friendRequests.value.some(
-      (r) => r.requestId === request.requestId,
-    );
-    if (!exists) {
+    if (!friendRequests.value.some((r) => r.requestId === request.requestId)) {
       friendRequests.value.unshift(request);
     }
     ElNotification({
@@ -782,30 +1313,19 @@ const handleFriendMessage = (payload: any) => {
     const matched = friendRequests.value.find(
       (r) => r.requestId === payload.requestId,
     );
-    if (matched) {
-      matched.status = "已同意";
-    }
+    if (matched) matched.status = "已同意";
     ElMessage.success("对方已同意你的好友请求");
     loadFriendList();
   } else if (payload.action === "friend_reject") {
     const matched = friendRequests.value.find(
       (r) => r.requestId === payload.requestId,
     );
-    if (matched) {
-      matched.status = "已拒绝";
-    }
+    if (matched) matched.status = "已拒绝";
     ElMessage.info("对方已拒绝你的好友请求");
   }
 };
 
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-    }
-  });
-};
-
+// ========== 拖拽 ==========
 const startDrag = (e: MouseEvent) => {
   e.preventDefault();
   isDragging.value = true;
@@ -821,15 +1341,19 @@ const startDrag = (e: MouseEvent) => {
 const handleDrag = (e: MouseEvent) => {
   if (!isDragging.value) return;
   hasMoved.value = true;
-  const newRight = window.innerWidth - e.clientX - (60 - dragOffset.value.x);
-  const newBottom = window.innerHeight - e.clientY - (60 - dragOffset.value.y);
   robotPosition.value.right = Math.max(
     0,
-    Math.min(newRight, window.innerWidth - 60),
+    Math.min(
+      window.innerWidth - e.clientX - (60 - dragOffset.value.x),
+      window.innerWidth - 60,
+    ),
   );
   robotPosition.value.bottom = Math.max(
     0,
-    Math.min(newBottom, window.innerHeight - 60),
+    Math.min(
+      window.innerHeight - e.clientY - (60 - dragOffset.value.y),
+      window.innerHeight - 60,
+    ),
   );
 };
 
@@ -851,7 +1375,12 @@ const toggleRobotDialog = () => {
       requestHasMore.value = true;
       loadFriendRequests();
       loadFriendList();
-      if (lastMessageUser.value && !selectedUser.value) {
+      loadMyGroups();
+      if (
+        lastMessageUser.value &&
+        !selectedUser.value &&
+        !selectedGroup.value
+      ) {
         selectUser(lastMessageUser.value);
       } else if (selectedUser.value) {
         const cached = messageCache.value.get(selectedUser.value.friendId);
@@ -864,9 +1393,12 @@ const toggleRobotDialog = () => {
 
 const handleDialogClose = () => {
   selectedUser.value = null;
+  selectedGroup.value = null;
+  groupMembers.value = [];
   chatMessages.value = [];
 };
 
+// ========== 生命周期 ==========
 onMounted(() => {
   currentUserId.value =
     userStore.userInfo?.userId ||
@@ -881,15 +1413,13 @@ onMounted(() => {
   if (savedPosition) {
     try {
       robotPosition.value = JSON.parse(savedPosition);
-    } catch (e) {}
+    } catch {}
   }
   connectWs();
   cleanUpTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, time] of processedMsgMap.entries()) {
-      if (now - time > 5000) {
-        processedMsgMap.delete(key);
-      }
+      if (now - time > 5000) processedMsgMap.delete(key);
     }
   }, 5000);
 });
@@ -917,12 +1447,10 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   overflow: hidden;
 }
-
 .left-panel {
   width: 220px;
   background: #fafafa;
 }
-
 .full-height-tabs {
   height: 100%;
 }
@@ -930,7 +1458,6 @@ onBeforeUnmount(() => {
   height: calc(100% - 40px);
   overflow: hidden;
 }
-
 .right-panel {
   flex: 1;
   display: flex;
@@ -1068,7 +1595,6 @@ onBeforeUnmount(() => {
 .friend-index-layout {
   position: relative;
 }
-
 .friend-groups {
   padding-right: 24px;
 }
@@ -1143,7 +1669,6 @@ onBeforeUnmount(() => {
   padding: 15px;
   background: #f5f7fa;
 }
-
 .message-row {
   margin-bottom: 15px;
 }
@@ -1175,6 +1700,63 @@ onBeforeUnmount(() => {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
+/* 群组工具栏 */
+.group-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid #ebeef5;
+  background: #fafafa;
+  flex-wrap: wrap;
+}
+.announce-input-area {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid #ebeef5;
+  background: #fffbe6;
+}
+.group-member-panel {
+  border-top: 1px solid #ebeef5;
+  background: #fafafa;
+}
+.panel-title {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #606266;
+}
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+.member-name {
+  flex: 1;
+  font-size: 13px;
+}
+.select-friends-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.select-friend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.select-friend-item:hover {
+  background: #f5f7fa;
+}
+.select-friend-item.selected {
+  background: #ecf5ff;
+}
+
 .input-area {
   padding: 15px;
   border-top: 1px solid #ebeef5;
@@ -1204,7 +1786,6 @@ onBeforeUnmount(() => {
 .draggable-robot-button:active {
   cursor: grabbing;
 }
-
 .unread-badge {
   position: absolute;
   top: -5px;

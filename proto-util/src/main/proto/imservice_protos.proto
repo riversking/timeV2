@@ -97,6 +97,11 @@ message FriendListRes {
     repeated FriendDetailRes friendList = 1;
 }
 
+message GroupDetailReq {
+    int64 groupId = 1;
+    LoginUser loginUser = 2;
+}
+
 message GroupDetailRes {
     int64 groupId = 1;
     string groupName = 2;
