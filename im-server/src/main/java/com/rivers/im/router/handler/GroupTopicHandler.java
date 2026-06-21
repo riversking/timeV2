@@ -217,7 +217,7 @@ public class GroupTopicHandler implements TopicHandler {
                             });
                 })
                 .doOnError(e -> log.error("❌ [Group] 踢人失败: userId={}, groupId={}", userId, groupId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(_ -> Mono.empty());
     }
 
     /**

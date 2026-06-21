@@ -278,10 +278,10 @@
                   @click="selectGroup(group)"
                 >
                   <el-avatar size="small" :src="group.avatar">
-                    {{ group.name?.charAt(0) }}
+                    {{ group.groupName?.charAt(0) }}
                   </el-avatar>
                   <div class="friend-info">
-                    <div>{{ group.name }}</div>
+                    <div>{{ group.groupName }}</div>
                     <div class="remark">
                       {{ group.announcement || group.description || "" }}
                     </div>
@@ -297,7 +297,7 @@
       <div class="right-panel">
         <div class="chat-header">
           <span v-if="selectedGroup">
-            群聊 <b>{{ selectedGroup.name }}</b>
+            群聊 <b>{{ selectedGroup.groupName }}</b>
             <span style="color: #909399; font-size: 12px">
               ({{ groupMembers.length }}人)
             </span>
@@ -328,13 +328,16 @@
             <div v-else class="msg-content ai-msg">
               <el-avatar
                 size="small"
-                :src="selectedGroup?.avatar || selectedUser?.friendAvatar"
-                >{{
-                  selectedGroup?.name?.charAt(0) ||
-                  selectedUser?.friendName?.charAt(0) ||
-                  "AI"
-                }}</el-avatar
-              >
+                :src="
+                  msg.fromUserId
+                    ? (groupMembers.find(m => m.userId === msg.fromUserId)?.avatar || selectedGroup?.avatar)
+                    : (selectedGroup?.avatar || selectedUser?.friendAvatar)
+                "
+              >{{
+                msg.fromUserId
+                  ? (groupMembers.find(m => m.userId === msg.fromUserId)?.username?.charAt(0) || '?')
+                  : (selectedGroup?.groupName?.charAt(0) || selectedUser?.friendName?.charAt(0) || 'AI')
+              }}</el-avatar>
               <span class="msg-text">{{ msg.content }}</span>
             </div>
           </div>
@@ -408,20 +411,17 @@
               </el-avatar>
               <span class="member-name">{{ member.username }}</span>
               <el-tag
-                :type="
-                  member.role === 3
-                    ? 'danger'
-                    : member.role === 2
-                      ? 'warning'
-                      : ''
-                "
+                v-if="member.role === 3"
+                type="danger"
                 size="small"
                 effect="plain"
-              >
-                {{
-                  member.role === 3 ? "群主" : member.role === 2 ? "管理员" : ""
-                }}
-              </el-tag>
+              >群主</el-tag>
+              <el-tag
+                v-else-if="member.role === 2"
+                type="warning"
+                size="small"
+                effect="plain"
+              >管理员</el-tag>
               <el-button
                 v-if="
                   isGroupAdmin &&
@@ -612,11 +612,12 @@ interface ChatMessage {
   id?: string;
   type: "user" | "ai";
   content: string;
+  fromUserId?: string;
 }
 
 interface Group {
   groupId: number;
-  name: string;
+  groupName: string;
   avatar?: string;
   description?: string;
   announcement?: string;
@@ -735,7 +736,7 @@ const chatHistoryList = computed(() => {
         const g = groupList.value.find((x) => x.groupId === gid);
         return {
           userId: id,
-          username: g?.name || "群聊",
+          username: g?.groupName || "群聊",
           avatar: g?.avatar,
           lastMessage: lastMsg.content,
           unreadCount: 0,
@@ -1016,9 +1017,9 @@ const loadFriendList = async () => {
 // ========== 群组操作 ==========
 const loadMyGroups = async () => {
   try {
-    const res = await getMyGroups({ userId: currentUserId.value });
+    const res = await getMyGroups({});
     if (res.code === 200)
-      groupList.value = Array.isArray(res.data) ? res.data : [];
+      groupList.value = Array.isArray(res.data.groups) ? res.data.groups : [];
   } catch {
     /* silent */
   }
@@ -1028,7 +1029,7 @@ const loadGroupMembers = async (groupId: number) => {
   try {
     const res = await getGroupMembers({ groupId });
     if (res.code === 200)
-      groupMembers.value = Array.isArray(res.data) ? res.data : [];
+      groupMembers.value = Array.isArray(res.data.groupMembers) ? res.data.groupMembers : [];
   } catch {
     /* silent */
   }
@@ -1089,7 +1090,9 @@ const handleInviteMembers = async () => {
     ElMessage.success("邀请已发送");
     showInviteDialog.value = false;
     setTimeout(() => {
-      if (selectedGroup.value) loadGroupMembers(selectedGroup.value.groupId);
+      if (selectedGroup.value) {
+        loadGroupMembers(selectedGroup.value.groupId);
+      }
     }, 500);
   } catch {
     ElMessage.error("邀请失败");
@@ -1234,7 +1237,7 @@ const handleChatMessage = (payload: any) => {
   const isGroupMsg = payload.chatType === "group";
   const targetId = isGroupMsg ? `group:${payload.groupId}` : payload.from;
   const targetName = isGroupMsg
-    ? groupList.value.find((g) => g.groupId === payload.groupId)?.name || "群聊"
+    ? groupList.value.find((g) => g.groupId === payload.groupId)?.groupName || "群聊"
     : (
         onlineUsers.value.find((u) => u.friendId === payload.from) ||
         friendList.value.find((f) => f.friendId === payload.from)
@@ -1267,6 +1270,7 @@ const handleChatMessage = (payload: any) => {
     id: fingerprint,
     type: "ai",
     content: payload.content,
+    fromUserId: isGroupMsg ? payload.from : undefined,
   };
   if (!messageCache.value.has(targetId)) messageCache.value.set(targetId, []);
   messageCache.value.get(targetId)!.push(newMessage);

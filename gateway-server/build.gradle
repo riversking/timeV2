@@ -31,7 +31,6 @@ dependencies {
     implementation ('io.github.riversking:rivers-core:1.0.23')
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
-    implementation 'com.alibaba:fastjson:2.0.58'
     implementation files('../protos/userservice_protos.jar')
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'

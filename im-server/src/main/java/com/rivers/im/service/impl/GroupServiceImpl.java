@@ -101,7 +101,7 @@ public class GroupServiceImpl implements IGroupService {
                                             return GroupMemberDetailRes.newBuilder()
                                                     .setGroupId(m.getGroupId())
                                                     .setUserId(m.getUserId())
-                                                    .setUserName(user != null ? user.getUsername() : "未知")
+                                                    .setUsername(user != null ? user.getUsername() : "未知")
                                                     .setUserAvatar(user != null ? user.getAvatar() : "")
                                                     .setRole(m.getRole())
                                                     .setJoinAt(DateTimeFormatter

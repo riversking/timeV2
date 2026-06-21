@@ -31,7 +31,7 @@ public interface TimerGroupMemberMapper extends ReactiveCrudRepository<TimerGrou
 
     @Query("UPDATE timer_group_member SET " +
             "is_deleted = 1, " +
-            "update_user = :operator, " +
+            "update_user = :operator " +
             "WHERE group_id = :groupId " +
             "  AND user_id = :userId " +
             "AND is_deleted = 0")
@@ -41,7 +41,7 @@ public interface TimerGroupMemberMapper extends ReactiveCrudRepository<TimerGrou
 
     @Query("UPDATE timer_group_member SET " +
             " is_deleted = 1," +
-            " update_user = :operator, " +
+            " update_user = :operator " +
             "WHERE group_id = :groupId " +
             "  AND is_deleted = 0")
     Mono<Integer> deleteAllMembers(@Param("groupId") Long groupId,

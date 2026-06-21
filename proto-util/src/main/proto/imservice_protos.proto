@@ -122,7 +122,7 @@ message MyGroupsRes {
 message GroupMemberDetailRes {
     int64 groupId = 1;
     string userId = 2;
-    string userName = 3;
+    string username = 3;
     string userAvatar = 4;
     int32 role = 5;
     string joinAt = 6;
