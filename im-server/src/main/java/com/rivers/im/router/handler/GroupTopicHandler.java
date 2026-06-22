@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
  *
  */
 
+
 /**
  * group topic handler
  *
@@ -41,6 +42,13 @@ public class GroupTopicHandler implements TopicHandler {
     private static final int DEFAULT_MAX_MEMBERS = 200;
     private static final String GROUP_ID = "groupId";
     private static final String USER_IDS = "userIds";
+    private static final String GROUP_ANNOUNCE = "group_announce";
+    private static final String GROUP_INVITE = "group_invite";
+    private static final String GROUP_KICK = "group_kick";
+    private static final String GROUP_DISMISS = "group_dismiss";
+    private static final String NO_GROUP_ID = "缺少群组ID";
+    private static final String GROUP_LEAVE = "group_leave";
+    private static final String GROUP_CREATE = "group_create";
 
     private final TimerGroupMapper timerGroupMapper;
     private final TimerGroupMemberMapper timerGroupMemberMapper;
@@ -87,7 +95,7 @@ public class GroupTopicHandler implements TopicHandler {
         String name = payload.path("name").asString("");
         if (name.isEmpty()) {
             log.warn("👥 [Group] 群名称为空: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_CREATE, false, "群名称不能为空");
         }
         String description = payload.path("description").asString("");
         String avatar = payload.path("avatar").asString("");
@@ -125,9 +133,12 @@ public class GroupTopicHandler implements TopicHandler {
                                                     savedGroup.getDescription() : "")
                                             .set("members", memberArr)));
                 })
+                .then(sendResult(userId, GROUP_CREATE, true, "群组创建成功"))
                 .doOnSuccess(v -> log.info("👥 [Group] 群组创建成功(静默): name={}, creator={}", name, userId))
-                .doOnError(e -> log.error("❌ [Group] 创建群组失败: userId={}", userId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 创建群组失败: userId={}", userId, e);
+                    return sendResult(userId, GROUP_CREATE, false, "创建群组失败");
+                });
     }
 
     /**
@@ -137,19 +148,23 @@ public class GroupTopicHandler implements TopicHandler {
         long groupId = payload.path(GROUP_ID).asLong(0);
         if (groupId == 0) {
             log.warn("👥 [Group] 退出群组缺少 groupId: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_LEAVE, false, NO_GROUP_ID);
         }
         return timerGroupMemberMapper.selectByGroupIdAndUserId(groupId, userId)
                 .flatMap(member -> {
                     if (member.getRole() == ROLE_OWNER) {
                         log.warn("👥 [Group] 群主不能直接退出: userId={}, groupId={}", userId, groupId);
-                        return Mono.empty();
+                        return sendResult(userId, GROUP_LEAVE, false,
+                                "群主不能直接退出，请先转让或解散群组");
                     }
                     return timerGroupMemberMapper.deleteMember(groupId, userId, userId)
-                            .then(pushToUser(userId, "group_left", buildSimplePayload(groupId)));
+                            .then(pushToUser(userId, "group_left", buildSimplePayload(groupId)))
+                            .then(sendResult(userId, GROUP_LEAVE, true, "已退出群组"));
                 })
-                .doOnError(e -> log.error("❌ [Group] 退出群组失败: userId={}, groupId={}", userId, groupId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 退出群组失败: userId={}, groupId={}", userId, groupId, e);
+                    return sendResult(userId, GROUP_LEAVE, false, "退出群组失败");
+                });
     }
 
     /**
@@ -160,13 +175,13 @@ public class GroupTopicHandler implements TopicHandler {
         long groupId = payload.path(GROUP_ID).asLong(0);
         if (groupId == 0) {
             log.warn("👥 [Group] 解散群组缺少 groupId: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_DISMISS, false, NO_GROUP_ID);
         }
         return timerGroupMemberMapper.selectByGroupIdAndUserId(groupId, userId)
                 .flatMap(member -> {
                     if (member.getRole() != ROLE_OWNER) {
                         log.warn("👥 [Group] 非群主不能解散: userId={}, groupId={}", userId, groupId);
-                        return Mono.empty();
+                        return sendResult(userId, GROUP_DISMISS, false, "只有群主可以解散群组");
                     }
                     ObjectNode notifyData = buildSimplePayload(groupId);
                     return pushToGroup(groupId, "group_dismissed", notifyData)
@@ -177,10 +192,13 @@ public class GroupTopicHandler implements TopicHandler {
                                         g.setUpdateUser(userId);
                                         g.setUpdateTime(LocalDateTime.now());
                                         return timerGroupMapper.save(g).then();
-                                    }));
+                                    }))
+                            .then(sendResult(userId, GROUP_DISMISS, true, "群组已解散"));
                 })
-                .doOnError(e -> log.error("❌ [Group] 解散群组失败: userId={}, groupId={}", userId, groupId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 解散群组失败: userId={}, groupId={}", userId, groupId, e);
+                    return sendResult(userId, GROUP_DISMISS, false, "解散群组失败");
+                });
     }
 
     /**
@@ -192,32 +210,36 @@ public class GroupTopicHandler implements TopicHandler {
         String targetUserId = payload.path("targetUserId").asString("");
         if (groupId == 0 || targetUserId.isEmpty()) {
             log.warn("👥 [Group] 踢人参数不全: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_KICK, false, "参数不全");
         }
         if (targetUserId.equals(userId)) {
             log.warn("👥 [Group] 不能踢自己: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_KICK, false, "不能踢自己");
         }
         return timerGroupMemberMapper.selectByGroupIdAndUserId(groupId, userId)
                 .flatMap(operator -> {
                     if (operator.getRole() < ROLE_ADMIN) {
                         log.warn("👥 [Group] 无权限踢人: userId={}, role={}", userId, operator.getRole());
-                        return Mono.empty();
+                        return sendResult(userId, GROUP_KICK, false, "无权限踢人");
                     }
                     return timerGroupMemberMapper.selectByGroupIdAndUserId(groupId, targetUserId)
                             .flatMap(target -> {
                                 if (target.getRole() >= operator.getRole()) {
                                     log.warn("👥 [Group] 不能踢同级或更高权限: op={}, target={}",
                                             userId, targetUserId);
-                                    return Mono.empty();
+                                    return sendResult(userId, GROUP_KICK, false,
+                                            "不能踢出同级或更高权限成员");
                                 }
                                 return timerGroupMemberMapper.deleteMember(groupId, targetUserId, userId)
                                         .then(pushToUser(targetUserId, "kicked_from_group",
-                                                buildSimplePayload(groupId)));
+                                                buildSimplePayload(groupId)))
+                                        .then(sendResult(userId, GROUP_KICK, true, "已踢出成员"));
                             });
                 })
-                .doOnError(e -> log.error("❌ [Group] 踢人失败: userId={}, groupId={}", userId, groupId, e))
-                .onErrorResume(_ -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 踢人失败: userId={}, groupId={}", userId, groupId, e);
+                    return sendResult(userId, GROUP_KICK, false, "踢人失败");
+                });
     }
 
     /**
@@ -229,7 +251,7 @@ public class GroupTopicHandler implements TopicHandler {
         JsonNode userIdsNode = payload.path(USER_IDS);
         if (groupId == 0 || !userIdsNode.isArray() || userIdsNode.isEmpty()) {
             log.warn("👥 [Group] 邀请参数不全: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_INVITE, false, "参数不全");
         }
         return timerGroupMemberMapper.selectByGroupIdAndUserId(groupId, userId)
                 .flatMap(member -> timerGroupMemberMapper.selectMembersCount(groupId)
@@ -256,17 +278,22 @@ public class GroupTopicHandler implements TopicHandler {
                                             .collectList()
                                             .flatMap(joined -> {
                                                 if (joined.isEmpty()) {
-                                                    return Mono.empty();
+                                                    return sendResult(userId, GROUP_INVITE,
+                                                            false, "所选用户已在群中");
                                                 }
                                                 return pushToUser(userId, "members_invited",
                                                         objectMapper.createObjectNode()
                                                                 .put(GROUP_ID, groupId)
                                                                 .set(USER_IDS,
-                                                                        objectMapper.valueToTree(joined)));
+                                                                        objectMapper.valueToTree(joined)))
+                                                        .then(sendResult(userId, GROUP_INVITE,
+                                                                true, "邀请已发送"));
                                             });
                                 })))
-                .doOnError(e -> log.error("❌ [Group] 邀请失败: userId={}, groupId={}", userId, groupId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 邀请失败: userId={}, groupId={}", userId, groupId, e);
+                    return sendResult(userId, GROUP_INVITE, false, "邀请失败");
+                });
     }
 
     /**
@@ -278,22 +305,25 @@ public class GroupTopicHandler implements TopicHandler {
         String announcement = payload.path("announcement").asString("");
         if (groupId == 0) {
             log.warn("👥 [Group] 发布公告缺少 groupId: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, GROUP_ANNOUNCE, false, NO_GROUP_ID);
         }
         return timerGroupMemberMapper.selectByGroupIdAndUserId(groupId, userId)
                 .flatMap(member -> {
                     if (member.getRole() < ROLE_ADMIN) {
                         log.warn("👥 [Group] 无权限发公告: userId={}, role={}", userId, member.getRole());
-                        return Mono.empty();
+                        return sendResult(userId, GROUP_ANNOUNCE, false, "无权限发布公告");
                     }
                     return timerGroupMapper.updateAnnouncement(groupId, announcement, userId)
-                            .then(pushToGroup(groupId, "group_announce",
+                            .then(pushToGroup(groupId, GROUP_ANNOUNCE,
                                     objectMapper.createObjectNode()
                                             .put(GROUP_ID, groupId)
-                                            .put("announcement", announcement)));
+                                            .put("announcement", announcement)))
+                            .then(sendResult(userId, GROUP_ANNOUNCE, true, "公告已发布"));
                 })
-                .doOnError(e -> log.error("❌ [Group] 发布公告失败: userId={}, groupId={}", userId, groupId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Group] 发布公告失败: userId={}, groupId={}", userId, groupId, e);
+                    return sendResult(userId, GROUP_ANNOUNCE, false, "发布公告失败");
+                });
     }
 
     // ==================== 推送辅助方法 ====================
@@ -344,5 +374,23 @@ public class GroupTopicHandler implements TopicHandler {
         member.setCreateUser(operator);
         member.setUpdateUser(operator);
         return member;
+    }
+
+    /**
+     * 向前端推送操作结果（成功或失败）
+     */
+    private Mono<Void> sendResult(String userId, String operation, boolean success, String message) {
+        ObjectNode data = objectMapper.createObjectNode()
+                .put(ACTION, operation + "_result")
+                .put("success", success)
+                .put("message", message)
+                .put("ts", System.currentTimeMillis());
+        return webSocketPushService.pushToUser(userId, GROUP_NOTIFY, data)
+                .doOnSuccess(v -> log.debug("👥 [Group] 操作结果已推送: to={}, op={}, success={}",
+                        userId, operation, success))
+                .onErrorResume(e -> {
+                    log.warn("⚠️ 推送操作结果失败: to={}, op={}", userId, operation, e);
+                    return Mono.empty();
+                });
     }
 }

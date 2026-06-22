@@ -25,13 +25,16 @@ import java.util.Optional;
 @NullMarked
 public class FriendTopicHandler implements TopicHandler {
 
-    public static final String ACTION = "action";
-    public static final String NOTIFICATION = "notification";
-    public static final String REQUEST_ID = "requestId";
+    private static final String ACTION = "action";
+    private static final String NOTIFICATION = "notification";
+    private static final String REQUEST_ID = "requestId";
     /**
      * 系统通知消息类型
      */
     private static final int MSG_TYPE_NOTIFY = 6;
+    private static final String FRIEND_REJECT = "friend_reject";
+    private static final String FRIEND_ACCEPT = "friend_accept";
+    private static final String FRIEND_REQUEST = "friend_request";
 
     private final TimerFriendRequestMapper timerFriendRequestMapper;
     private final TimerFriendMapper timerFriendMapper;
@@ -79,11 +82,11 @@ public class FriendTopicHandler implements TopicHandler {
         String targetUserId = payload.path("to").asString("");
         if (targetUserId.isEmpty()) {
             log.warn("👥 [Friend] 好友请求缺少目标用户: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, FRIEND_REQUEST, false, "缺少目标用户");
         }
         if (targetUserId.equals(userId)) {
             log.warn("👥 [Friend] 不能添加自己为好友: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, FRIEND_REQUEST, false, "不能添加自己为好友");
         }
         String msg = payload.path("msg").asString("");
         return timerFriendRequestMapper
@@ -118,22 +121,27 @@ public class FriendTopicHandler implements TopicHandler {
                                         timerFriendRequestMapper.save(receiverRecord)
                                 )
                                 .flatMap(tuple ->
-                                        saveAndPush(targetUserId, "friend_request", userId, tuple.getT2().getId()));
+                                        saveAndPush(targetUserId, FRIEND_REQUEST, userId, tuple.getT2().getId()))
+                                .then(sendResult(userId, FRIEND_REQUEST, true, "好友请求已发送"));
                     }
                     TimerFriendRequest existing = optional.get();
                     if (existing.getStatus() == TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 已存在待处理请求，更新更新时间: {} <-> {}", userId, targetUserId);
                         return timerFriendRequestMapper
                                 .updateTimeByRelationId(existing.getRelationId(), LocalDateTime.now())
-                                .then(timerFriendRequestMapper.selectByRelationIdAndUserId(existing.getRelationId(), targetUserId))
+                                .then(timerFriendRequestMapper
+                                        .selectByRelationIdAndUserId(existing.getRelationId(), targetUserId))
                                 .flatMap(receiverRecord ->
-                                        saveAndPush(targetUserId, "friend_request", userId, receiverRecord.getId()));
+                                        saveAndPush(targetUserId, FRIEND_REQUEST, userId, receiverRecord.getId()))
+                                .then(sendResult(userId, FRIEND_REQUEST, true, "好友请求已发送"));
                     }
                     log.info("👥 [Friend] 请求已处理，无需重复操作: {} <-> {}", userId, targetUserId);
-                    return Mono.empty();
+                    return sendResult(userId, FRIEND_REQUEST, false, "该好友请求已处理，无需重复操作");
                 })
-                .doOnError(e -> log.error("❌ [Friend] 发送好友请求失败: {} -> {}", userId, targetUserId, e))
-                .onErrorResume(_ -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Friend] 发送好友请求失败: {} -> {}", userId, targetUserId, e);
+                    return sendResult(userId, FRIEND_REQUEST, false, "发送失败");
+                });
     }
 
     /**
@@ -143,21 +151,22 @@ public class FriendTopicHandler implements TopicHandler {
         long requestId = payload.path(REQUEST_ID).asLong(0);
         if (requestId == 0) {
             log.warn("👥 [Friend] 接受请求缺少 requestId: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, FRIEND_ACCEPT, false, "缺少请求ID");
         }
         return timerFriendRequestMapper.findById(requestId)
                 .flatMap(request -> {
                     if (request.getStatus() != TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 请求已处理，无需重复操作: requestId={}", requestId);
-                        return Mono.empty();
+                        return sendResult(userId, FRIEND_ACCEPT, false, "请求已处理，无需重复操作");
                     }
                     if (!userId.equals(request.getUserId())) {
-                        log.warn("👥 [Friend] 非目标用户无法接受请求: userId={}, recordUserId={}", userId, request.getUserId());
-                        return Mono.empty();
+                        log.warn("👥 [Friend] 非目标用户无法接受请求: userId={}, recordUserId={}",
+                                userId, request.getUserId());
+                        return sendResult(userId, FRIEND_ACCEPT, false, "无权操作此请求");
                     }
                     if (request.getDirection() != TimerFriendRequest.Direction.RECEIVED.getCode()) {
                         log.warn("👥 [Friend] 只能接受收到的请求: userId={}, direction={}", userId, request.getDirection());
-                        return Mono.empty();
+                        return sendResult(userId, FRIEND_ACCEPT, false, "只能接受收到的请求");
                     }
                     String opponentId = request.getOpponentId();
                     TimerFriend requestFriend = TimerFriend.builder()
@@ -177,12 +186,15 @@ public class FriendTopicHandler implements TopicHandler {
                                     TimerFriendRequest.Status.ACCEPTED.getCode())
                             .then(timerFriendMapper.save(requestFriend))
                             .then(timerFriendMapper.save(targetFriend))
-                            .then(saveAndPush(opponentId, "friend_accept", userId, requestId))
+                            .then(saveAndPush(opponentId, FRIEND_ACCEPT, userId, requestId))
+                            .then(sendResult(userId, FRIEND_ACCEPT, true, "已接受好友请求"))
                             .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已接受: {} <-> {}",
                                     opponentId, userId));
                 })
-                .doOnError(e -> log.error("❌ [Friend] 接受好友请求失败: requestId={}", requestId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Friend] 接受好友请求失败: requestId={}", requestId, e);
+                    return sendResult(userId, FRIEND_ACCEPT, false, "操作失败");
+                });
     }
 
     /**
@@ -192,32 +204,35 @@ public class FriendTopicHandler implements TopicHandler {
         long requestId = payload.path(REQUEST_ID).asLong(0);
         if (requestId == 0) {
             log.warn("👥 [Friend] 拒绝请求缺少 requestId: userId={}", userId);
-            return Mono.empty();
+            return sendResult(userId, FRIEND_REJECT, false, "缺少请求ID");
         }
         return timerFriendRequestMapper.findById(requestId)
                 .flatMap(request -> {
                     if (request.getStatus() != TimerFriendRequest.Status.PENDING.getCode()) {
                         log.info("👥 [Friend] 请求已处理，无需重复操作: requestId={}", requestId);
-                        return Mono.empty();
+                        return sendResult(userId, FRIEND_REJECT, false, "请求已处理，无需重复操作");
                     }
                     if (!userId.equals(request.getUserId())) {
-                        log.warn("👥 [Friend] 非目标用户无法拒绝请求: userId={}, recordUserId={}", userId, request.getUserId());
-                        return Mono.empty();
+                        log.warn("👥 [Friend] 非目标用户无法拒绝请求: userId={}, recordUserId={}",
+                                userId, request.getUserId());
+                        return sendResult(userId, FRIEND_REJECT, false, "无权操作此请求");
                     }
                     if (request.getDirection() != TimerFriendRequest.Direction.RECEIVED.getCode()) {
                         log.warn("👥 [Friend] 只能拒绝收到的请求: userId={}, direction={}", userId, request.getDirection());
-                        return Mono.empty();
+                        return sendResult(userId, FRIEND_REJECT, false, "只能拒绝收到的请求");
                     }
-
                     return timerFriendRequestMapper
                             .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.REJECTED.getCode())
-                            .then(saveAndPush(request.getOpponentId(), "friend_reject", userId, requestId))
+                            .then(saveAndPush(request.getOpponentId(), FRIEND_REJECT, userId, requestId))
+                            .then(sendResult(userId, FRIEND_REJECT, true, "已拒绝好友请求"))
                             .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已拒绝: {} -> {}",
                                     request.getOpponentId(), userId));
                 })
-                .doOnError(e -> log.error("❌ [Friend] 拒绝好友请求失败: requestId={}", requestId, e))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    log.error("❌ [Friend] 拒绝好友请求失败: requestId={}", requestId, e);
+                    return sendResult(userId, FRIEND_REJECT, false, "操作失败");
+                });
     }
 
     /**
@@ -272,6 +287,24 @@ public class FriendTopicHandler implements TopicHandler {
                 .doOnSuccess(v -> log.info("👥 [Friend] 实时通知已推送: to={}, action={}", toUserId, action))
                 .onErrorResume(e -> {
                     log.debug("📭 用户离线或推送失败，通知已入库: to={}, action={}", toUserId, action);
+                    return Mono.empty();
+                });
+    }
+
+    /**
+     * 向前端推送操作结果
+     */
+    private Mono<Void> sendResult(String userId, String operation, boolean success, String message) {
+        ObjectNode data = objectMapper.createObjectNode()
+                .put(ACTION, operation + "_result")
+                .put("success", success)
+                .put("message", message)
+                .put("ts", System.currentTimeMillis());
+        return webSocketPushService.pushToUser(userId, NOTIFICATION, data)
+                .doOnSuccess(v -> log.debug("👥 [Friend] 操作结果已推送: to={}, op={}, success={}",
+                        userId, operation, success))
+                .onErrorResume(e -> {
+                    log.warn("⚠️ 推送操作结果失败: to={}, op={}", userId, operation, e);
                     return Mono.empty();
                 });
     }

@@ -330,14 +330,20 @@
                 size="small"
                 :src="
                   msg.fromUserId
-                    ? (groupMembers.find(m => m.userId === msg.fromUserId)?.avatar || selectedGroup?.avatar)
-                    : (selectedGroup?.avatar || selectedUser?.friendAvatar)
+                    ? groupMembers.find((m) => m.userId === msg.fromUserId)
+                        ?.avatar || selectedGroup?.avatar
+                    : selectedGroup?.avatar || selectedUser?.friendAvatar
                 "
-              >{{
-                msg.fromUserId
-                  ? (groupMembers.find(m => m.userId === msg.fromUserId)?.username?.charAt(0) || '?')
-                  : (selectedGroup?.groupName?.charAt(0) || selectedUser?.friendName?.charAt(0) || 'AI')
-              }}</el-avatar>
+                >{{
+                  msg.fromUserId
+                    ? groupMembers
+                        .find((m) => m.userId === msg.fromUserId)
+                        ?.username?.charAt(0) || "?"
+                    : selectedGroup?.groupName?.charAt(0) ||
+                      selectedUser?.friendName?.charAt(0) ||
+                      "AI"
+                }}</el-avatar
+              >
               <span class="msg-text">{{ msg.content }}</span>
             </div>
           </div>
@@ -415,13 +421,15 @@
                 type="danger"
                 size="small"
                 effect="plain"
-              >群主</el-tag>
+                >群主</el-tag
+              >
               <el-tag
                 v-else-if="member.role === 2"
                 type="warning"
                 size="small"
                 effect="plain"
-              >管理员</el-tag>
+                >管理员</el-tag
+              >
               <el-button
                 v-if="
                   isGroupAdmin &&
@@ -467,53 +475,12 @@
   />
 
   <!-- 创建群组对话框 -->
-  <el-dialog
+  <CreateGroupModal
+    ref="createGroupModalRef"
     v-model="showCreateGroupDialog"
-    title="创建群组"
-    width="420px"
-    :close-on-click-modal="false"
-  >
-    <el-input
-      v-model="groupNameInput"
-      placeholder="请输入群名称"
-      style="margin-bottom: 12px"
-    />
-    <div class="select-friends-title">
-      选择好友
-      <span style="color: #909399; font-size: 12px"
-        >(已选 {{ selectedFriendIds.size }} 人)</span
-      >
-    </div>
-    <el-scrollbar max-height="300px">
-      <div
-        v-for="friend in friendList"
-        :key="friend.friendId"
-        class="select-friend-item"
-        :class="{ selected: selectedFriendIds.has(friend.friendId) }"
-        @click="toggleFriendSelect(friend.friendId)"
-      >
-        <el-checkbox :model-value="selectedFriendIds.has(friend.friendId)" />
-        <el-avatar size="small" :src="friend.friendAvatar">
-          {{ friend.friendName?.charAt(0) }}
-        </el-avatar>
-        <span>{{ friend.friendName }}</span>
-      </div>
-      <div v-if="friendList.length === 0" class="loading-text">
-        暂无好友可选
-      </div>
-    </el-scrollbar>
-    <template #footer>
-      <el-button @click="showCreateGroupDialog = false">取消</el-button>
-      <el-button
-        type="primary"
-        :disabled="!groupNameInput.trim() || selectedFriendIds.size === 0"
-        :loading="creatingGroup"
-        @click="handleCreateGroup"
-      >
-        创建
-      </el-button>
-    </template>
-  </el-dialog>
+    :friend-list="friendList"
+    @create-group="handleCreateGroup"
+  />
 
   <!-- 邀请入群对话框 -->
   <el-dialog
@@ -586,6 +553,7 @@ import {
 } from "@/api/im";
 import { useUserStore } from "@/store/user";
 import AddFriendModal from "./AddFriendModal.vue";
+import CreateGroupModal from "./CreateGroupModal.vue";
 
 const WS_URL = "/websocket/im-server/ws";
 const userStore = useUserStore();
@@ -681,9 +649,9 @@ const groupList = ref<Group[]>([]);
 const selectedGroup = ref<Group | null>(null);
 const groupMembers = ref<GroupMember[]>([]);
 const showCreateGroupDialog = ref(false);
-const creatingGroup = ref(false);
-const groupNameInput = ref("");
-const selectedFriendIds = ref<Set<string>>(new Set());
+const createGroupModalRef = ref<InstanceType<typeof CreateGroupModal> | null>(
+  null,
+);
 const showGroupMemberPanel = ref(false);
 const showGroupAnnounceInput = ref(false);
 const groupAnnounceText = ref("");
@@ -928,7 +896,6 @@ const handleAddFriend = (formData: { userId: string; remark: string }) => {
       remark: formData.remark,
     };
     friendRequests.value.unshift(localRequest);
-    ElMessage.success("好友请求已发送");
     showAddFriendDialog.value = false;
   } catch {
     ElMessage.error("发送失败");
@@ -943,7 +910,6 @@ const acceptFriendRequest = async (requestId: number) => {
     sendWsMessage("friend", { action: "accept", requestId });
     const request = friendRequests.value.find((r) => r.requestId === requestId);
     if (request) request.status = "已同意";
-    ElMessage.success("已同意好友请求");
     await new Promise((resolve) => setTimeout(resolve, 500));
     await loadFriendList();
     await loadFriendRequests();
@@ -1029,41 +995,30 @@ const loadGroupMembers = async (groupId: number) => {
   try {
     const res = await getGroupMembers({ groupId });
     if (res.code === 200)
-      groupMembers.value = Array.isArray(res.data.groupMembers) ? res.data.groupMembers : [];
+      groupMembers.value = Array.isArray(res.data.groupMembers)
+        ? res.data.groupMembers
+        : [];
   } catch {
     /* silent */
   }
 };
 
 const openCreateGroupDialog = () => {
-  groupNameInput.value = "";
-  selectedFriendIds.value = new Set();
   showCreateGroupDialog.value = true;
 };
 
-const toggleFriendSelect = (friendId: string) => {
-  const next = new Set(selectedFriendIds.value);
-  next.has(friendId) ? next.delete(friendId) : next.add(friendId);
-  selectedFriendIds.value = next;
-};
-
-const handleCreateGroup = async () => {
-  if (!groupNameInput.value.trim() || selectedFriendIds.value.size === 0)
-    return;
-  creatingGroup.value = true;
+const handleCreateGroup = (data: { name: string; userIds: string[] }) => {
   try {
     sendWsMessage("group", {
       action: "create",
-      name: groupNameInput.value.trim(),
-      userIds: [...selectedFriendIds.value],
+      name: data.name,
+      userIds: data.userIds,
     });
-    ElMessage.success("群组创建成功");
     showCreateGroupDialog.value = false;
-    setTimeout(() => loadMyGroups(), 600);
   } catch {
     ElMessage.error("创建群组失败");
   } finally {
-    creatingGroup.value = false;
+    createGroupModalRef.value?.setSubmitting(false);
   }
 };
 
@@ -1087,13 +1042,7 @@ const handleInviteMembers = async () => {
       groupId: selectedGroup.value.groupId,
       userIds: [...inviteSelectedIds.value],
     });
-    ElMessage.success("邀请已发送");
     showInviteDialog.value = false;
-    setTimeout(() => {
-      if (selectedGroup.value) {
-        loadGroupMembers(selectedGroup.value.groupId);
-      }
-    }, 500);
   } catch {
     ElMessage.error("邀请失败");
   } finally {
@@ -1116,8 +1065,6 @@ const handleKickMember = async (userId: string, username: string) => {
     groupId: group.groupId,
     targetUserId: userId,
   });
-  ElMessage.success(`已将 ${username} 踢出`);
-  loadGroupMembers(group.groupId);
 };
 
 const handleLeaveGroup = async () => {
@@ -1131,10 +1078,8 @@ const handleLeaveGroup = async () => {
     return;
   }
   sendWsMessage("group", { action: "leave", groupId: group.groupId });
-  ElMessage.success("已退出群组");
   selectedGroup.value = null;
   chatMessages.value = [];
-  loadMyGroups();
 };
 
 const handleDismissGroup = async () => {
@@ -1150,10 +1095,8 @@ const handleDismissGroup = async () => {
     return;
   }
   sendWsMessage("group", { action: "dismiss", groupId: group.groupId });
-  ElMessage.success("群组已解散");
   selectedGroup.value = null;
   chatMessages.value = [];
-  loadMyGroups();
 };
 
 const handleAnnounce = () => {
@@ -1164,7 +1107,6 @@ const handleAnnounce = () => {
     announcement: groupAnnounceText.value.trim(),
   });
   selectedGroup.value.announcement = groupAnnounceText.value.trim();
-  ElMessage.success("公告已发布");
   showGroupAnnounceInput.value = false;
 };
 
@@ -1195,6 +1137,53 @@ const handleGroupNotification = (payload: any) => {
         groupAnnounceText.value = payload.announcement || "";
       }
       loadMyGroups();
+      break;
+    case "group_create_result":
+      if (payload.success) {
+        ElMessage.success(payload.message || "群组创建成功");
+        loadMyGroups();
+      } else {
+        ElMessage.error(payload.message || "创建群组失败");
+      }
+      break;
+    case "group_leave_result":
+      if (payload.success) {
+        ElMessage.success(payload.message || "已退出群组");
+        loadMyGroups();
+      } else {
+        ElMessage.error(payload.message || "退出群组失败");
+      }
+      break;
+    case "group_dismiss_result":
+      if (payload.success) {
+        ElMessage.success(payload.message || "群组已解散");
+        loadMyGroups();
+      } else {
+        ElMessage.error(payload.message || "解散群组失败");
+      }
+      break;
+    case "group_kick_result":
+      if (payload.success) {
+        ElMessage.success(payload.message || "已踢出成员");
+        if (group !== null) loadGroupMembers(group.groupId);
+      } else {
+        ElMessage.error(payload.message || "踢人失败");
+      }
+      break;
+    case "group_invite_result":
+      if (payload.success) {
+        ElMessage.success(payload.message || "邀请已发送");
+        if (group !== null) loadGroupMembers(group.groupId);
+      } else {
+        ElMessage.error(payload.message || "邀请失败");
+      }
+      break;
+    case "group_announce_result":
+      if (payload.success) {
+        ElMessage.success(payload.message || "公告已发布");
+      } else {
+        ElMessage.error(payload.message || "发布公告失败");
+      }
       break;
   }
 };
@@ -1237,7 +1226,8 @@ const handleChatMessage = (payload: any) => {
   const isGroupMsg = payload.chatType === "group";
   const targetId = isGroupMsg ? `group:${payload.groupId}` : payload.from;
   const targetName = isGroupMsg
-    ? groupList.value.find((g) => g.groupId === payload.groupId)?.groupName || "群聊"
+    ? groupList.value.find((g) => g.groupId === payload.groupId)?.groupName ||
+      "群聊"
     : (
         onlineUsers.value.find((u) => u.friendId === payload.from) ||
         friendList.value.find((f) => f.friendId === payload.from)
@@ -1326,6 +1316,27 @@ const handleFriendMessage = (payload: any) => {
     );
     if (matched) matched.status = "已拒绝";
     ElMessage.info("对方已拒绝你的好友请求");
+  } else if (payload.action === "friend_request_result") {
+    if (payload.success) {
+      ElMessage.success(payload.message || "好友请求已发送");
+    } else {
+      ElMessage.error(payload.message || "发送失败");
+    }
+  } else if (payload.action === "friend_accept_result") {
+    if (payload.success) {
+      ElMessage.success(payload.message || "已接受好友请求");
+      loadFriendList();
+      loadFriendRequests();
+    } else {
+      ElMessage.error(payload.message || "操作失败");
+    }
+  } else if (payload.action === "friend_reject_result") {
+    if (payload.success) {
+      ElMessage.success(payload.message || "已拒绝好友请求");
+      loadFriendRequests();
+    } else {
+      ElMessage.error(payload.message || "操作失败");
+    }
   }
 };
 
