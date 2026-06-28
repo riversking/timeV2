@@ -30,6 +30,7 @@ import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,7 +44,6 @@ import java.util.concurrent.TimeUnit;
 public class RequestGlobalFilter implements GlobalFilter, Ordered {
 
     private static final String CODE_401 = "{\"code\":401,\"msg\":\"鉴权失败\"}";
-    private static final String ATTR_CLAIMS = "gateway.claims";
     private static final String ATTR_LOGIN_USER = "gateway.loginUser";
 
     private final GatewayFilter delegate;
@@ -90,7 +90,7 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
         if (!Objects.equals(redisToken, token)) {
             return respond401(exchange);
         }
-        stringRedisTemplate.expire("token:" + claimsId, 30, TimeUnit.MINUTES);
+        stringRedisTemplate.expire("token:" + claimsId, Duration.ofMinutes(30));
         LoginUser loginUser = extractLoginUser(claims);
         if (loginUser == null) {
             return respond401(exchange);

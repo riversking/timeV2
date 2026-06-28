@@ -23,12 +23,6 @@ import java.time.LocalDateTime;
  * group topic handler
  *
  */
-
-
-/**
- * group topic handler
- *
- */
 @Component
 @Slf4j
 @NullMarked

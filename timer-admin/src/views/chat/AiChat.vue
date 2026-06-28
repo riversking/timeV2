@@ -306,147 +306,172 @@
             >与 <b>{{ selectedUser.friendName }}</b> 聊天中</span
           >
           <span v-else style="color: #909399">请选择一个用户开始聊天</span>
-          <el-tag v-if="isConnected" type="success" size="small" effect="plain"
-            >已连接</el-tag
-          >
-          <el-tag v-else type="danger" size="small" effect="plain"
-            >连接中...</el-tag
-          >
-        </div>
-
-        <div ref="messagesContainer" class="messages-area">
-          <div
-            v-for="(msg, index) in chatMessages"
-            :key="msg.id || index"
-            class="message-row"
-            :class="msg.type"
-          >
-            <div v-if="msg.type === 'user'" class="msg-content user-msg">
-              <el-avatar size="small" style="background: #409eff">我</el-avatar>
-              <span class="msg-text">{{ msg.content }}</span>
-            </div>
-            <div v-else class="msg-content ai-msg">
-              <el-avatar
-                size="small"
-                :src="
-                  msg.fromUserId
-                    ? groupMembers.find((m) => m.userId === msg.fromUserId)
-                        ?.avatar || selectedGroup?.avatar
-                    : selectedGroup?.avatar || selectedUser?.friendAvatar
-                "
-                >{{
-                  msg.fromUserId
-                    ? groupMembers
-                        .find((m) => m.userId === msg.fromUserId)
-                        ?.username?.charAt(0) || "?"
-                    : selectedGroup?.groupName?.charAt(0) ||
-                      selectedUser?.friendName?.charAt(0) ||
-                      "AI"
-                }}</el-avatar
-              >
-              <span class="msg-text">{{ msg.content }}</span>
-            </div>
+          <div class="header-actions">
+            <el-tag v-if="isConnected" type="success" size="small" effect="plain"
+              >已连接</el-tag
+            >
+            <el-tag v-else type="danger" size="small" effect="plain"
+              >连接中...</el-tag
+            >
+            <el-button
+              v-if="selectedGroup"
+              size="small"
+              text
+              @click="showChatSidebar = !showChatSidebar"
+            >
+              <el-icon :size="18"><MoreFilled /></el-icon>
+            </el-button>
           </div>
         </div>
 
-        <!-- 群操作栏 -->
-        <div v-if="selectedGroup" class="group-toolbar">
-          <el-button
-            size="small"
-            @click="showGroupMemberPanel = !showGroupMemberPanel"
-          >
-            <el-icon><UserFilled /></el-icon> 成员
-          </el-button>
-          <el-button
-            size="small"
-            @click="showGroupAnnounceInput = !showGroupAnnounceInput"
-          >
-            公告
-          </el-button>
-          <el-button size="small" @click="openInviteDialog">
-            <el-icon><Plus /></el-icon> 邀请
-          </el-button>
-          <el-button
-            v-if="!isGroupOwner"
-            size="small"
-            type="warning"
-            @click="handleLeaveGroup"
-          >
-            退出
-          </el-button>
-          <el-button
-            v-if="isGroupOwner"
-            size="small"
-            type="danger"
-            @click="handleDismissGroup"
-          >
-            解散
-          </el-button>
-        </div>
-
-        <!-- 群公告编辑 -->
-        <div
-          v-if="selectedGroup && showGroupAnnounceInput"
-          class="announce-input-area"
-        >
-          <el-input
-            v-model="groupAnnounceText"
-            :placeholder="selectedGroup.announcement || '输入群公告...'"
-            size="small"
-            @keyup.enter="handleAnnounce"
-          />
-          <el-button size="small" type="primary" @click="handleAnnounce"
-            >发布</el-button
-          >
-        </div>
-
-        <!-- 群成员面板 -->
-        <div
-          v-if="selectedGroup && showGroupMemberPanel"
-          class="group-member-panel"
-        >
-          <div class="panel-title">群成员 ({{ groupMembers.length }})</div>
-          <el-scrollbar max-height="150px">
+        <div class="messages-wrapper">
+          <div ref="messagesContainer" class="messages-area">
             <div
-              v-for="member in groupMembers"
-              :key="member.userId"
-              class="member-item"
+              v-for="(msg, index) in chatMessages"
+              :key="msg.id || index"
+              class="message-row"
+              :class="msg.type"
             >
-              <el-avatar size="small" :src="member.avatar">
-                {{ member.username?.charAt(0) }}
-              </el-avatar>
-              <span class="member-name">{{ member.username }}</span>
-              <el-tag
-                v-if="member.role === 3"
-                type="danger"
-                size="small"
-                effect="plain"
-                >群主</el-tag
-              >
-              <el-tag
-                v-else-if="member.role === 2"
-                type="warning"
-                size="small"
-                effect="plain"
-                >管理员</el-tag
-              >
-              <el-button
-                v-if="
-                  isGroupAdmin &&
-                  member.userId !== currentUserId &&
-                  member.role <
-                    (groupMembers.find((m) => m.userId === currentUserId)
-                      ?.role || 0)
-                "
-                size="small"
-                type="danger"
-                text
-                @click="handleKickMember(member.userId, member.username)"
-              >
-                踢出
+              <div v-if="msg.type === 'user'" class="msg-content user-msg">
+                <el-avatar size="small" style="background: #409eff">我</el-avatar>
+                <span class="msg-text">{{ msg.content }}</span>
+              </div>
+              <div v-else class="msg-content ai-msg">
+                <el-avatar
+                  size="small"
+                  :src="
+                    msg.fromUserId
+                      ? groupMembers.find((m) => m.userId === msg.fromUserId)
+                          ?.avatar || selectedGroup?.avatar
+                      : selectedGroup?.avatar || selectedUser?.friendAvatar
+                  "
+                  >{{
+                    msg.fromUserId
+                      ? groupMembers
+                          .find((m) => m.userId === msg.fromUserId)
+                          ?.username?.charAt(0) || "?"
+                      : selectedGroup?.groupName?.charAt(0) ||
+                        selectedUser?.friendName?.charAt(0) ||
+                        "AI"
+                  }}</el-avatar
+                >
+                <span class="msg-text">{{ msg.content }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 群聊侧边栏 -->
+          <div
+            v-if="selectedGroup"
+            class="chat-sidebar"
+            :class="{ open: showChatSidebar }"
+          >
+            <div class="sidebar-header">
+              <span class="sidebar-title">群设置</span>
+              <el-button size="small" text @click="showChatSidebar = false">
+                <el-icon><Close /></el-icon>
               </el-button>
             </div>
-          </el-scrollbar>
+            <div class="sidebar-body">
+              <!-- 群成员 -->
+              <div class="sidebar-section">
+                <div class="sidebar-section-title">
+                  群成员 ({{ groupMembers.length }})
+                </div>
+                <div class="member-list">
+                  <div
+                    v-for="member in groupMembers"
+                    :key="member.userId"
+                    class="member-item"
+                  >
+                    <el-avatar size="small" :src="member.avatar">
+                      {{ member.username?.charAt(0) }}
+                    </el-avatar>
+                    <span class="member-name">{{ member.username }}</span>
+                    <el-tag
+                      v-if="member.role === 3"
+                      type="danger"
+                      size="small"
+                      effect="plain"
+                      >群主</el-tag
+                    >
+                    <el-tag
+                      v-else-if="member.role === 2"
+                      type="warning"
+                      size="small"
+                      effect="plain"
+                      >管理员</el-tag
+                    >
+                    <el-button
+                      v-if="
+                        isGroupAdmin &&
+                        member.userId !== currentUserId &&
+                        member.role <
+                          (groupMembers.find((m) => m.userId === currentUserId)
+                            ?.role || 0)
+                      "
+                      size="small"
+                      type="danger"
+                      text
+                      @click="handleKickMember(member.userId, member.username)"
+                    >
+                      踢出
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 群公告 -->
+              <div class="sidebar-section">
+                <div class="sidebar-section-title">群公告</div>
+                <div
+                  v-if="selectedGroup.announcement"
+                  class="announce-text"
+                >
+                  {{ selectedGroup.announcement }}
+                </div>
+                <div class="announce-input-row">
+                  <el-input
+                    v-model="groupAnnounceText"
+                    :placeholder="
+                      selectedGroup.announcement ? '修改公告...' : '输入群公告...'
+                    "
+                    size="small"
+                    @keyup.enter="handleAnnounce"
+                  />
+                  <el-button size="small" type="primary" @click="handleAnnounce"
+                    >发布</el-button
+                  >
+                </div>
+              </div>
+
+              <!-- 操作 -->
+              <div class="sidebar-section">
+                <div class="sidebar-section-title">操作</div>
+                <div class="action-buttons">
+                  <el-button size="small" @click="openInviteDialog">
+                    <el-icon><Plus /></el-icon> 邀请
+                  </el-button>
+                  <el-button
+                    v-if="!isGroupOwner"
+                    size="small"
+                    type="warning"
+                    @click="handleLeaveGroup"
+                  >
+                    退出群聊
+                  </el-button>
+                  <el-button
+                    v-if="isGroupOwner"
+                    size="small"
+                    type="danger"
+                    @click="handleDismissGroup"
+                  >
+                    解散群聊
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="input-area">
@@ -542,6 +567,8 @@ import {
   ArrowRight,
   Loading,
   UserFilled,
+  MoreFilled,
+  Close,
 } from "@element-plus/icons-vue";
 import useWebSocket from "@/composables/useWebSocket";
 import { ElNotification, ElMessage, ElMessageBox } from "element-plus";
@@ -553,7 +580,7 @@ import {
 } from "@/api/im";
 import { useUserStore } from "@/store/user";
 import AddFriendModal from "./AddFriendModal.vue";
-import CreateGroupModal from "./CreateGroupModal.vue";
+import CreateGroupModal from "./AddGroupModal.vue";
 
 const WS_URL = "/websocket/im-server/ws";
 const userStore = useUserStore();
@@ -652,8 +679,7 @@ const showCreateGroupDialog = ref(false);
 const createGroupModalRef = ref<InstanceType<typeof CreateGroupModal> | null>(
   null,
 );
-const showGroupMemberPanel = ref(false);
-const showGroupAnnounceInput = ref(false);
+const showChatSidebar = ref(false);
 const groupAnnounceText = ref("");
 const showInviteDialog = ref(false);
 const inviteSelectedIds = ref<Set<string>>(new Set());
@@ -803,8 +829,7 @@ const selectGroup = async (group: Group) => {
   const cacheKey = `group:${group.groupId}`;
   const cached = messageCache.value.get(cacheKey);
   chatMessages.value = cached ? [...cached] : [];
-  showGroupMemberPanel.value = false;
-  showGroupAnnounceInput.value = false;
+  showChatSidebar.value = false;
   groupAnnounceText.value = group.announcement || "";
   nextTick(scrollToBottom);
   loadGroupMembers(group.groupId);
@@ -1107,7 +1132,7 @@ const handleAnnounce = () => {
     announcement: groupAnnounceText.value.trim(),
   });
   selectedGroup.value.announcement = groupAnnounceText.value.trim();
-  showGroupAnnounceInput.value = false;
+  groupAnnounceText.value = "";
 };
 
 const handleGroupNotification = (payload: any) => {
@@ -1411,6 +1436,7 @@ const handleDialogClose = () => {
   selectedGroup.value = null;
   groupMembers.value = [];
   chatMessages.value = [];
+  showChatSidebar.value = false;
 };
 
 // ========== 生命周期 ==========
@@ -1679,7 +1705,7 @@ onBeforeUnmount(() => {
 }
 
 .messages-area {
-  flex: 1;
+  height: 100%;
   overflow-y: auto;
   padding: 15px;
   background: #f5f7fa;
@@ -1715,32 +1741,96 @@ onBeforeUnmount(() => {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-/* 群组工具栏 */
-.group-toolbar {
+/* header actions */
+.header-actions {
   display: flex;
-  gap: 6px;
-  padding: 6px 12px;
-  border-top: 1px solid #ebeef5;
-  background: #fafafa;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
-.announce-input-area {
+
+/* messages wrapper */
+.messages-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* chat sidebar */
+.chat-sidebar {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 260px;
+  background: #fff;
+  border-left: 1px solid #ebeef5;
+  box-shadow: -2px 0 12px rgba(0, 0, 0, 0.06);
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  z-index: 10;
   display: flex;
-  gap: 6px;
-  padding: 6px 12px;
-  border-top: 1px solid #ebeef5;
-  background: #fffbe6;
+  flex-direction: column;
 }
-.group-member-panel {
-  border-top: 1px solid #ebeef5;
+.chat-sidebar.open {
+  transform: translateX(0);
+}
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #ebeef5;
   background: #fafafa;
+  flex-shrink: 0;
 }
-.panel-title {
-  padding: 6px 12px;
+.sidebar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+.sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+.sidebar-section {
+  margin-bottom: 16px;
+}
+.sidebar-section:last-child {
+  margin-bottom: 0;
+}
+.sidebar-section-title {
   font-size: 12px;
   font-weight: 600;
-  color: #606266;
+  color: #909399;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #f0f0f0;
 }
+.member-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.announce-text {
+  font-size: 13px;
+  color: #606266;
+  padding: 8px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.announce-input-row {
+  display: flex;
+  gap: 6px;
+}
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .member-item {
   display: flex;
   align-items: center;

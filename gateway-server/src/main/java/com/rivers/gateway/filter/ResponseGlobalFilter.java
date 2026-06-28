@@ -29,6 +29,7 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
     private static final String EXPORT_PATH = "export";
     private static final String DEFAULT_RES = "{\"code\": 500, \"message\": \"Internal Server Error\"}";
     private static final byte[] DEFAULT_RES_BYTES = DEFAULT_RES.getBytes(StandardCharsets.UTF_8);
+    private static final int LOG_MAX_BYTES = 500;
 
     @Override
     @NullMarked
@@ -56,6 +57,8 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
                                 buffer -> {
                                     byte[] contentBytes = new byte[buffer.readableByteCount()];
                                     buffer.read(contentBytes);
+                                    DataBufferUtils.release(originalBuffer);
+                                    logSplit(contentBytes);
                                     String originalBody = new String(contentBytes, StandardCharsets.UTF_8);
                                     log.info("Original Response Body: {}", originalBody);
                                     byte[] finalBytes = contentBytes;
@@ -71,6 +74,19 @@ public class ResponseGlobalFilter implements GlobalFilter, Ordered {
                                 },
                                 DataBufferUtils::release
                         ));
+            }
+
+            private void logSplit(byte[] contentBytes) {
+                if (log.isInfoEnabled()) {
+                    int logLen = Math.min(contentBytes.length, LOG_MAX_BYTES);
+                    String snippet = new String(contentBytes, 0, logLen, StandardCharsets.UTF_8);
+                    if (contentBytes.length > LOG_MAX_BYTES) {
+                        log.info("Original Response Body (truncated {}/{} bytes): {}...",
+                                LOG_MAX_BYTES, contentBytes.length, snippet);
+                    } else {
+                        log.info("Original Response Body: {}", snippet);
+                    }
+                }
             }
         };
 
