@@ -18,7 +18,7 @@ public interface TimerGroupMapper extends ReactiveCrudRepository<TimerGroup, Lon
 
     @Query("UPDATE timer_group SET " +
             "announcement = :announcement, " +
-            "update_user = :userId, " +
+            "update_user = :userId " +
             "WHERE id = :groupId AND is_deleted = 0")
     Mono<Integer> updateAnnouncement(@Param("groupId") Long groupId,
                                      @Param("announcement") String announcement,
