@@ -90,12 +90,12 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
         if (!Objects.equals(redisToken, token)) {
             return respond401(exchange);
         }
-        stringRedisTemplate.expire("token:" + claimsId, Duration.ofMinutes(30));
         LoginUser loginUser = extractLoginUser(claims);
         if (loginUser == null) {
             return respond401(exchange);
         }
         exchange.getAttributes().put(ATTR_LOGIN_USER, loginUser);
+        stringRedisTemplate.expire("token:" + claimsId, Duration.ofMinutes(30));
         if (request.getMethod() == HttpMethod.GET) {
             return handleGetRequest(exchange, chain, loginUser.getUserId());
         }
