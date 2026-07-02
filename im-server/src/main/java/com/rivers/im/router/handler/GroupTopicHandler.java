@@ -184,7 +184,6 @@ public class GroupTopicHandler implements TopicHandler {
                                     .flatMap(g -> {
                                         g.setIsDeleted(1);
                                         g.setUpdateUser(userId);
-                                        g.setUpdateTime(LocalDateTime.now());
                                         return timerGroupMapper.save(g).then();
                                     }))
                             .then(sendResult(userId, GROUP_DISMISS, true, "群组已解散"));
