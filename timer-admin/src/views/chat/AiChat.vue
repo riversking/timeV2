@@ -307,7 +307,11 @@
           >
           <span v-else style="color: #909399">请选择一个用户开始聊天</span>
           <div class="header-actions">
-            <el-tag v-if="isConnected" type="success" size="small" effect="plain"
+            <el-tag
+              v-if="isConnected"
+              type="success"
+              size="small"
+              effect="plain"
               >已连接</el-tag
             >
             <el-tag v-else type="danger" size="small" effect="plain"
@@ -333,7 +337,9 @@
               :class="msg.type"
             >
               <div v-if="msg.type === 'user'" class="msg-content user-msg">
-                <el-avatar size="small" style="background: #409eff">我</el-avatar>
+                <el-avatar size="small" style="background: #409eff"
+                  >我</el-avatar
+                >
                 <span class="msg-text">{{ msg.content }}</span>
               </div>
               <div v-else class="msg-content ai-msg">
@@ -424,17 +430,16 @@
               <!-- 群公告 -->
               <div class="sidebar-section">
                 <div class="sidebar-section-title">群公告</div>
-                <div
-                  v-if="selectedGroup.announcement"
-                  class="announce-text"
-                >
+                <div v-if="selectedGroup.announcement" class="announce-text">
                   {{ selectedGroup.announcement }}
                 </div>
                 <div class="announce-input-row">
                   <el-input
                     v-model="groupAnnounceText"
                     :placeholder="
-                      selectedGroup.announcement ? '修改公告...' : '输入群公告...'
+                      selectedGroup.announcement
+                        ? '修改公告...'
+                        : '输入群公告...'
                     "
                     size="small"
                     @keyup.enter="handleAnnounce"
@@ -473,8 +478,18 @@
             </div>
           </div>
         </div>
-
         <div class="input-area">
+          <div style="position: relative">
+            <el-button text @click="showEmoji = !showEmoji">
+              <span style="font-size: 20px">😀</span>
+            </el-button>
+            <EmojiPicker
+              v-if="showEmoji"
+              :native="true"
+              @select="onSelectEmoji"
+              style="position: absolute; bottom: 50px; left: 0; z-index: 1000"
+            />
+          </div>
           <el-input
             v-model="userMessage"
             placeholder="请输入消息..."
@@ -581,6 +596,8 @@ import {
 import { useUserStore } from "@/store/user";
 import AddFriendModal from "./AddFriendModal.vue";
 import CreateGroupModal from "./AddGroupModal.vue";
+import EmojiPicker from "vue3-emoji-picker";
+import "vue3-emoji-picker/css";
 
 const WS_URL = "/websocket/im-server/ws";
 const userStore = useUserStore();
@@ -670,6 +687,8 @@ const dragOffset = ref({ x: 0, y: 0 });
 
 const isSubscribed = ref(false);
 const currentUserId = ref("");
+const showEmoji = ref(false);
+
 
 // ========== 群组相关状态 ==========
 const groupList = ref<Group[]>([]);
@@ -684,6 +703,11 @@ const groupAnnounceText = ref("");
 const showInviteDialog = ref(false);
 const inviteSelectedIds = ref<Set<string>>(new Set());
 const invitingMembers = ref(false);
+
+const onSelectEmoji = (emoji: { i: string }) => {
+  userMessage.value += emoji.i;
+  showEmoji.value = false;
+};
 
 // ========== 计算属性 ==========
 const pendingRequestCount = computed(() => {
@@ -1126,16 +1150,19 @@ const handleDismissGroup = async () => {
 
 const handleAnnounce = () => {
   if (!selectedGroup.value || !groupAnnounceText.value.trim()) return;
+  const prevAnnouncement = selectedGroup.value.announcement; // ← 保存旧值
   sendWsMessage("group", {
     action: "announce",
     groupId: selectedGroup.value.groupId,
     announcement: groupAnnounceText.value.trim(),
+    prevAnnouncement, // ← 传给后端，失败时回传
   });
+  // 乐观更新
   selectedGroup.value.announcement = groupAnnounceText.value.trim();
   groupAnnounceText.value = "";
 };
 
-const handleGroupNotification = (payload: any) => {
+const handleGroupNotification = async (payload: any) => {
   const group = selectedGroup.value;
   switch (payload.action) {
     case "group_created":
@@ -1166,7 +1193,14 @@ const handleGroupNotification = (payload: any) => {
     case "group_create_result":
       if (payload.success) {
         ElMessage.success(payload.message || "群组创建成功");
-        loadMyGroups();
+        await loadMyGroups();
+        // 自动跳转到新创建的群组
+        if (payload.groupId && groupList.value.length > 0) {
+          const newGroup = groupList.value.find(
+            (g) => g.groupId === payload.groupId,
+          );
+          if (newGroup) selectGroup(newGroup);
+        }
       } else {
         ElMessage.error(payload.message || "创建群组失败");
       }
@@ -1206,10 +1240,48 @@ const handleGroupNotification = (payload: any) => {
     case "group_announce_result":
       if (payload.success) {
         ElMessage.success(payload.message || "公告已发布");
+        loadMyGroups(); // ← 刷新群组列表以获取最新公告
+        if (selectedGroup.value) {
+          groupAnnounceText.value = selectedGroup.value.announcement || "";
+        }
       } else {
         ElMessage.error(payload.message || "发布公告失败");
+        // 回滚本地乐观更新的公告内容和输入框
+        if (selectedGroup.value && payload.prevAnnouncement !== undefined) {
+          selectedGroup.value.announcement = payload.prevAnnouncement;
+          groupAnnounceText.value = payload.prevAnnouncement || "";
+        }
       }
       break;
+  }
+};
+
+// 在 handleChatMessage 旁边新增一个 handler
+const handleChatResult = (payload: any) => {
+  // 找到本地乐观添加的消息
+  const localMsg = chatMessages.value.find((m) => m.id === payload.msgId);
+  if (!localMsg) return;
+
+  if (payload.success) {
+    // 成功：把本地临时 ID 替换为服务端 msgId
+    if (payload.serverMsgId) {
+      localMsg.id = payload.serverMsgId;
+    }
+  } else {
+    // 失败：移除本地的乐观消息，通知用户
+    chatMessages.value = chatMessages.value.filter(
+      (m) => m.id !== payload.msgId,
+    );
+    // 同时清理缓存
+    const cacheKey = chatCacheKey.value;
+    const cached = messageCache.value.get(cacheKey);
+    if (cached) {
+      messageCache.value.set(
+        cacheKey,
+        cached.filter((m) => m.id !== payload.msgId),
+      );
+    }
+    ElMessage.error(payload.message || "消息发送失败");
   }
 };
 
@@ -1234,6 +1306,9 @@ watch(
             handleGroupNotification(payload);
           } else {
             handleFriendMessage(payload);
+          }
+          if (payload.action === "chat_send_result") {
+            handleChatResult(payload);
           }
         }
       }
@@ -1344,8 +1419,13 @@ const handleFriendMessage = (payload: any) => {
   } else if (payload.action === "friend_request_result") {
     if (payload.success) {
       ElMessage.success(payload.message || "好友请求已发送");
+      loadFriendRequests(); // ← 刷新请求列表，获取后端真实的 requestId
     } else {
       ElMessage.error(payload.message || "发送失败");
+      // 移除乐观添加的本地记录
+      friendRequests.value = friendRequests.value.filter(
+        (r) => r.requestId !== 0,
+      );
     }
   } else if (payload.action === "friend_accept_result") {
     if (payload.success) {
