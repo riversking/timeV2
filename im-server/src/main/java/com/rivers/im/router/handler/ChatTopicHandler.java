@@ -64,10 +64,9 @@ public class ChatTopicHandler implements TopicHandler {
                 .put(CONTENT, content)
                 .put("chatType", "private")
                 .put("ts", System.currentTimeMillis());
-        return Mono.when(
-                        webSocketPushService.pushToUser(toUserId, "chat", chatData),
-                        webSocketPushService.pushToUser(userId, "chat", chatData)
-                )
+        // ✅ 只推送给接收方，不再回显给发送者
+        //    发送者的确认由下方的 sendResult 通知负责
+        return webSocketPushService.pushToUser(toUserId, "chat", chatData)
                 .then(sendResult(userId, payload, true, "发送成功"))
                 .onErrorResume(e -> {
                     log.error("❌ [Chat] 私聊推送失败: {} -> {}", userId, toUserId, e);
@@ -86,12 +85,12 @@ public class ChatTopicHandler implements TopicHandler {
                 .put("chatType", "group")
                 .put("groupId", groupId)
                 .put("ts", System.currentTimeMillis());
+        // ✅ 推送给群内所有非发送者成员，发送者只收 sendResult
         return timerGroupMemberMapper.selectByGroupId(groupId)
                 .filter(member -> !member.getUserId().equals(userId))
                 .flatMap(member ->
                         webSocketPushService.pushToUser(member.getUserId(), "chat", chatData)
                                 .onErrorResume(e -> Mono.empty()))
-                .then(webSocketPushService.pushToUser(userId, "chat", chatData))
                 .then(sendResult(userId, payload, true, "发送成功"))
                 .onErrorResume(e -> {
                     log.error("❌ [Chat] 群聊推送失败: groupId={}, userId={}", groupId, userId, e);
@@ -100,11 +99,6 @@ public class ChatTopicHandler implements TopicHandler {
     }
 
     // ======================== 结果反馈 ========================
-
-    /**
-     * 向前端推送操作结果（成功或失败）。
-     * payload 中的 msgId 会被原样带回，方便前端匹配本地乐观消息。
-     */
     private Mono<Void> sendResult(String userId, JsonNode payload, boolean success, String message) {
         String msgId = payload.has(MSG_ID) ? payload.get(MSG_ID).asString() : "";
         ObjectNode data = objectMapper.createObjectNode()

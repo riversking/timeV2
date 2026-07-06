@@ -479,23 +479,33 @@
           </div>
         </div>
         <div class="input-area">
-          <div style="position: relative">
-            <el-button text @click="showEmoji = !showEmoji">
-              <span style="font-size: 20px">😀</span>
-            </el-button>
+          <div class="input-wrapper">
+            <!-- 透明遮罩：点击空白处关闭 -->
+            <div
+              v-if="showEmoji"
+              class="emoji-backdrop"
+              @click="showEmoji = false"
+            ></div>
+            <el-input
+              ref="msgInputRef"
+              v-model="userMessage"
+              placeholder="请输入消息..."
+              @keyup.enter="sendMessage"
+              :disabled="!isConnected || (!selectedUser && !selectedGroup)"
+            >
+              <template #suffix>
+                <span class="emoji-trigger" @click.stop="showEmoji = !showEmoji"
+                  >😀</span
+                >
+              </template>
+            </el-input>
             <EmojiPicker
               v-if="showEmoji"
               :native="true"
               @select="onSelectEmoji"
-              style="position: absolute; bottom: 50px; left: 0; z-index: 1000"
+              class="emoji-popup"
             />
           </div>
-          <el-input
-            v-model="userMessage"
-            placeholder="请输入消息..."
-            @keyup.enter="sendMessage"
-            :disabled="!isConnected || (!selectedUser && !selectedGroup)"
-          />
           <el-button
             type="primary"
             @click="sendMessage"
@@ -688,7 +698,7 @@ const dragOffset = ref({ x: 0, y: 0 });
 const isSubscribed = ref(false);
 const currentUserId = ref("");
 const showEmoji = ref(false);
-
+const msgInputRef = ref<any>(null);
 
 // ========== 群组相关状态 ==========
 const groupList = ref<Group[]>([]);
@@ -707,6 +717,9 @@ const invitingMembers = ref(false);
 const onSelectEmoji = (emoji: { i: string }) => {
   userMessage.value += emoji.i;
   showEmoji.value = false;
+  nextTick(() => {
+    msgInputRef.value?.focus();
+  });
 };
 
 // ========== 计算属性 ==========
@@ -763,6 +776,7 @@ const chatHistoryList = computed(() => {
       const user =
         onlineUsers.value.find((u) => u.friendId === id) ||
         friendList.value.find((f) => f.friendId === id);
+      console.log("Hahahahahahaha", user);
       return {
         userId: id,
         username: user?.friendName || "未知用户",
@@ -1257,31 +1271,27 @@ const handleGroupNotification = async (payload: any) => {
 };
 
 // 在 handleChatMessage 旁边新增一个 handler
-const handleChatResult = (payload: any) => {
-  // 找到本地乐观添加的消息
+const handleChatSendResult = (payload: any) => {
   const localMsg = chatMessages.value.find((m) => m.id === payload.msgId);
-  if (!localMsg) return;
-
   if (payload.success) {
-    // 成功：把本地临时 ID 替换为服务端 msgId
-    if (payload.serverMsgId) {
-      localMsg.id = payload.serverMsgId;
+    // 成功：无需操作，消息已本地渲染
+    if (localMsg && payload.serverMsgId) {
+      localMsg.id = payload.serverMsgId; // 替换临时 ID 为服务端 ID（如果有）
     }
   } else {
-    // 失败：移除本地的乐观消息，通知用户
-    chatMessages.value = chatMessages.value.filter(
-      (m) => m.id !== payload.msgId,
-    );
-    // 同时清理缓存
-    const cacheKey = chatCacheKey.value;
-    const cached = messageCache.value.get(cacheKey);
-    if (cached) {
-      messageCache.value.set(
-        cacheKey,
-        cached.filter((m) => m.id !== payload.msgId),
-      );
+    // 失败：移除本地乐观消息
+    if (localMsg) {
+      chatMessages.value = chatMessages.value.filter((m) => m !== localMsg);
+      const cacheKey = chatCacheKey.value;
+      const cached = messageCache.value.get(cacheKey);
+      if (cached) {
+        messageCache.value.set(
+          cacheKey,
+          cached.filter((m) => m !== localMsg),
+        );
+      }
     }
-    ElMessage.error(payload.message || "消息发送失败");
+    ElMessage.error(payload.message || "发送失败");
   }
 };
 
@@ -1298,6 +1308,11 @@ watch(
         if (topic === "chat") handleChatMessage(payload);
         else if (topic === "status") handleStatusMessage(payload);
         else if (topic === "notification") {
+          // 新增：聊天发送结果
+          if (payload.action === "chat_send_result") {
+            handleChatSendResult(payload);
+            return; // 不要继续走到 handleFriendMessage
+          }
           if (
             payload.action?.startsWith("group_") ||
             payload.action === "members_invited" ||
@@ -1307,9 +1322,6 @@ watch(
           } else {
             handleFriendMessage(payload);
           }
-          if (payload.action === "chat_send_result") {
-            handleChatResult(payload);
-          }
         }
       }
     }
@@ -1318,12 +1330,35 @@ watch(
 );
 
 const handleChatMessage = (payload: any) => {
+  // ✅ 防御层1：过滤自己的回显（如果服务端漏了，这里兜底）
   if (payload.from === currentUserId.value) return;
+
   const fingerprint = generateMsgFingerprint(payload);
   if (processedMsgMap.has(fingerprint)) return;
   processedMsgMap.set(fingerprint, Date.now());
 
   const isGroupMsg = payload.chatType === "group";
+
+  // ✅ 防御层2：只接受来自已知好友或已知群组的消息
+  //    未知来源的消息直接丢弃，不加入 messageCache 和 chatHistoryUserIds
+  if (isGroupMsg) {
+    const knownGroup = groupList.value.find(
+      (g) => g.groupId === payload.groupId,
+    );
+    if (!knownGroup) {
+      console.warn("⚠️ 收到未知群组的消息，已丢弃: groupId=", payload.groupId);
+      return;
+    }
+  } else {
+    const knownUser =
+      friendList.value.find((f) => f.friendId === payload.from) ||
+      onlineUsers.value.find((u) => u.friendId === payload.from);
+    if (!knownUser) {
+      console.warn("⚠️ 收到非好友的消息，已丢弃: from=", payload.from);
+      return;
+    }
+  }
+
   const targetId = isGroupMsg ? `group:${payload.groupId}` : payload.from;
   const targetName = isGroupMsg
     ? groupList.value.find((g) => g.groupId === payload.groupId)?.groupName ||
@@ -1984,5 +2019,33 @@ onBeforeUnmount(() => {
   text-align: center;
   line-height: 14px;
   box-shadow: 0 2px 6px rgba(245, 108, 108, 0.5);
+}
+/* ========== 输入框内表情按钮 ========== */
+.input-wrapper {
+  flex: 1;
+  position: relative;
+}
+.emoji-trigger {
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+.emoji-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+.emoji-popup {
+  position: absolute;
+  bottom: 42px;
+  left: 0;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
 }
 </style>
