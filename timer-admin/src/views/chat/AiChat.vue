@@ -499,12 +499,11 @@
                 >
               </template>
             </el-input>
-            <EmojiPicker
-              v-if="showEmoji"
-              :native="true"
-              @select="onSelectEmoji"
+            <div
+              ref="emojiContainerRef"
               class="emoji-popup"
-            />
+              v-show="showEmoji"
+            ></div>
           </div>
           <el-button
             type="primary"
@@ -606,11 +605,14 @@ import {
 import { useUserStore } from "@/store/user";
 import AddFriendModal from "./AddFriendModal.vue";
 import CreateGroupModal from "./AddGroupModal.vue";
-import EmojiPicker from "vue3-emoji-picker";
-import "vue3-emoji-picker/css";
+import data from "@emoji-mart/data";
+import { init, Picker } from "emoji-mart";
 
 const WS_URL = "/websocket/im-server/ws";
 const userStore = useUserStore();
+const emojiReady = ref(false);
+init({ data });
+
 
 const {
   messages: wsMessages,
@@ -714,13 +716,32 @@ const showInviteDialog = ref(false);
 const inviteSelectedIds = ref<Set<string>>(new Set());
 const invitingMembers = ref(false);
 
-const onSelectEmoji = (emoji: { i: string }) => {
-  userMessage.value += emoji.i;
+const emojiContainerRef = ref<HTMLElement | null>(null);
+let pickerInstance: any = null;
+
+const onSelectEmoji = (emojiData: any) => {
+  userMessage.value += emojiData.native || "";
   showEmoji.value = false;
   nextTick(() => {
     msgInputRef.value?.focus();
   });
 };
+
+watch(showEmoji, (val) => {
+  if (val) {
+    nextTick(() => {
+      if (!pickerInstance && emojiContainerRef.value) {
+        pickerInstance = new Picker({ onEmojiSelect: onSelectEmoji });
+        emojiContainerRef.value.appendChild(pickerInstance);
+      }
+    });
+  } else {
+    if (pickerInstance) {
+      pickerInstance.remove();
+      pickerInstance = null;
+    }
+  }
+});
 
 // ========== 计算属性 ==========
 const pendingRequestCount = computed(() => {
