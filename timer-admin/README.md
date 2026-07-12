@@ -7,6 +7,8 @@ Learn more about the recommended Project Setup and IDE Support in the [Vue Docs 
 npm install vue3-emoji-picker
 npm install emoji-mart @emoji-mart/data
 
+npm uninstall emoji-mart @emoji-mart/data
+npm install emoji-mart@3
 
 import "emoji-mart/css/emoji-mart.css";
 import { Picker } from "emoji-mart";
