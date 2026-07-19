@@ -3,6 +3,7 @@ package com.rivers.user.controller;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.service.ILoginService;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -21,18 +22,18 @@ public class LoginController {
     }
 
     @PostMapping("login")
-    public ResultVO<AutoLoginRes> login(@RequestBody LoginReq loginReq) {
-        return loginService.login(loginReq);
+    public ResultVO<Void> login(@RequestBody LoginReq loginReq, ServerHttpResponse response) {
+        return loginService.login(loginReq, response);
     }
 
     @PostMapping("autoLogin")
-    public ResultVO<AutoLoginRes> autoLogin(@RequestHeader("Authorization") String authHeader) {
-        return loginService.autoLogin(authHeader);
+    public ResultVO<Void> autoLogin(@RequestHeader("Authorization") String authHeader, ServerHttpResponse response) {
+        return loginService.autoLogin(authHeader, response);
     }
 
     @PostMapping("refresh")
-    public ResultVO<AutoLoginRes> refresh(@RequestBody AutoLoginReq autoLoginReq) {
-        return loginService.refresh(autoLoginReq);
+    public ResultVO<Void> refresh(@RequestBody AutoLoginReq autoLoginReq, ServerHttpResponse response) {
+        return loginService.refresh(autoLoginReq, response);
     }
 
     @PostMapping("/qrcode/generate")

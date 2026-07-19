@@ -91,7 +91,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from "vue";
-import { login, getQrCode } from "@/api/auth";
+import { login, getQrCode, claimQrSession } from "@/api/auth";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/store/user";
@@ -285,13 +285,9 @@ const closeWebSocket = () => {
 };
 
 // 处理扫码登录成功
-const handleQrCodeLoginSuccess = (loginData: any) => {
+const handleQrCodeLoginSuccess = async (loginData: any) => {
   closeWebSocket();
-  // 保存token和用户信息
-  userStore.setToken(loginData.token);
-  userStore.setRefreshToken(loginData.refreshToken);
   ElMessage.success("扫码登录成功！");
-  router.replace({ path: "/home", replace: true });
 };
 
 // 提交登录
@@ -304,17 +300,10 @@ const handleLogin = async () => {
       password: form.value.password,
     });
     if (res.code === 200) {
-      // 1. 保存token
-      const token = res.data.token;
-      const refreshToken = res.data.refreshToken;
-      // 2. 保存用户信息到store
-      userStore.setToken(token);
-      userStore.setRefreshToken(refreshToken);
-      // 4. 跳转到首页
       ElMessage.success("登录成功！");
       await router.replace({ path: "/home", replace: true });
     } else {
-      error.value = "登录失败：未返回有效 token";
+      error.value = res.msg || "登录失败";
     }
   } catch (err: any) {
     console.error("登录请求失败:", err);

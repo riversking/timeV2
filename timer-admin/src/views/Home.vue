@@ -308,7 +308,6 @@ const showUserCenter = () => {
 const logout = async () => {
   try {
     localStorage.removeItem("token");
-    userStore.setToken("");
     userStore.setMenuRoutes([]);
     await router.replace("/login");
   } catch (error) {

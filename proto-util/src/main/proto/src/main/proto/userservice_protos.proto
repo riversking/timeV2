@@ -259,7 +259,7 @@ message LoginReq {
 }
 
 message LoginRes {
-    string token = 1;
+    string sessionId = 1;
 }
 
 message SaveDicReq {

@@ -2,7 +2,6 @@ import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { MenuTreeVO } from "@/proto";
 
-
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -49,8 +48,8 @@ export async function setupDynamicRoutes() {
   }
   userStore.setIsMenuLoaded(true);
   try {
-    const token = localStorage.getItem("token");
-    if (!token) {
+    const userStore = useUserStore();
+    if (!userStore.isLoggedIn()) {
       return;
     }
     const menuData = await userStore.fetchMenu();
@@ -112,14 +111,20 @@ function convertToRoutes(menuList: MenuTreeVO[]): RouteRecordRaw[] {
 
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
-  if (userStore.token && to.path === "/login") {
+
+  // 已登录 → 访问 /login 就跳首页
+  if (userStore.isLoggedIn() && to.path === "/login") {
     next("/");
     return;
   }
 
-  if (!userStore.token && to.path !== "/login") {
-    next("/login");
-    return;
+  // 未登录 + 非登录页 → 先尝试通过 cookie 恢复登录态
+  if (!userStore.isLoggedIn() && to.path !== "/login") {
+    const ok = await userStore.initAuth();
+    if (!ok) {
+      next("/login");
+      return;
+    }
   }
   if (
     !userStore.menuList.length &&
@@ -134,7 +139,7 @@ router.beforeEach(async (to, from, next) => {
         router.hasRoute(to.name as string) ||
         router.getRoutes().some((route) => route.path === to.path);
 
-      if (routeExists && userStore.token && to.path !== "/login") {
+      if (routeExists && userStore.isLoggedIn() && to.path !== "/login") {
         try {
           const newRouteExists =
             router.hasRoute(to.name as string) ||

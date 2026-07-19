@@ -1,6 +1,8 @@
 package com.rivers.user.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.google.common.collect.Maps;
@@ -15,16 +17,14 @@ import com.rivers.user.service.ILoginService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
-/**
- * @author xx
- */
 @Service
 @Slf4j
 public class LoginServiceImpl implements ILoginService {
@@ -34,16 +34,18 @@ public class LoginServiceImpl implements ILoginService {
     private static final String FAIL_PREFIX = "login:fail:";
     private static final String QR_PREFIX = "qr:code:";
     private static final String QR_STATUS_PREFIX = "qr:status:";
+    private static final String SESSION_PREFIX = "session:";
     private static final String BASIC_AUTH_PREFIX = "Basic ";
-
     private static final long QR_CODE_EXPIRE_SECONDS = 300L;
     private static final long JWT_EXPIRE_MINUTES = 30L;
     private static final long REFRESH_EXPIRE_DAYS = 30L;
     private static final long FAIL_LIMIT = 5L;
     private static final long FAIL_WINDOW_HOURS = 1L;
-    public static final String NO_USER = "用户不存在";
-    public static final String SCANNED = "SCANNED";
-
+    private static final String NO_USER = "用户不存在";
+    private static final String SCANNED = "SCANNED";
+    private static final String COOKIE_SESSION = "SESSION_ID";
+    private static final String SESSION_KEY_TOKEN = "accessToken";
+    public static final String REFRESH_TOKEN = "refreshToken";
     private final TimerUserMapper timerUserMapper;
     private final QrCodeWebSocketHandler qrCodeWebSocketHandler;
     private final StringRedisTemplate stringRedisTemplate;
@@ -56,10 +58,9 @@ public class LoginServiceImpl implements ILoginService {
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
-    // ==================== 登录 / 自动登录 / 刷新 ====================
 
     @Override
-    public ResultVO<AutoLoginRes> login(LoginReq loginReq) {
+    public ResultVO<Void> login(LoginReq loginReq, ServerHttpResponse response) {
         String username = loginReq.getUsername();
         String password = loginReq.getPassword();
         if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
@@ -67,16 +68,17 @@ public class LoginServiceImpl implements ILoginService {
         }
         String basicToken = Base64.getEncoder()
                 .encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
-        return doLogin(BASIC_AUTH_PREFIX + basicToken);
+        return doLogin(BASIC_AUTH_PREFIX + basicToken, response);
     }
 
     @Override
-    public ResultVO<AutoLoginRes> autoLogin(String authHeader) {
-        return doLogin(authHeader);
+    public ResultVO<Void> autoLogin(String authHeader, ServerHttpResponse response) {
+        return doLogin(authHeader, response);
     }
 
     @Override
-    public ResultVO<AutoLoginRes> refresh(AutoLoginReq autoLoginReq) {
+    public ResultVO<Void> refresh(AutoLoginReq autoLoginReq,
+                                  ServerHttpResponse response) {
         String refreshToken = autoLoginReq.getRefreshToken();
         if (StringUtils.isBlank(refreshToken)) {
             return ResultVO.fail(401, "请先登录");
@@ -97,14 +99,13 @@ public class LoginServiceImpl implements ILoginService {
         String token = JwtUtil.createJwt(loginUser, key);
         stringRedisTemplate.opsForValue()
                 .set(TOKEN_PREFIX + key, token, Duration.ofMinutes(JWT_EXPIRE_MINUTES));
-        AutoLoginRes autoLoginRes = AutoLoginRes.newBuilder()
-                .setToken(token)
-                .setRefreshToken(refreshToken)
-                .build();
-        return ResultVO.ok(autoLoginRes);
+        String sessionId = createSession(token, refreshToken);
+        setSessionCookie(response, sessionId);
+        return ResultVO.ok();
     }
 
     // ==================== 二维码登录 ====================
+
     @Override
     public ResultVO<QrCodeRes> generateQrCode() {
         String qrCodeId = UUID.randomUUID().toString();
@@ -153,7 +154,6 @@ public class LoginServiceImpl implements ILoginService {
         String qrCodeId = confirmQrCodeReq.getQrCodeId();
         String userId = confirmQrCodeReq.getUserId();
         String statusKey = QR_STATUS_PREFIX + qrCodeId;
-
         String currentStatus = stringRedisTemplate.opsForValue().get(statusKey);
         if (StringUtils.isBlank(currentStatus)) {
             return ResultVO.fail("二维码已过期");
@@ -170,24 +170,31 @@ public class LoginServiceImpl implements ILoginService {
         if (Objects.isNull(user)) {
             return ResultVO.fail(NO_USER);
         }
-        AutoLoginRes loginRes = buildLoginResponse(user);
+        LoginUser loginUser = new LoginUser();
+        loginUser.setUserId(user.getUserId());
+        loginUser.setUsername(user.getUsername());
+        String key = UUID.randomUUID().toString();
+        String token = JwtUtil.createJwt(loginUser, key);
+        String refreshToken = UUID.randomUUID().toString();
+        stringRedisTemplate.opsForValue()
+                .set(TOKEN_PREFIX + key, token, Duration.ofMinutes(JWT_EXPIRE_MINUTES));
+        stringRedisTemplate.opsForValue()
+                .set(REFRESH_PREFIX + refreshToken,
+                        user.getUserId(), Duration.ofDays(REFRESH_EXPIRE_DAYS));
+        String sessionId = createSession(token, refreshToken);
         Map<String, String> confirmData = new HashMap<>();
-        confirmData.put("token", loginRes.getToken());
-        confirmData.put("refreshToken", loginRes.getRefreshToken());
+        confirmData.put("sessionId", sessionId);
+        confirmData.put("token", token);
+        confirmData.put(REFRESH_TOKEN, refreshToken);
         stringRedisTemplate.opsForValue()
                 .set(statusKey, "CONFIRMED", Duration.ofSeconds(60));
         qrCodeWebSocketHandler.sendQrCodeStatus(qrCodeId, "CONFIRMED", confirmData);
-        log.info("二维码已确认: {}, 用户: {}", qrCodeId, userId);
+        log.info("二维码已确认: {}, 用户: {}, sessionId={}", qrCodeId, userId, sessionId);
         stringRedisTemplate.delete(QR_PREFIX + qrCodeId + "user");
         return ResultVO.ok();
     }
 
-    // ==================== 私有方法 ====================
-
-    /**
-     * 完整登录流程：解析凭证 → 查库验密 → 生成完整 token 对
-     */
-    private ResultVO<AutoLoginRes> doLogin(String authHeader) {
+    private ResultVO<Void> doLogin(String authHeader, ServerHttpResponse response) {
         if (StringUtils.isBlank(authHeader) || !authHeader.startsWith(BASIC_AUTH_PREFIX)) {
             return ResultVO.fail(401, "请先登录");
         }
@@ -202,12 +209,49 @@ public class LoginServiceImpl implements ILoginService {
             return handleFailCount(username);
         }
         stringRedisTemplate.delete(FAIL_PREFIX + username);
-        return ResultVO.ok(buildLoginResponse(user));
+        LoginUser loginUser = new LoginUser();
+        loginUser.setUserId(user.getUserId());
+        loginUser.setUsername(user.getUsername());
+        String key = UUID.randomUUID().toString();
+        String token = JwtUtil.createJwt(loginUser, key);
+        String refreshToken = UUID.randomUUID().toString();
+        stringRedisTemplate.opsForValue()
+                .set(TOKEN_PREFIX + key, token, Duration.ofMinutes(JWT_EXPIRE_MINUTES));
+        stringRedisTemplate.opsForValue()
+                .set(REFRESH_PREFIX + refreshToken,
+                        user.getUserId(), Duration.ofDays(REFRESH_EXPIRE_DAYS));
+        String sessionId = createSession(token, refreshToken);
+        setSessionCookie(response, sessionId);
+        log.info("登录成功，会话已创建: sessionId={}, userId={}", sessionId, user.getUserId());
+        return ResultVO.ok();
+    }
+
+    private String createSession(String accessToken, String refreshToken) {
+        String sessionId = UUID.randomUUID().toString();
+        Map<String, String> session = new LinkedHashMap<>();
+        session.put(SESSION_KEY_TOKEN, accessToken);
+        session.put(REFRESH_TOKEN, refreshToken);
+        stringRedisTemplate.opsForValue()
+                .set(SESSION_PREFIX + sessionId,
+                        JSONUtil.toJsonStr(session),
+                        Duration.ofDays(REFRESH_EXPIRE_DAYS));
+        return sessionId;
     }
 
     /**
-     * 从 Basic Auth 请求头解析 [username, password]，解析失败返回 null
+     * 种 HttpOnly cookie（WebFlux 用 ResponseCookie + ServerHttpResponse）
      */
+    private void setSessionCookie(ServerHttpResponse response, String sessionId) {
+        ResponseCookie cookie = ResponseCookie.from(COOKIE_SESSION, sessionId)
+                .httpOnly(true)
+                .secure(true)
+                .path("/")
+                .maxAge(Duration.ofDays(REFRESH_EXPIRE_DAYS))
+                .sameSite("Strict")
+                .build();
+        response.addCookie(cookie);
+    }
+
     private String[] parseBasicAuth(String authHeader) {
         String basicToken = CharSequenceUtil.subAfter(authHeader, BASIC_AUTH_PREFIX, false);
         if (StringUtils.isBlank(basicToken)) {
@@ -222,46 +266,19 @@ public class LoginServiceImpl implements ILoginService {
         return parts;
     }
 
-    /**
-     * 根据 userId 查询用户
-     */
     private TimerUser findUserById(String userId) {
         LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
         wrapper.eq(TimerUser::getUserId, userId);
         return timerUserMapper.selectOne(wrapper);
     }
 
-    /**
-     * 登录失败计数 + 限流拦截
-     */
-    private ResultVO<AutoLoginRes> handleFailCount(String username) {
+    private ResultVO<Void> handleFailCount(String username) {
         String failKey = FAIL_PREFIX + username;
         Long fails = stringRedisTemplate.opsForValue().increment(failKey);
-        stringRedisTemplate.expire(failKey, FAIL_WINDOW_HOURS, TimeUnit.HOURS);
+        stringRedisTemplate.expire(failKey,Duration.ofHours(FAIL_WINDOW_HOURS));
         if (fails != null && fails > FAIL_LIMIT) {
             return ResultVO.fail("请求过于频繁");
         }
         return ResultVO.fail("登录失败");
-    }
-
-    /**
-     * 首次登录 / 二维码确认登录：生成 JWT + 新 refreshToken
-     */
-    private AutoLoginRes buildLoginResponse(TimerUser user) {
-        LoginUser loginUser = new LoginUser();
-        loginUser.setUserId(user.getUserId());
-        loginUser.setUsername(user.getUsername());
-        String key = UUID.randomUUID().toString();
-        String token = JwtUtil.createJwt(loginUser, key);
-        String refreshToken = UUID.randomUUID().toString();
-        stringRedisTemplate.opsForValue()
-                .set(TOKEN_PREFIX + key, token, Duration.ofMinutes(JWT_EXPIRE_MINUTES));
-        stringRedisTemplate.opsForValue()
-                .set(REFRESH_PREFIX + refreshToken,
-                        user.getUserId(), REFRESH_EXPIRE_DAYS, TimeUnit.DAYS);
-        return AutoLoginRes.newBuilder()
-                .setToken(token)
-                .setRefreshToken(refreshToken)
-                .build();
     }
 }

@@ -259,7 +259,7 @@ message LoginReq {
 }
 
 message LoginRes {
-    string token = 1;
+    string sessionId = 1;
 }
 
 message SaveDicReq {
@@ -369,4 +369,8 @@ message ScanQrCodeReq {
 message ConfirmQrCodeReq {
     string qrCodeId = 1;
     string userId = 2;
+}
+
+message ClaimQrSessionReq {
+    string qrCodeId = 1;
 }
