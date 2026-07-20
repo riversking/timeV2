@@ -13,8 +13,6 @@ public interface ILoginService {
 
     ResultVO<Void> autoLogin(String authHeader, ServerHttpResponse response);
 
-    ResultVO<Void> refresh(AutoLoginReq autoLoginReq, ServerHttpResponse response);
-
     ResultVO<QrCodeRes> generateQrCode();
 
     ResultVO<Void> scanQrCode(ScanQrCodeReq scanQrCodeReq);
