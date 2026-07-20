@@ -31,11 +31,6 @@ public class LoginController {
         return loginService.autoLogin(authHeader, response);
     }
 
-    @PostMapping("refresh")
-    public ResultVO<Void> refresh(@RequestBody AutoLoginReq autoLoginReq, ServerHttpResponse response) {
-        return loginService.refresh(autoLoginReq, response);
-    }
-
     @PostMapping("/qrcode/generate")
     public ResultVO<QrCodeRes> generateQrCode() {
         return loginService.generateQrCode();
