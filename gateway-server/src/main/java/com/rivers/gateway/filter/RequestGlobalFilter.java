@@ -175,7 +175,6 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
                 ResponseCookie.from(COOKIE_SESSION, "")
                         .httpOnly(true).path("/").maxAge(0).build());
         var response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         var buffer = response.bufferFactory()
                 .wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
