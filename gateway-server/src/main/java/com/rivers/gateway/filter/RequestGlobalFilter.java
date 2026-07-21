@@ -78,7 +78,6 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         var request = exchange.getRequest();
         var path = request.getPath().value();
-
         if (filterIgnorePropertiesConfig.getUrls().stream()
                 .anyMatch(i -> pathMatcher.match(i, path))) {
             return chain.filter(exchange);
