@@ -6,7 +6,6 @@ import com.rivers.core.config.FilterIgnorePropertiesConfig;
 import com.rivers.core.entity.LoginUser;
 import com.rivers.core.util.JwtUtil;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NullMarked;
@@ -18,7 +17,6 @@ import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
 import org.springframework.core.Ordered;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
@@ -200,7 +198,6 @@ public class RequestGlobalFilter implements GlobalFilter, Ordered {
                 .request(request.mutate().uri(newUri).build()).build());
     }
 
-    @SuppressWarnings("unchecked")
     private RewriteFunction<Object, Object> getRewriteFunction() {
         return (exchange, body) -> {
             var loginUser = exchange.getAttribute(ATTR_LOGIN_USER);
