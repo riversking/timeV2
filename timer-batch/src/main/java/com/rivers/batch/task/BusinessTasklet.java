@@ -1,6 +1,7 @@
 package com.rivers.batch.task;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.rivers.batch.annotation.TaskLog;
 import com.rivers.core.client.DynamicServiceClient;
 import com.rivers.core.entity.JobParamReq;
 import com.rivers.core.exception.BusinessException;
@@ -19,6 +20,7 @@ import java.util.Map;
 
 @Component
 @Slf4j
+@TaskLog
 public class BusinessTasklet implements Tasklet {
 
 
