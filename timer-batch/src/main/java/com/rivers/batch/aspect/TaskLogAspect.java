@@ -9,6 +9,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
+import org.springframework.cloud.commons.util.InetUtils;
 import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
@@ -27,10 +28,11 @@ public class TaskLogAspect {
     private final String localIp;
 
     public TaskLogAspect(DiscoveryClient discoveryClient,
-                         TaskLogSaveService taskLogSaveService) {
+                         TaskLogSaveService taskLogSaveService,
+                         InetUtils inetUtils) {
         this.discoveryClient = discoveryClient;
         this.taskLogSaveService = taskLogSaveService;
-        this.localIp = resolveLocalIp();
+        this.localIp = inetUtils.findFirstNonLoopbackHostInfo().getIpAddress();
     }
 
     @Around("@annotation(com.rivers.batch.annotation.TaskLog)")
@@ -85,6 +87,12 @@ public class TaskLogAspect {
 
     /** 通过 Nacos DiscoveryClient 解析目标服务实例 IP */
     private String resolveTargetIp(String serverName) {
+        // 优先级最高：WebClient filter 截获的实际连接 host
+        var actualHost = TargetIpHolder.get();
+        if (actualHost != null && !actualHost.isBlank()) {
+            return resolveToIp(actualHost);
+        }
+        // 降级：DiscoveryClient 拿全部实例
         if (serverName == null || serverName.isBlank()) {
             return "";
         }
@@ -103,16 +111,18 @@ public class TaskLogAspect {
         }
     }
 
-    private static String resolveLocalIp() {
+    private static String resolveToIp(String host) {
         try {
-            return InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            return "127.0.0.1";
+            return InetAddress.getByName(host).getHostAddress();
+        } catch (UnknownHostException _) {
+            return host;
         }
     }
 
     private static String truncate(String str) {
-        if (str == null) return null;
+        if (str == null) {
+            return null;
+        }
         return str.length() <= MAX_ERROR_MSG_LEN
                 ? str
                 : str.substring(0, MAX_ERROR_MSG_LEN);
