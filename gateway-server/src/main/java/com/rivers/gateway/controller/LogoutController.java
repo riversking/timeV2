@@ -29,7 +29,7 @@ public class LogoutController {
         this.redisTemplate = redisTemplate;
     }
 
-    @PostMapping("/logout")
+    @PostMapping("logout")
     public Mono<ResultVO<String>> logout(
             @CookieValue(value = COOKIE_SESSION, required = false) String sessionId,
             ServerHttpResponse response) {
