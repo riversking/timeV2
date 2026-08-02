@@ -125,6 +125,9 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                         return null;
                     }
                     var loginUser = extractLoginUser(claims);
+                    if (loginUser == null) {
+                        return null;
+                    }
                     return new TokenContext(oldToken, claims.getId(), loginUser);
                 })
                 .subscribeOn(Schedulers.boundedElastic());
