@@ -13,14 +13,15 @@ import java.util.Map;
  * repositories 按需注入，避免 context 膨胀但又能让 handler 自主操作 DB。
  */
 public record NodeContext(
-        FlowInstance              instance,
-        FlowNodeInstance          currentNode,
-        ProcessDefinition         definition,
-        Map<String, Object>       variables,
-        FlowEventBus              eventBus,
-        FlowInstanceRepository    instanceRepo,
+        FlowInstance instance,
+        FlowNodeInstance currentNode,
+        ProcessDefinition definition,
+        Map<String, Object> variables,
+        FlowEventBus eventBus,
+        FlowInstanceRepository instanceRepo,
         FlowNodeInstanceRepository nodeRepo,
-        FlowTaskRepository        taskRepo,
-        FlowHistoryRepository     historyRepo,
-        FlowRuleRepository        ruleRepo
-) {}
+        FlowTaskRepository taskRepo,
+        FlowHistoryRepository historyRepo,
+        FlowRuleRepository ruleRepo
+) {
+}

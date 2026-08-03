@@ -1,8 +1,5 @@
 package com.rivers.gateway.filter;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.rivers.core.config.FilterIgnorePropertiesConfig;
 import com.rivers.core.entity.LoginUser;
 import com.rivers.core.util.JwtUtil;
@@ -30,6 +27,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -38,7 +38,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * 网关统一鉴权 — Cookie 会话模式 + WebFilter 拦截（含网关本地 /logout）
+ * 网关统一鉴权 — Cookie 会话模式 + WebFilter 拦截
  * <p>
  * token:{jti}  TTL = 30min  →  活着就续 TTL，放行
  * session:{sid} TTL = 30d   →  token 死了就查你，活着就旋转新 JWT
@@ -58,6 +58,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     private static final long TOKEN_TTL_MINUTES = 30;
     private static final String ATTR_LOGIN_USER = "gateway.loginUser";
     public static final String LOGIN_USER = "loginUser";
+    private static final int MAX_BODY_BUFFER_SIZE = 1024 * 1024;
 
     private final FilterIgnorePropertiesConfig filterIgnorePropertiesConfig;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -73,50 +74,53 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  主链
+    //  主入口：同步判断用 if-else，异步流程用语义化方法
     // ═══════════════════════════════════════════════════════════════
-
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         var request = exchange.getRequest();
         var path = request.getPath().value();
-        // 1. 白名单直接放行
-        if (filterIgnorePropertiesConfig.getUrls().stream().anyMatch(i -> pathMatcher.match(i, path))) {
+        // ✅ 同步判断：白名单直接放行
+        if (filterIgnorePropertiesConfig.getUrls().stream()
+                .anyMatch(pattern -> pathMatcher.match(pattern, path))) {
             return chain.filter(exchange);
         }
-        var cookie = request.getCookies().getFirst(COOKIE_SESSION);
-        // 2. 无 Cookie → 401
-        if (cookie == null || !StringUtils.hasText(cookie.getValue())) {
+        // ✅ 同步判断：无 Cookie → 401
+        var sessionId = extractSessionId(request);
+        if (sessionId == null) {
             return clearSessionAnd401(exchange, null);
         }
-        var sessionId = cookie.getValue();
-        // 3. 主链：读 session → 解析+校验 → 续/刷新 → 注入身份 → 转发（两层 flatMap + switchIfEmpty 兜底）
-        return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
-                .filter(StringUtils::hasText)
-                .flatMap(sessionJson -> resolveLoginUser(sessionJson)
-                        .flatMap(ctx -> refreshOrRenew(sessionId, ctx)))
-                .flatMap(loginUser -> {
-                    exchange.getAttributes().put(ATTR_LOGIN_USER, loginUser);
-                    var mutatedRequest = request.mutate()
-                            .header("X-User-Id", loginUser.getUserId())
-                            .header("X-User-Name", loginUser.getUsername())
-                            .build();
-                    var finalRequest = request.getMethod() == HttpMethod.GET
-                            ? handleGetRequest(mutatedRequest, loginUser.getUserId())
-                            : new BodyRewriteDecorator(mutatedRequest, exchange);
-                    return chain.filter(exchange.mutate().request(finalRequest).build());
-                })
+        // ✅ 异步主流程：读起来像线性伪代码
+        return loadValidUser(sessionId)
+                .flatMap(user -> forwardWithIdentity(exchange, chain, user))
                 .switchIfEmpty(clearSessionAnd401(exchange, sessionId));
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Session JSON → 取 token → 解析 JWT → TokenContext，一次 offload
-    // ═══════════════════════════════════════════════════════════════
+    private @Nullable String extractSessionId(ServerHttpRequest request) {
+        var cookie = request.getCookies().getFirst(COOKIE_SESSION);
+        return (cookie != null && StringUtils.hasText(cookie.getValue()))
+                ? cookie.getValue() : null;
+    }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  异步语义层1: 加载Session → 解析JWT → 校验/刷新Token → 返回有效用户
+    //  任何环节失败都返回 Mono.empty()，由调用方 switchIfEmpty 统一处理
+    // ═══════════════════════════════════════════════════════════════
+    private Mono<LoginUser> loadValidUser(String sessionId) {
+        return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
+                .filter(StringUtils::hasText)
+                .flatMap(json -> resolveLoginUser(json)
+                        .flatMap(ctx -> refreshOrRenew(sessionId, ctx)));
+    }
+
+    /**
+     * Session JSON → 取 token → 解析 JWT → TokenContext
+     * CPU 密集操作 offload 到 boundedElastic
+     */
     private Mono<TokenContext> resolveLoginUser(String sessionJson) {
         return Mono.fromCallable(() -> {
                     var oldToken = objectMapper.readTree(sessionJson)
-                            .path("accessToken").asText(null);
+                            .path("accessToken").asString(null);
                     if (!StringUtils.hasText(oldToken)) {
                         return null;
                     }
@@ -142,7 +146,8 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                     if (!StringUtils.hasText(redisToken) || !Objects.equals(ctx.oldToken, redisToken)) {
                         return rotateToken(sessionId, ctx);
                     }
-                    return renewTtlThenReturn(ctx);
+                    return redisTemplate.expire(TOKEN_PREFIX + ctx.oldKey, Duration.ofMinutes(TOKEN_TTL_MINUTES))
+                            .thenReturn(ctx.loginUser);
                 });
     }
 
@@ -166,36 +171,25 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                 .switchIfEmpty(Mono.just(ctx.loginUser));
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  异步语义层2: 注入身份 + 构建请求 + 转发
+    // ═══════════════════════════════════════════════════════════════
+    private Mono<Void> forwardWithIdentity(ServerWebExchange exchange,
+                                           WebFilterChain chain,
+                                           LoginUser loginUser) {
+        exchange.getAttributes().put(ATTR_LOGIN_USER, loginUser);
+        var mutatedRequest = exchange.getRequest().mutate()
+                .header("X-User-Id", loginUser.getUserId())
+                .build();
+        var finalRequest = mutatedRequest.getMethod() == HttpMethod.GET
+                ? handleGetRequest(mutatedRequest, loginUser.getUserId())
+                : new BodyRewriteDecorator(mutatedRequest, exchange);
+        return chain.filter(exchange.mutate().request(finalRequest).build());
+    }
+
     /**
-     * Token 有效 → 仅续 TTL
+     * GET 请求：userId 拼入 Query String
      */
-    private Mono<LoginUser> renewTtlThenReturn(TokenContext ctx) {
-        return redisTemplate.expire(TOKEN_PREFIX + ctx.oldKey, Duration.ofMinutes(TOKEN_TTL_MINUTES))
-                .thenReturn(ctx.loginUser);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  401 + 清除 Session Cookie
-    // ═══════════════════════════════════════════════════════════════
-
-    private Mono<Void> clearSessionAnd401(ServerWebExchange exchange, @Nullable String sessionId) {
-        var cleanup = StringUtils.hasText(sessionId)
-                ? redisTemplate.delete(SESSION_PREFIX + sessionId)
-                : Mono.empty();
-
-        exchange.getResponse().addCookie(
-                ResponseCookie.from(COOKIE_SESSION, "").httpOnly(true).path("/").maxAge(0).build());
-        var response = exchange.getResponse();
-        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-        var buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
-
-        return cleanup.then(response.writeWith(Mono.just(buffer)));
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  GET 请求：userId 拼入 Query String
-    // ═══════════════════════════════════════════════════════════════
-
     private ServerHttpRequest handleGetRequest(ServerHttpRequest request, String userId) {
         var uri = request.getURI();
         var query = new StringBuilder();
@@ -213,9 +207,26 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  401 + 清除 Session Cookie
+    // ═══════════════════════════════════════════════════════════════
+    private Mono<Void> clearSessionAnd401(ServerWebExchange exchange, @Nullable String sessionId) {
+        var cleanup = StringUtils.hasText(sessionId)
+                ? redisTemplate.delete(SESSION_PREFIX + sessionId)
+                : Mono.empty();
+        exchange.getResponse().addCookie(
+                ResponseCookie.from(COOKIE_SESSION, "")
+                        .httpOnly(true).path("/")
+                        .maxAge(0)
+                        .build());
+        var response = exchange.getResponse();
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        var buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
+        return cleanup.then(response.writeWith(Mono.just(buffer)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  辅助
     // ═══════════════════════════════════════════════════════════════
-
     private @Nullable LoginUser extractLoginUser(Claims claims) {
         var user = claims.get(LOGIN_USER);
         return user != null ? objectMapper.convertValue(user, LoginUser.class) : null;
@@ -233,13 +244,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  内部类：Body 重写装饰器（OOM 防护 + 空 Body 降级 + 非 JSON 降级）
+    //  Body 重写装饰器
+    //  ✅ 仅处理 JSON + 预检 Content-Length + OOM 防护 + 空 Body 降级
     // ═══════════════════════════════════════════════════════════════
-
     private class BodyRewriteDecorator extends ServerHttpRequestDecorator {
 
         private final ServerWebExchange exchange;
-        private static final int MAX_BODY_BUFFER_SIZE = 1024 * 1024;
 
         BodyRewriteDecorator(ServerHttpRequest delegate, ServerWebExchange exchange) {
             super(delegate);
@@ -252,9 +262,21 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
             if (loginUser == null) {
                 return super.getBody();
             }
+            // ✅ 预检：非 JSON 直接透传，不做任何缓冲
+            var contentType = getHeaders().getContentType();
+            if (contentType == null || !contentType.isCompatibleWith(MediaType.APPLICATION_JSON)) {
+                return super.getBody();
+            }
+            // ✅ 预检：Content-Length 超过阈值直接透传，防止 OOM
+            long contentLength = getHeaders().getContentLength();
+            if (contentLength > MAX_BODY_BUFFER_SIZE) {
+                log.warn("Body size {} exceeds limit {}, skip loginUser injection for {}",
+                        contentLength, MAX_BODY_BUFFER_SIZE, getURI().getPath());
+                return super.getBody();
+            }
             return DataBufferUtils.join(super.getBody())
-                    .filter(dataBuffer -> dataBuffer.readableByteCount() <= MAX_BODY_BUFFER_SIZE)
                     .flatMap(dataBuffer -> {
+                        // 二次校验实际读取字节数（应对 chunked 等无 Content-Length 场景）
                         if (dataBuffer.readableByteCount() > MAX_BODY_BUFFER_SIZE) {
                             return Mono.just(dataBuffer);
                         }
@@ -273,6 +295,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                                 .onErrorReturn(bytes)
                                 .map(exchange.getResponse().bufferFactory()::wrap);
                     })
+                    // 空 Body 降级：构造仅含 loginUser 的 JSON
                     .switchIfEmpty(Mono.fromCallable(() -> {
                                 ObjectNode emptyJson = objectMapper.createObjectNode();
                                 emptyJson.set(LOGIN_USER, objectMapper.valueToTree(loginUser));
@@ -287,6 +310,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         public HttpHeaders getHeaders() {
             var headers = new HttpHeaders();
             headers.putAll(super.getHeaders());
+            // Body 被重写后长度必然变化，必须移除旧 Content-Length
             headers.remove(HttpHeaders.CONTENT_LENGTH);
             return headers;
         }

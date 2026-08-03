@@ -46,7 +46,8 @@ public class UserTaskHandler implements NodeHandler {
                 .map(NodeDef::config)
                 .orElse(Collections.emptyMap());
         // 1. 从节点配置解析候选人和指定处理人
-        var assignee = (String) config.get("assignee");        // 指定处理人
+        var assignee = (String) config.get("assignee");
+        // 指定处理人
         var candidateUsers = (List<String>) config.getOrDefault("candidateUsers", List.of());
         // 2. 构建并存储任务
         var task = FlowTask.builder()
