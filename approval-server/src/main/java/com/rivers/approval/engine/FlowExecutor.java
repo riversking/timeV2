@@ -42,8 +42,8 @@ import java.util.Map;
 public class FlowExecutor {
 
 
-    public static final String START = "START";
-    public static final String SYSTEM = "SYSTEM";
+    private static final String START = "START";
+    private static final String SYSTEM = "SYSTEM";
     private final NodeHandlerRegistry handlerRegistry;
     private final FlowEventBus eventBus;
     private final FlowInstanceRepository instanceRepo;
