@@ -9,6 +9,7 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
@@ -93,7 +94,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         // ✅ 异步主流程：读起来像线性伪代码
         return loadValidUser(sessionId)
                 .flatMap(user -> forwardWithIdentity(exchange, chain, user))
-                .switchIfEmpty(clearSessionAnd401(exchange, sessionId));
+                .switchIfEmpty(Mono.defer(() -> clearSessionAnd401(exchange, sessionId)));
     }
 
     private @Nullable String extractSessionId(ServerHttpRequest request) {
@@ -268,7 +269,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                 return super.getBody();
             }
             // ✅ 预检：Content-Length 超过阈值直接透传，防止 OOM
-            long contentLength = getHeaders().getContentLength();
+            long contentLength = super.getHeaders().getContentLength();
             if (contentLength > MAX_BODY_BUFFER_SIZE) {
                 log.warn("Body size {} exceeds limit {}, skip loginUser injection for {}",
                         contentLength, MAX_BODY_BUFFER_SIZE, getURI().getPath());
