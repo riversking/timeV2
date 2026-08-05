@@ -1,6 +1,5 @@
 package com.rivers.approval.engine;
 
-import com.rivers.approval.entity.FlowDefinition;
 import com.rivers.approval.entity.FlowInstance;
 import com.rivers.approval.entity.FlowNodeInstance;
 import com.rivers.approval.event.*;
@@ -14,12 +13,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,9 +41,8 @@ import java.util.Map;
 @Slf4j
 public class FlowExecutor {
 
-
-    private static final String START = "START";
-    private static final String SYSTEM = "SYSTEM";
+    public static final String START = "START";
+    public static final String SYSTEM = "SYSTEM";
     private final NodeHandlerRegistry handlerRegistry;
     private final FlowEventBus eventBus;
     private final FlowInstanceRepository instanceRepo;
@@ -74,23 +73,22 @@ public class FlowExecutor {
         this.objectMapper = objectMapper;
     }
 
+    // ==================== 启动订阅（PostConstruct 自动注册） ====================
     @PostConstruct
     public void init() {
         subscribeToInstanceStarted();
         subscribeToNodeCompleted();
         subscribeToTaskCompleted();
-        log.info("[FlowExecutor] 三条事件订阅已就绪");
+        log.info("[FlowExecutor] 三条事件订阅链路已就绪");
     }
-
-    // ==================== 事件订阅 ====================
 
     private void subscribeToInstanceStarted() {
         eventBus.subscribeShared(InstanceStartedEvent.class)
                 .flatMap(this::advanceToStartNode)
                 .subscribe(
-                        v -> {
+                        _ -> {
                         },
-                        err -> log.error("[FlowExecutor] InstanceStartedEvent 处理异常", err)
+                        err -> log.error("[FlowExecutor] InstanceStarted 处理异常", err)
                 );
     }
 
@@ -98,79 +96,73 @@ public class FlowExecutor {
         eventBus.subscribeShared(NodeCompletedEvent.class)
                 .flatMap(this::advanceToNextNodes)
                 .subscribe(
-                        v -> {
+                        _ -> {
                         },
-                        err -> log.error("[FlowExecutor] NodeCompletedEvent 处理异常", err)
+                        err -> log.error("[FlowExecutor] NodeCompleted 处理异常", err)
                 );
     }
 
     private void subscribeToTaskCompleted() {
         eventBus.subscribeShared(TaskCompletedEvent.class)
-                .flatMap(this::onTaskCompleted)
+                .flatMap(this::resolveTaskCompletion)
                 .subscribe(
-                        v -> {
+                        _ -> {
                         },
-                        err -> log.error("[FlowExecutor] TaskCompletedEvent 处理异常", err)
+                        err -> log.error("[FlowExecutor] TaskCompleted 处理异常", err)
                 );
     }
 
     // ==================== InstanceStarted → Start ====================
 
     /**
-     * 修复要点：用 flatMapMany 铺平内层，用 .then() 收拢为 Mono&lt;Void&gt;
+     * 流程发起后：加载定义 → 解析 DSL → 找到 Start 节点 → 创建实例 → 分发 StartHandler。
+     * 返回值用 .then() 收拢为 Mono&lt;Void&gt;。
+     * 最终推荐写法 —— 将 definition 沿链传递，避免重复查库。
+     * 上方的 advanceToStartNode 可替换为以下版本。
      */
     private Mono<Void> advanceToStartNode(InstanceStartedEvent event) {
-        log.info("[FlowExecutor] 收到流程发起事件 instanceId={}, definitionKey={}",
-                event.instanceId(), event.definitionKey());
+        log.info("[FlowExecutor] → InstanceStarted instanceId={}", event.instanceId());
+        // 利用 Tuple2 或 record 传递 (definition, nodeInstance)
+        record StartContext(ProcessDefinition definition, FlowNodeInstance nodeInstance) {
+        }
         return defRepo.findById(event.definitionId())
-                .flatMap(def -> createAndAdvanceStart(def, event))
-                .then()   // ← 关键修复：Mono<FlowInstance> → Mono<Void>
+                .flatMap(def -> {
+                    var definition = parseDefinition(def.getDefinitionJson());
+                    var startNode = definition.nodes().stream()
+                            .filter(n -> START.equals(n.type()))
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException("缺少 START 节点"));
+                    var ni = FlowNodeInstance.builder()
+                            .instanceId(event.instanceId())
+                            .nodeId(startNode.id())
+                            .nodeName(startNode.name())
+                            .nodeType(START)
+                            .status("ACTIVE")
+                            .startTime(LocalDateTime.now())
+                            .createUser(SYSTEM)
+                            .updateUser(SYSTEM)
+                            .build();
+                    return nodeRepo.save(ni)
+                            .map(saved -> new StartContext(definition, saved));
+                })
+                .flatMap(sc -> loadInstanceById(event.instanceId())
+                        .flatMap(instance -> {
+                            var ctx = buildContext(instance, sc.definition(), sc.nodeInstance(),
+                                    parseVariables(instance.getVariables()));
+                            return handlerRegistry.get(START).handle(ctx);
+                        }))
+                .then()
                 .onErrorResume(err -> {
-                    log.error("[FlowExecutor] 推进到 Start 节点失败 instanceId={}", event.instanceId(), err);
+                    log.error("[FlowExecutor] 推进 Start 失败 instanceId={}", event.instanceId(), err);
                     return Mono.empty();
                 });
-    }
-
-    /**
-     * 解析定义 → 找到 Start → 创建节点实例 → 分发 Handler
-     */
-    private Mono<FlowInstance> createAndAdvanceStart(FlowDefinition def, InstanceStartedEvent event) {
-
-        var definition = parseDefinition(def.getDefinitionJson());
-        var startNode = definition.nodes().stream()
-                .filter(n -> START.equals(n.type()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("流程定义中缺少 START 节点"));
-        var nodeInstance = FlowNodeInstance.builder()
-                .instanceId(event.instanceId())
-                .nodeId(startNode.id())
-                .nodeName(startNode.name())
-                .nodeType(START)
-                .status("ACTIVE")
-                .startTime(LocalDateTime.now(ZoneId.systemDefault()))
-                .createUser(SYSTEM)
-                .updateUser(SYSTEM)
-                .build();
-        // 修复: 用 flatMap + then() 保障内层 Mono<Void> 不退化
-        // 返回值 FlowInstance 为后续链使用（虽然此处不需要，保持类型完整）
-        return instanceRepo.findById(event.instanceId())
-                .flatMap(instance ->
-                        nodeRepo.save(nodeInstance)
-                                .flatMap(ni -> {
-                                    var ctx = buildContext(instance, definition, ni, event.variables());
-                                    return handlerRegistry.get(START).handle(ctx);
-                                })
-                                // handle 返回 Mono<Void>，flatMap 到 outer 也是 Mono<Void>
-                                // 我们需要返回 Mono<FlowInstance>，所以先 handle 再 thenReturn instance
-                                .thenReturn(instance)
-                );
     }
 
     // ==================== NodeCompleted → Next ====================
 
     /**
-     * 修复要点：Flux.flatMap(...).then() + .then(Mono<Void>) 链中
-     * 显式声明下游类型，避免 .then(someMono) 的泛型推断歧义。
+     * 节点完成后：解析 DSL 出边 → 过滤指定分支（排他网关） → 并行创建下一批节点实例 → 分发 Handler。
+     * 完成后更新 instance.current_node_ids。
      */
     private Mono<Void> advanceToNextNodes(NodeCompletedEvent event) {
         if ("END".equals(event.nodeType())) {
@@ -181,105 +173,100 @@ public class FlowExecutor {
                         .flatMap(def -> {
                             var definition = parseDefinition(def.getDefinitionJson());
                             var allEdges = definition.edgesFrom(event.nodeId());
-
+                            // 排他网关：只走 targetNodeId 指定的边
                             var effectiveEdges = event.targetNodeId() != null
                                     ? allEdges.stream()
                                     .filter(e -> e.target().equals(event.targetNodeId()))
                                     .toList()
                                     : allEdges;
-
                             if (effectiveEdges.isEmpty()) {
-                                log.warn("[FlowExecutor] 节点 {} 无出边", event.nodeId());
-                                return Mono.<Void>empty();
+                                log.warn("[FlowExecutor] 节点 {} 无出边 instanceId={}",
+                                        event.nodeId(), event.instanceId());
+                                return Mono.empty();
                             }
-
                             var mergedVars = mergeVariables(
                                     parseVariables(instance.getVariables()),
-                                    event.outputVariables());
-                            // 修复: 用 thenEmpty 显式收拢为 Mono<Void>
-                            // Flux.flatMap(...).then() 本身返回 Mono<Void>，但链上 then(updateXxx)
-                            // 可能让编译器困惑，拆为两步：先推进节点，再更新 currentNodeIds
-                            return advanceNodes(instance, definition, effectiveEdges,
-                                    event.operatorId(), event.operatorName(), mergedVars);
+                                    event.outputVariables() != null
+                                            ? event.outputVariables() : Map.of());
+                            return performAdvance(instance, definition, effectiveEdges,
+                                    event.operatorId(), mergedVars, event.nodeId());
                         }))
                 .onErrorResume(err -> {
-                    log.error("[FlowExecutor] 推进后继节点失败 instanceId={}, nodeId={}",
+                    log.error("[FlowExecutor] 推进后继失败 instanceId={}, nodeId={}",
                             event.instanceId(), event.nodeId(), err);
                     return Mono.empty();
                 });
     }
 
     /**
-     * 推进所有目标节点 → 更新 current_node_ids
+     * 执行推进：为每条边创建节点实例 → 分发 Handler → 最后更新 current_node_ids。
      */
-    private Mono<Void> advanceNodes(FlowInstance instance,
-                                    ProcessDefinition definition,
-                                    List<EdgeDef> edges,
-                                    String operatorId, String operatorName,
-                                    Map<String, Object> variables) {
-        // 修复: thenEmpty 明确返回 Mono<Void>，不依赖 then(mono) 的泛型推断
+    private Mono<Void> performAdvance(FlowInstance instance,
+                                      ProcessDefinition definition,
+                                      List<EdgeDef> edges,
+                                      String operatorId,
+                                      Map<String, Object> variables,
+                                      String completedNodeId) {
         return Flux.fromIterable(edges)
-                .flatMap(edge -> createAndHandleNode(instance, definition, edge,
+                .flatMap(edge -> createAndHandleNode(
+                        instance, definition, edge,
                         operatorId, variables))
                 .then()
-                .thenEmpty(updateInstanceCurrentNodeIds(instance, edges));
+                .thenEmpty(refreshCurrentNodeIds(instance, completedNodeId, edges));
     }
 
     // ==================== TaskCompleted → NodeCompleted ====================
 
     /**
-     * 修复要点：updateNodeStatus 返回 Mono&lt;Integer&gt;，
-     * .then(Mono.fromRunnable(...)) 在 Java 嵌套链中可能推断为 Mono&lt;Object&gt;，
-     * 拆为 .flatMap(result -> Mono.fromRunnable(...)) 显式转换。
+     * 用户任务完成后：标记对应 node_instance 完成 → 发布 NodeCompletedEvent。
+     * NodeCompleted 的订阅会自动接管后续推进，形成闭环。
      */
-    private Mono<Void> onTaskCompleted(TaskCompletedEvent event) {
-        log.info("[FlowExecutor] 收到任务完成事件 taskId={}, nodeInstanceId={}, result={}",
+    private Mono<Void> resolveTaskCompletion(TaskCompletedEvent event) {
+        log.info("[FlowExecutor] → TaskCompleted taskId={}, nodeInstanceId={}, result={}",
                 event.taskId(), event.nodeInstanceId(), event.result());
         return nodeRepo.findById(event.nodeInstanceId())
+                // 修复：显式声明 Mono<FlowNodeInstance>.error，杜绝 Object 泛型退化
                 .switchIfEmpty(Mono.error(
                         new IllegalStateException("节点实例不存在: " + event.nodeInstanceId())))
                 .flatMap(nodeInstance -> {
                     var outputVars = Map.<String, Object>of(
-                            "approvalResult", event.result(),
-                            "approvalComment", event.comment(),
-                            "approvedBy", event.completedBy());
-                    // 修复: 不用 .then(Mono.fromRunnable)，改用 .flatMap(ignored -> ...)
-                    // .then(Mono<T>) 在某些编译器下 T 推断为 Object，
-                    // 而 .flatMap(ignored → Mono.fromRunnable) 返回 Mono<Void> 无歧义
+                            "approvalResult", event.result() != null ? event.result() : "",
+                            "approvalComment", event.comment() != null ? event.comment() : "",
+                            "approvedBy", event.completedBy() != null ? event.completedBy() : "");
                     return nodeRepo.updateNodeStatus(
                                     nodeInstance.getId(),
                                     "COMPLETED",
                                     toJson(outputVars),
                                     LocalDateTime.now(),
                                     event.completedBy())
-                            .flatMap(rows -> publishNodeCompleted(
-                                    event, nodeInstance, outputVars));
+                            .flatMap(rows -> {
+                                log.info("[FlowExecutor] 节点实例已标记完成 nodeInstanceId={}",
+                                        nodeInstance.getId());
+                                var meta = FlowEventMetadata.of(
+                                        event.instanceId(), event.instanceNo(),
+                                        "NODE_COMPLETED");
+                                eventBus.publish(NodeCompletedEvent.of(
+                                        meta,
+                                        nodeInstance.getId(),
+                                        nodeInstance.getNodeId(),
+                                        nodeInstance.getNodeName(),
+                                        nodeInstance.getNodeType(),
+                                        outputVars,
+                                        null));
+                                return Mono.<Void>empty();
+                            });
                 })
                 .onErrorResume(err -> {
-                    log.error("[FlowExecutor] 处理 TaskCompletedEvent 失败 taskId={}", event.taskId(), err);
+                    log.error("[FlowExecutor] TaskCompleted 处理失败 taskId={}", event.taskId(), err);
                     return Mono.empty();
                 });
     }
 
-    private Mono<Void> publishNodeCompleted(TaskCompletedEvent event,
-                                            FlowNodeInstance nodeInstance,
-                                            Map<String, Object> outputVars) {
-        var meta = FlowEventMetadata.of(
-                event.instanceId(), event.instanceNo(), "NODE_COMPLETED");
-        var nodeCompleted = NodeCompletedEvent.of(
-                meta,
-                nodeInstance.getId(),
-                nodeInstance.getNodeId(),
-                nodeInstance.getNodeName(),
-                nodeInstance.getNodeType(),
-                outputVars,
-                null);
-        eventBus.publish(nodeCompleted);
-        return Mono.empty();
-    }
-
     // ==================== 节点创建 + Handler 分发 ====================
 
+    /**
+     * 为指定边创建 FlowNodeInstance 并分发到对应的 NodeHandler。
+     */
     private Mono<Void> createAndHandleNode(FlowInstance instance,
                                            ProcessDefinition definition,
                                            EdgeDef edge,
@@ -295,33 +282,36 @@ public class FlowExecutor {
                 .status("ACTIVE")
                 .inputVariables(toJson(variables))
                 .startTime(LocalDateTime.now(ZoneId.systemDefault()))
-                .createUser(operatorId)
-                .updateUser(operatorId)
+                .createUser(operatorId != null ? operatorId : SYSTEM)
+                .updateUser(operatorId != null ? operatorId : SYSTEM)
                 .build();
-        // 修复: .then(handler.handle(ctx)) 改为 .flatMap → handler.handle
         return nodeRepo.save(nodeInstance)
                 .flatMap(ni -> {
-                    log.info("[FlowExecutor] 节点实例已创建 nodeInstanceId={}, type={}, name={}",
+                    log.info("[FlowExecutor] 节点实例创建 nodeInstanceId={}, type={}, name={}",
                             ni.getId(), ni.getNodeType(), ni.getNodeName());
-                    var ctx = buildContext(instance, definition, ni, variables);
+                    var ctx = buildContext(instance, definition, ni,
+                            variables);
                     return handlerRegistry.get(ni.getNodeType()).handle(ctx);
                 });
     }
 
-    // ==================== current_node_ids 更新 ====================
+    // ==================== current_node_ids 刷新 ====================
 
-    private Mono<Void> updateInstanceCurrentNodeIds(
-            FlowInstance instance,
-            List<EdgeDef> newEdges) {
+    /**
+     * 移除完成的节点 ID，加入新激活的节点 ID。
+     * 并行网关场景下，Fork 节点的所有子节点会同时加入。
+     */
+    private Mono<Void> refreshCurrentNodeIds(FlowInstance instance,
+                                             String completedNodeId,
+                                             List<EdgeDef> newEdges) {
         var currentIds = parseStringList(instance.getCurrentNodeIds());
-        // 只加不删——移除由调用方在 advanceToNextNodes 中传入时已过滤
-        newEdges.forEach(edge -> {
-            if (!currentIds.contains(edge.target())) {
-                currentIds.add(edge.target());
+        currentIds.remove(completedNodeId);
+        newEdges.forEach(e -> {
+            if (!currentIds.contains(e.target())) {
+                currentIds.add(e.target());
             }
         });
 
-        // 修复: updateCurrentNodeIds 返回 Mono<Integer>，用 .then() 转 Mono<Void>
         return instanceRepo.updateCurrentNodeIds(
                         instance.getId(), toJson(currentIds), SYSTEM)
                 .then();
@@ -337,7 +327,7 @@ public class FlowExecutor {
                 instance,
                 nodeInstance,
                 definition,
-                variables,
+                variables != null ? variables : Map.of(),
                 eventBus,
                 instanceRepo,
                 nodeRepo,
@@ -346,28 +336,37 @@ public class FlowExecutor {
                 ruleRepo);
     }
 
-    // ==================== JSON / Variables 工具 ====================
+    // ==================== JSON / Variables 解析 ====================
 
     private ProcessDefinition parseDefinition(String json) {
         return objectMapper.readValue(json, ProcessDefinition.class);
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseVariables(String variablesJson) {
-        if (variablesJson == null || variablesJson.isBlank()) {
-            return new HashMap<>();
+    private Map<String, Object> parseVariables(String json) {
+        if (json == null || json.isBlank()) {
+            return new LinkedHashMap<>();
         }
-        return objectMapper.readValue(variablesJson, Map.class);
+        return objectMapper.readValue(json,
+                new TypeReference<LinkedHashMap<String, Object>>() {
+                });
     }
 
     private Map<String, Object> mergeVariables(Map<String, Object> base,
                                                Map<String, Object> overrides) {
-        if (overrides == null || overrides.isEmpty()) {
+        if (overrides.isEmpty()) {
             return base;
         }
-        var merged = new HashMap<>(base);
+        var merged = new LinkedHashMap<>(base);
         merged.putAll(overrides);
         return merged;
+    }
+
+    private List<String> parseStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return new ArrayList<>();
+        }
+        return objectMapper.readValue(json, new TypeReference<List<String>>() {
+        });
     }
 
     private Mono<FlowInstance> loadInstanceById(Long instanceId) {
@@ -376,14 +375,10 @@ public class FlowExecutor {
                         new IllegalStateException("流程实例不存在: " + instanceId)));
     }
 
-    private List<String> parseStringList(String json) {
-        if (json == null || json.isBlank()) {
-            return new ArrayList<>();
-        }
-        return objectMapper.readValue(json, List.class);
-    }
-
     private String toJson(Object obj) {
+        if (obj == null) {
+            return null;
+        }
         return objectMapper.writeValueAsString(obj);
     }
 }
