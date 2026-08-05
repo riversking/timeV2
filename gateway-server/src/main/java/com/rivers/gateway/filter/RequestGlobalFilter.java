@@ -9,7 +9,6 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
@@ -42,7 +41,7 @@ import java.util.UUID;
  * 网关统一鉴权 — Cookie 会话模式 + WebFilter 拦截
  * <p>
  * token:{jti}  TTL = 30min  →  活着就续 TTL，放行
- * session:{sid} TTL = 30d   →  token 死了就查你，活着就旋转新 JWT
+ * session:{sid} TTL = 30d   →  token 死了就查 session，活着就旋转新 JWT
  * →  双死就 401
  *
  * @author riversking
@@ -81,17 +80,14 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         var request = exchange.getRequest();
         var path = request.getPath().value();
-        // ✅ 同步判断：白名单直接放行
         if (filterIgnorePropertiesConfig.getUrls().stream()
                 .anyMatch(pattern -> pathMatcher.match(pattern, path))) {
             return chain.filter(exchange);
         }
-        // ✅ 同步判断：无 Cookie → 401
         var sessionId = extractSessionId(request);
         if (sessionId == null) {
             return clearSessionAnd401(exchange, null);
         }
-        // ✅ 异步主流程：读起来像线性伪代码
         return loadValidUser(sessionId)
                 .flatMap(user -> forwardWithIdentity(exchange, chain, user))
                 .switchIfEmpty(Mono.defer(() -> clearSessionAnd401(exchange, sessionId)));
@@ -104,8 +100,8 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  异步语义层1: 加载Session → 解析JWT → 校验/刷新Token → 返回有效用户
-    //  任何环节失败都返回 Mono.empty()，由调用方 switchIfEmpty 统一处理
+    //  异步语义层1：加载 Session → 解析 JWT → 校验/刷新 Token → 返回有效用户
+    //  任何环节失败返回 Mono.empty()，由调用方 switchIfEmpty 统一兜底
     // ═══════════════════════════════════════════════════════════════
     private Mono<LoginUser> loadValidUser(String sessionId) {
         return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
@@ -115,13 +111,14 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     /**
-     * Session JSON → 取 token → 解析 JWT → TokenContext
+     * Session JSON → 取 accessToken → 解析 JWT → TokenContext
      * CPU 密集操作 offload 到 boundedElastic
      */
     private Mono<TokenContext> resolveLoginUser(String sessionJson) {
         return Mono.fromCallable(() -> {
                     var oldToken = objectMapper.readTree(sessionJson)
-                            .path("accessToken").asString(null);
+                            .path("accessToken")
+                            .asString(null);
                     if (!StringUtils.hasText(oldToken)) {
                         return null;
                     }
@@ -139,7 +136,10 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     /**
-     * token:{key} 在 Redis 中的值是否匹配 → 决定刷新还是续期
+     * token:{key} 在 Redis 中的状态：
+     * - 存在且匹配 → 续 TTL
+     * - 存在但不匹配 → 旋转
+     * - 不存在（过期被 TTL 删除）→ 旋转
      */
     private Mono<LoginUser> refreshOrRenew(String sessionId, TokenContext ctx) {
         return redisTemplate.opsForValue().get(TOKEN_PREFIX + ctx.oldKey)
@@ -149,11 +149,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                     }
                     return redisTemplate.expire(TOKEN_PREFIX + ctx.oldKey, Duration.ofMinutes(TOKEN_TTL_MINUTES))
                             .thenReturn(ctx.loginUser);
-                });
+                })
+                .switchIfEmpty(Mono.defer(() -> rotateToken(sessionId, ctx)));
     }
 
     /**
-     * Token 过期/不匹配 → 旋转：生新 JWT + 新 token key + 更新 session
+     * Token 旋转：生新 JWT + 新 token key + 更新 session
      */
     private Mono<LoginUser> rotateToken(String sessionId, TokenContext ctx) {
         var newKey = UUID.randomUUID().toString();
@@ -173,7 +174,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  异步语义层2: 注入身份 + 构建请求 + 转发
+    //  异步语义层2：注入身份 + 构建请求 + 转发
     // ═══════════════════════════════════════════════════════════════
     private Mono<Void> forwardWithIdentity(ServerWebExchange exchange,
                                            WebFilterChain chain,
@@ -210,6 +211,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     // ═══════════════════════════════════════════════════════════════
     //  401 + 清除 Session Cookie
     // ═══════════════════════════════════════════════════════════════
+
     private Mono<Void> clearSessionAnd401(ServerWebExchange exchange, @Nullable String sessionId) {
         var cleanup = StringUtils.hasText(sessionId)
                 ? redisTemplate.delete(SESSION_PREFIX + sessionId)
@@ -246,7 +248,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
 
     // ═══════════════════════════════════════════════════════════════
     //  Body 重写装饰器
-    //  ✅ 仅处理 JSON + 预检 Content-Length + OOM 防护 + 空 Body 降级
+    //  JSON 预检 + Content-Type 过滤 + OOM 双重防护 + 空 Body 降级
     // ═══════════════════════════════════════════════════════════════
     private class BodyRewriteDecorator extends ServerHttpRequestDecorator {
 
