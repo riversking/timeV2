@@ -75,7 +75,6 @@ public class FlowService {
                     var instanceNo = "PI-" + UUID.randomUUID().toString()
                             .replace("-", "").substring(0, 16);
                     var variablesJson = toJson(variables);
-
                     var instance = FlowInstance.builder()
                             .instanceNo(instanceNo)
                             .definitionId(def.getId())
