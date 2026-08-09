@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package grpc; //package与java_package有些不同，java_package是定义编译生成的java文件所在的目录，而package是对应的java类的命名空间
+option java_package = "com.rivers.proto";
+option java_outer_classname = "ApprovalServiceProto"; //要生成Java类的名称
+option java_multiple_files = true;
+
+message LoginUser {
+    string username = 1;
+    string userId = 2;
+}
+
+message CreateDefinitionReq {
+    string definitionKey = 1;
+    string name = 2;
+    string description = 3;
+    string category = 4;
+    string icon = 5;
+    string definitionJson = 6;
+    LoginUser loginUser = 7;
+}
+
+message PublishDefinitionReq {
+    int64 id = 1;
+    LoginUser loginUser = 2;
+}
+
+message DisableDefinitionReq {
+    int64 id = 1;
+    LoginUser loginUser = 2;
+}
+
+message GetDefinitionReq {
+    string definitionKey = 1;
+    int32 version = 2;
+    LoginUser loginUser = 3;
+}
+
+message FlowDefinitionRes {
+    int64 id = 1;
+    string definition_key = 2;
+    string name = 3;
+    string description = 4;
+    int32 version = 5;
+    string status = 6;
+    string category = 7;
+    string definitionJson = 8;
+    string icon = 9;
+    string createUser = 10;
+    string createTime = 11;
+    string updateUser = 12;
+    string updateTime = 13;
+}
+
+// ==================== 流程实例 ====================
+
+message StartProcessReq {
+    string definitionKey = 1;
+    string title = 2;
+    string businessKey = 3;
+    string initiator = 4;
+    string initiatorName = 5;
+    string  variables = 6;
+    LoginUser loginUser = 7;
+}
+
+message StartProcessRes {
+    int64 instanceId = 1;
+    string instanceNo = 2;
+    string status = 3;
+}
+
+message TerminateInstanceReq {
+    int64 instanceId = 1;
+    string operator = 2;
+    LoginUser loginUser = 3;
+}
+
+message ListInstanceReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    LoginUser loginUser = 3;
+}
+
+message InstanceNoReq {
+    string instanceNo = 1;
+}
+
+message BusinessKeyReq {
+    string businessKey = 1;
+}
+
+message FlowInstanceRes {
+    int64 id = 1;
+    string instanceNo = 2;
+    int64 definitionId = 3;
+    string definitionKey = 4;
+    int32 definitionVersion = 5;
+    string title = 6;
+    string initiator = 7;
+    string initiatorName = 8;
+    string businessKey = 9;
+    string status = 10;
+    string variables = 11;
+    string currentNodeIds = 12;
+    string startTime = 13;
+    string endTime = 14;
+}
+
+// ==================== 任务 ====================
+
+message ClaimTaskReq {
+    string taskNo = 1;
+    string instanceId = 2;
+    LoginUser loginUser = 3;
+}
+
+message CompleteTaskReq {
+    string taskNo = 1;
+    string result = 2;
+    string comment = 3;
+    string instanceId = 4;
+    LoginUser loginUser = 5;
+}
+
+message TransferTaskReq {
+    string taskNo = 1;
+    string targetUser = 2;
+    string operator = 3;
+    string instanceId = 4;
+    LoginUser loginUser = 5;
+}
+
+message CancelTaskReq {
+    string taskNo = 1;
+    string operator = 2;
+    string instanceId = 3;
+    LoginUser loginUser = 4;
+}
+
+message ListTaskReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    LoginUser loginUser = 3;
+}
+
+message TaskNoReq {
+    string taskNo = 1;
+}
+
+message FlowTaskRes {
+    int64 id = 1;
+    int64 instanceId = 2;
+    int64 nodeInstanceId = 3;
+    string taskNo = 4;
+    string taskName = 5;
+    string status = 6;
+    string assignee = 7;
+    string candidateUsers = 8;
+    string claimedBy = 9;
+    string claimedTime = 10;
+    string completedBy = 11;
+    string completedTime = 12;
+    string result = 13;
+    string comment = 14;
+    string dueTime = 15;
+    int32 priority = 16;
+}
+
+message TaskListRes {
+    repeated FlowTaskRes tasks = 1;
+}
+
+// ==================== 历史 ====================
+
+message InstanceIdReq {
+    int64 instanceId = 1;
+    LoginUser loginUser = 2;
+}
+
+message TaskIdReq {
+    int64 taskId = 1;
+    string instanceId = 2;
+    LoginUser loginUser = 3;
+}
+
+message OperatorHistoryReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string operatorId = 3;
+}
+
+message FlowHistoryRes {
+    int64 id = 1;
+    int64 instanceId = 2;
+    int64 nodeInstanceId = 3;
+    int64 taskId = 4;
+    string eventType = 5;
+    string operatorId = 6;
+    string operatorName = 7;
+    string detail = 8;
+    string remark = 9;
+    string createTime = 10;
+}
+
+message HistoryListRes {
+    repeated FlowHistoryRes histories = 1;
+}

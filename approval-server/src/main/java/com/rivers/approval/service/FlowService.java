@@ -6,6 +6,9 @@ import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.InstanceStartedEvent;
 import com.rivers.approval.repository.FlowDefinitionRepository;
 import com.rivers.approval.repository.FlowInstanceRepository;
+import com.rivers.proto.StartProcessReq;
+import com.rivers.proto.StartProcessRes;
+import com.rivers.proto.TerminateInstanceReq;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,8 +16,6 @@ import reactor.core.publisher.Mono;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -31,7 +32,6 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class FlowService {
-
 
     private final FlowDefinitionRepository defRepo;
     private final FlowInstanceRepository instanceRepo;
@@ -51,55 +51,49 @@ public class FlowService {
     /**
      * 发起流程。
      *
-     * @param definitionKey 流程定义标识（如 leave-apply）
-     * @param initiator     发起人工号
-     * @param initiatorName 发起人姓名
-     * @param title         实例标题
-     * @param businessKey   关联业务主键（可选）
-     * @param variables     初始流程变量
      * @return 创建后的流程实例
      */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<FlowInstance> startProcess(String definitionKey,
-                                           String initiator,
-                                           String initiatorName,
-                                           String title,
-                                           String businessKey,
-                                           Map<String, Object> variables) {
-        // 1. 查找已发布的最新定义
-        return defRepo.findLatestPublishedByKey(definitionKey)
+    public Mono<StartProcessRes> startProcess(StartProcessReq req) {
+        var initiator = req.getInitiator();
+        var initiatorName = req.getInitiatorName();
+        var variables = req.getVariables();
+        return defRepo.findLatestPublishedByKey(req.getDefinitionKey())
                 .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("流程定义不存在或未发布: " + definitionKey)))
+                        new IllegalArgumentException("流程定义不存在或未发布: " + req.getDefinitionKey())))
                 .flatMap(def -> {
-                    // 2. 创建流程实例
                     var instanceNo = "PI-" + UUID.randomUUID().toString()
                             .replace("-", "").substring(0, 16);
-                    var variablesJson = toJson(variables);
                     var instance = FlowInstance.builder()
                             .instanceNo(instanceNo)
                             .definitionId(def.getId())
                             .definitionKey(def.getDefinitionKey())
                             .definitionVersion(def.getVersion())
-                            .title(title)
+                            .title(req.getTitle())
                             .initiator(initiator)
                             .initiatorName(initiatorName)
-                            .businessKey(businessKey != null ? businessKey : "")
+                            .businessKey(req.getBusinessKey())
                             .status("RUNNING")
-                            .variables(variablesJson)
-                            .startTime(LocalDateTime.now(ZoneId.systemDefault()))
+                            .variables(toJson(variables))
+                            .startTime(LocalDateTime.now())
                             .createUser(initiator)
                             .updateUser(initiator)
                             .build();
-                    return instanceRepo.save(instance)
-                            .doOnNext(i -> {
-                                // 3. 发布 InstanceStartedEvent，触发引擎推进
-                                log.info("[FlowService] 流程发起成功 instanceId={}, instanceNo={}, definitionKey={}",
-                                        i.getId(), i.getInstanceNo(), definitionKey);
-                                var meta = FlowEventMetadata.of(
-                                        i.getId(), i.getInstanceNo(), "INSTANCE_STARTED");
-                                eventBus.publish(InstanceStartedEvent.of(
-                                        meta, def.getId(), def.getDefinitionKey(), initiator));
-                            });
+                    return instanceRepo.save(instance);
+                })
+                .map(instance -> {
+                    log.info("[FlowService] 流程发起成功 instanceId={}, instanceNo={}",
+                            instance.getId(), instance.getInstanceNo());
+                    var meta = FlowEventMetadata.of(
+                            instance.getId(), instance.getInstanceNo(), "INSTANCE_STARTED");
+                    eventBus.publish(InstanceStartedEvent.of(
+                            meta, instance.getDefinitionId(),
+                            instance.getDefinitionKey(), initiator));
+                    return StartProcessRes.newBuilder()
+                            .setInstanceId(instance.getId())
+                            .setInstanceNo(instance.getInstanceNo())
+                            .setStatus(instance.getStatus())
+                            .build();
                 });
     }
 
@@ -107,19 +101,25 @@ public class FlowService {
      * 终止流程实例（管理员操作）。
      */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<Void> terminateProcess(Long instanceId, String operator) {
-        return instanceRepo.findById(instanceId)
+    public Mono<Void> terminateProcess(TerminateInstanceReq req) {
+        return instanceRepo.findById(req.getInstanceId())
                 .flatMap(instance -> {
                     if (!"RUNNING".equals(instance.getStatus())) {
                         return Mono.error(new IllegalStateException("只能终止运行中的流程"));
                     }
                     return instanceRepo.updateStatus(
-                            instanceId, "TERMINATED", LocalDateTime.now(), operator);
+                            req.getInstanceId(), "TERMINATED",
+                            LocalDateTime.now(), req.getOperator());
                 })
                 .then();
     }
 
     private String toJson(Object obj) {
-        return objectMapper.writeValueAsString(obj);
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            log.warn("[FlowService] JSON 序列化失败", e);
+            return "{}";
+        }
     }
 }

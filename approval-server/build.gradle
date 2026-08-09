@@ -36,6 +36,7 @@ dependencies {
     implementation 'io.asyncer:r2dbc-mysql'
     implementation 'io.r2dbc:r2dbc-proxy'
     implementation 'io.asyncer:r2dbc-mysql'
+    implementation files('../protos/approvalservice_protos.jar')
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 }
