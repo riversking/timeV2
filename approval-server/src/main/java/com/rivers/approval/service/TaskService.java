@@ -21,6 +21,10 @@ import java.util.UUID;
 public class TaskService {
 
 
+    private static final String CLAIMED = "CLAIMED";
+    private static final String PENDING = "PENDING";
+    private static final String NO_TASK = "任务不存在";
+    private static final String YYYY_MM_DD_HH_MM_SS = "yyyy-MM-dd HH:mm:ss";
     private final FlowTaskRepository taskRepo;
     private final FlowEventBus eventBus;
 
@@ -47,18 +51,18 @@ public class TaskService {
                         .setCandidateUsers(i.getCandidateUsers())
                         .setClaimedBy(i.getClaimedBy())
                         .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setCompletedBy(i.getCompletedBy())
                         .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setResult(i.getResult())
                         .setComment(i.getComment())
                         .setDueTime(Optional.ofNullable(i.getDueTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setPriority(i.getPriority())
@@ -86,18 +90,18 @@ public class TaskService {
                         .setCandidateUsers(i.getCandidateUsers())
                         .setClaimedBy(i.getClaimedBy())
                         .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setCompletedBy(i.getCompletedBy())
                         .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setResult(i.getResult())
                         .setComment(i.getComment())
                         .setDueTime(Optional.ofNullable(i.getDueTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setPriority(i.getPriority())
@@ -122,24 +126,24 @@ public class TaskService {
                         .setCandidateUsers(i.getCandidateUsers())
                         .setClaimedBy(i.getClaimedBy())
                         .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setCompletedBy(i.getCompletedBy())
                         .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setResult(i.getResult())
                         .setComment(i.getComment())
                         .setDueTime(Optional.ofNullable(i.getDueTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .setPriority(i.getPriority())
                         .build())
                 .map(ResultVO::ok)
-                .defaultIfEmpty(ResultVO.fail(404, "任务不存在: " + req.getTaskNo()));
+                .defaultIfEmpty(ResultVO.fail(404, NO_TASK + ": " + req.getTaskNo()));
     }
 
     // ==================== 操作 ====================
@@ -149,9 +153,9 @@ public class TaskService {
         log.info("[TaskService] 认领任务 taskNo={}, userId={}", req.getTaskNo(), req.getUserId());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
+                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!"PENDING".equals(task.getStatus())) {
+                    if (!PENDING.equals(task.getStatus())) {
                         return Mono.error(
                                 new IllegalStateException("任务状态不允许认领: " + task.getStatus()));
                     }
@@ -171,9 +175,9 @@ public class TaskService {
                 req.getTaskNo(), req.getResult(), req.getUserId());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.<FlowTask>error(
-                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
+                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!"CLAIMED".equals(task.getStatus())) {
+                    if (!CLAIMED.equals(task.getStatus())) {
                         return Mono.<FlowTask>error(
                                 new IllegalStateException("任务状态不允许完成: " + task.getStatus()));
                     }
@@ -201,9 +205,9 @@ public class TaskService {
         log.info("[TaskService] 取消任务 taskNo={}", req.getTaskNo());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
+                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!"PENDING".equals(task.getStatus()) && !"CLAIMED".equals(task.getStatus())) {
+                    if (!PENDING.equals(task.getStatus()) && !CLAIMED.equals(task.getStatus())) {
                         return Mono.error(
                                 new IllegalStateException("任务状态不允许取消: " + task.getStatus()));
                     }
@@ -222,9 +226,9 @@ public class TaskService {
         log.info("[TaskService] 转交任务 taskNo={}, targetUser={}", req.getTaskNo(), req.getTargetUser());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
+                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!"CLAIMED".equals(task.getStatus())) {
+                    if (!CLAIMED.equals(task.getStatus())) {
                         return Mono.error(
                                 new IllegalStateException("只能转交已认领的任务"));
                     }
@@ -234,7 +238,7 @@ public class TaskService {
                     }
                     return taskRepo.transferOut(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.<Integer>error(
+                            .switchIfEmpty(Mono.error(
                                     new IllegalStateException("转交失败")))
                             .flatMap(rows -> {
                                 var newTask = FlowTask.builder()
@@ -243,7 +247,7 @@ public class TaskService {
                                         .taskNo("T-" + UUID.randomUUID().toString()
                                                 .replace("-", "").substring(0, 16))
                                         .taskName(task.getTaskName())
-                                        .status("PENDING")
+                                        .status(PENDING)
                                         .assignee(req.getTargetUser())
                                         .candidateUsers("[\"" + req.getTargetUser() + "\"]")
                                         .priority(task.getPriority())
