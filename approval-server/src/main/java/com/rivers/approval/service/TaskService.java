@@ -5,13 +5,15 @@ import com.rivers.approval.event.FlowEventBus;
 import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.TaskCompletedEvent;
 import com.rivers.approval.repository.FlowTaskRepository;
+import com.rivers.core.vo.ResultVO;
+import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.Objects;
+import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -19,9 +21,6 @@ import java.util.UUID;
 public class TaskService {
 
 
-    public static final String MISSION_NOT_EXIT = "任务不存在: ";
-    public static final String PENDING = "PENDING";
-    public static final String CLAIMED = "CLAIMED";
     private final FlowTaskRepository taskRepo;
     private final FlowEventBus eventBus;
 
@@ -32,185 +31,211 @@ public class TaskService {
 
     // ==================== 查询 ====================
 
-    /**
-     * 查某人的待办任务（已认领，未完成）。
-     */
-    public Flux<FlowTask> listTodo(String userId, int page, int size) {
-        var offset = (page - 1) * size;
-        return taskRepo.findTodoByUserWithPage(userId, offset, size);
+    public Mono<ResultVO<TaskListRes>> listTodo(ListTaskReq req) {
+        var offset = (req.getCurrentPage() - 1) * req.getPageSize();
+        var loginUser = req.getLoginUser();
+        var userId = loginUser.getUserId();
+        return taskRepo.findTodoByUserWithPage(userId, offset, req.getPageSize())
+                .map(i -> FlowTaskRes.newBuilder()
+                        .setId(i.getId())
+                        .setInstanceId(i.getInstanceId())
+                        .setNodeInstanceId(i.getNodeInstanceId())
+                        .setTaskNo(i.getTaskNo())
+                        .setTaskName(i.getTaskName())
+                        .setStatus(i.getStatus())
+                        .setAssignee(i.getAssignee())
+                        .setCandidateUsers(i.getCandidateUsers())
+                        .setClaimedBy(i.getClaimedBy())
+                        .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setCompletedBy(i.getCompletedBy())
+                        .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setResult(i.getResult())
+                        .setComment(i.getComment())
+                        .setDueTime(Optional.ofNullable(i.getDueTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setPriority(i.getPriority())
+                        .build())
+                .collectList()
+                .map(list -> ResultVO.ok(
+                        TaskListRes.newBuilder()
+                                .addAllTasks(list)
+                                .build()));
     }
 
-    /**
-     * 查某人的待认领任务池（PENDING 状态且候选人群包含该用户）。
-     */
-    public Flux<FlowTask> listClaimable(String userId, int page, int size) {
-        var offset = (page - 1) * size;
-        return taskRepo.findClaimableByUserWithPage(userId, offset, size);
+    public Mono<ResultVO<TaskListRes>> listClaimable(ListTaskReq req) {
+        var offset = (req.getCurrentPage() - 1) * req.getPageSize();
+        var loginUser = req.getLoginUser();
+        var userId = loginUser.getUserId();
+        return taskRepo.findClaimableByUserWithPage(userId, offset, req.getPageSize())
+                .map(i -> FlowTaskRes.newBuilder()
+                        .setId(i.getId())
+                        .setInstanceId(i.getInstanceId())
+                        .setNodeInstanceId(i.getNodeInstanceId())
+                        .setTaskNo(i.getTaskNo())
+                        .setTaskName(i.getTaskName())
+                        .setStatus(i.getStatus())
+                        .setAssignee(i.getAssignee())
+                        .setCandidateUsers(i.getCandidateUsers())
+                        .setClaimedBy(i.getClaimedBy())
+                        .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setCompletedBy(i.getCompletedBy())
+                        .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setResult(i.getResult())
+                        .setComment(i.getComment())
+                        .setDueTime(Optional.ofNullable(i.getDueTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setPriority(i.getPriority())
+                        .build())
+                .collectList()
+                .map(list -> ResultVO.ok(
+                        TaskListRes.newBuilder()
+                                .addAllTasks(list)
+                                .build()));
     }
 
-    /**
-     * 统计某人待办 + 待认领总数。
-     */
-    public Mono<Long> countPending(String userId) {
-        return taskRepo.countPendingByUser(userId);
+    public Mono<ResultVO<FlowTaskRes>> getByTaskNo(TaskNoReq req) {
+        return taskRepo.findByTaskNo(req.getTaskNo())
+                .map(i -> FlowTaskRes.newBuilder()
+                        .setId(i.getId())
+                        .setInstanceId(i.getInstanceId())
+                        .setNodeInstanceId(i.getNodeInstanceId())
+                        .setTaskNo(i.getTaskNo())
+                        .setTaskName(i.getTaskName())
+                        .setStatus(i.getStatus())
+                        .setAssignee(i.getAssignee())
+                        .setCandidateUsers(i.getCandidateUsers())
+                        .setClaimedBy(i.getClaimedBy())
+                        .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setCompletedBy(i.getCompletedBy())
+                        .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setResult(i.getResult())
+                        .setComment(i.getComment())
+                        .setDueTime(Optional.ofNullable(i.getDueTime())
+                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .format(c))
+                                .orElse(""))
+                        .setPriority(i.getPriority())
+                        .build())
+                .map(ResultVO::ok)
+                .defaultIfEmpty(ResultVO.fail(404, "任务不存在: " + req.getTaskNo()));
     }
 
-    /**
-     * 查某实例下所有任务。
-     */
-    public Flux<FlowTask> listByInstance(Long instanceId) {
-        return taskRepo.findByInstanceId(instanceId);
-    }
+    // ==================== 操作 ====================
 
-    /**
-     * 根据任务编号精确查询。
-     */
-    public Mono<FlowTask> getByTaskNo(String taskNo) {
-        return taskRepo.findByTaskNo(taskNo);
-    }
-
-    // ==================== 任务操作 ====================
-
-    /**
-     * 认领任务。
-     *
-     * <p>CAS 实现：SQL 中有 {@code WHERE status = 'PENDING'}
-     * 和 {@code JSON_CONTAINS(candidate_users, ...)} 双重校验，
-     * 多人并发认领同一条任务时只有一人成功（受影响行数 = 1）。
-     *
-     * @param taskNo 任务编号
-     * @param userId 认领人工号
-     * @return 认领成功后的任务；失败抛出异常
-     */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<FlowTask> claim(String taskNo, String userId) {
-        log.info("[TaskService] 认领任务 taskNo={}, userId={}", taskNo, userId);
-        return taskRepo.findByTaskNo(taskNo)
+    public Mono<ResultVO<Void>> claim(ClaimTaskReq req) {
+        log.info("[TaskService] 认领任务 taskNo={}, userId={}", req.getTaskNo(), req.getUserId());
+        return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(MISSION_NOT_EXIT + taskNo)))
+                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!PENDING.equals(task.getStatus())) {
+                    if (!"PENDING".equals(task.getStatus())) {
                         return Mono.error(
                                 new IllegalStateException("任务状态不允许认领: " + task.getStatus()));
                     }
-                    return taskRepo.claim(task.getId(), userId)
+                    return taskRepo.claim(task.getId(), req.getUserId())
                             .filter(rows -> rows > 0)
                             .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("认领失败：任务已被他人认领或候选人权限不足")))
-                            .flatMap(rows -> taskRepo.findByTaskNo(taskNo))
-                            .doOnNext(t -> log.info("[TaskService] 认领成功 taskNo={}, userId={}",
-                                    t.getTaskNo(), t.getClaimedBy()));
-                });
+                                    new IllegalStateException("认领失败：已被他人认领或权限不足")))
+                            .flatMap(rows -> taskRepo.findByTaskNo(req.getTaskNo()));
+                })
+                .doOnNext(t -> log.info("[TaskService] 认领成功 taskNo={}", t.getTaskNo()))
+                .thenReturn(ResultVO.ok());
     }
 
-    /**
-     * 完成任务。
-     *
-     * <p>CAS 实现：SQL 中 {@code WHERE claimed_by = :userId AND status = 'CLAIMED'}，
-     * 确保只有认领人本人能完成，且不可能重复完成。
-     *
-     * <p>完成后发布 {@link TaskCompletedEvent}，FlowExecutor 订阅该事件：
-     * <ol>
-     *   <li>标记对应 node_instance 为 COMPLETED</li>
-     *   <li>发布 NodeCompletedEvent 推进到后续节点</li>
-     * </ol>
-     *
-     * @param taskNo  任务编号
-     * @param result  处理结果（APPROVED / REJECTED）
-     * @param comment 审批意见
-     * @param userId  操作人工号
-     * @return 完成后的任务
-     */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<FlowTask> complete(String taskNo, String result, String comment, String userId) {
-        log.info("[TaskService] 完成任务 taskNo={}, result={}, userId={}", taskNo, result, userId);
-        return taskRepo.findByTaskNo(taskNo)
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(MISSION_NOT_EXIT + taskNo)))
+    public Mono<ResultVO<FlowTaskRes>> complete(CompleteTaskReq req) {
+        log.info("[TaskService] 完成任务 taskNo={}, result={}, userId={}",
+                req.getTaskNo(), req.getResult(), req.getUserId());
+        return taskRepo.findByTaskNo(req.getTaskNo())
+                .switchIfEmpty(Mono.<FlowTask>error(
+                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!CLAIMED.equals(task.getStatus())) {
-                        return Mono.error(
+                    if (!"CLAIMED".equals(task.getStatus())) {
+                        return Mono.<FlowTask>error(
                                 new IllegalStateException("任务状态不允许完成: " + task.getStatus()));
                     }
-                    if (!userId.equals(task.getClaimedBy())) {
-                        return Mono.error(
+                    if (!req.getUserId().equals(task.getClaimedBy())) {
+                        return Mono.<FlowTask>error(
                                 new IllegalStateException("只有认领人才能完成任务"));
                     }
-                    var actualResult = result != null ? result : "APPROVED";
-                    var actualComment = comment != null ? comment : "";
-                    return taskRepo.complete(task.getId(), actualResult, actualComment, userId)
+                    return taskRepo.complete(task.getId(), req.getResult(), req.getComment(), req.getUserId())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("任务完成失败，可能已被取消")))
-                            .flatMap(rows -> taskRepo.findByTaskNo(taskNo))
-                            .flatMap(completed -> publishTaskCompletedEvent(completed, actualResult, actualComment, userId)
-                                    .thenReturn(completed));
-                });
+                            .switchIfEmpty(Mono.<Integer>error(
+                                    new IllegalStateException("任务完成失败")))
+                            .flatMap(rows -> taskRepo.findByTaskNo(req.getTaskNo()));
+                })
+                .doOnNext(t -> {
+                    var meta = FlowEventMetadata.of(t.getInstanceId(), "", "TASK_COMPLETED");
+                    eventBus.publish(TaskCompletedEvent.of(
+                            meta, t.getId(), t.getTaskNo(), t.getNodeInstanceId(),
+                            req.getResult(), req.getComment(), req.getUserId()));
+                })
+                .thenReturn(ResultVO.ok());
     }
 
-    /**
-     * 取消任务。
-     * 仅 PENDING / CLAIMED 状态可取消。
-     */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<Void> cancel(String taskNo, String operator) {
-        log.info("[TaskService] 取消任务 taskNo={}, operator={}", taskNo, operator);
-
-        return taskRepo.findByTaskNo(taskNo)
-                .switchIfEmpty(Mono.<FlowTask>error(
-                        new IllegalArgumentException(MISSION_NOT_EXIT + taskNo)))
+    public Mono<ResultVO<Void>> cancel(CancelTaskReq req) {
+        log.info("[TaskService] 取消任务 taskNo={}", req.getTaskNo());
+        return taskRepo.findByTaskNo(req.getTaskNo())
+                .switchIfEmpty(Mono.error(
+                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!PENDING.equals(task.getStatus())
-                            && !CLAIMED.equals(task.getStatus())) {
-                        return Mono.<FlowTask>error(
+                    if (!"PENDING".equals(task.getStatus()) && !"CLAIMED".equals(task.getStatus())) {
+                        return Mono.error(
                                 new IllegalStateException("任务状态不允许取消: " + task.getStatus()));
                     }
-                    return taskRepo.cancel(task.getId(), operator)
+                    return taskRepo.cancel(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
                             .switchIfEmpty(Mono.<Integer>error(
                                     new IllegalStateException("取消失败")))
-                            .then(Mono.just(task));
+                            .thenReturn(task);
                 })
-                .doOnSuccess(t -> log.info("[TaskService] 任务已取消 taskNo={}", taskNo))
-                .then();
+                .doOnSuccess(t -> log.info("[TaskService] 任务已取消 taskNo={}", req.getTaskNo()))
+                .thenReturn(ResultVO.ok());
     }
 
-    /**
-     * 转交任务。
-     *
-     * <p>两步原子操作：
-     * <ol>
-     *   <li>原任务标记 TRANSFERRED，记录 prev_task_id</li>
-     *   <li>新建一条 PENDING 任务，assignee 为空、candidateUsers = [targetUser]</li>
-     * </ol>
-     *
-     * @param taskNo     原任务编号
-     * @param targetUser 转交目标人工号
-     * @param operator   操作人（当前认领人）
-     * @return 新建的任务
-     */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<FlowTask> transfer(String taskNo, String targetUser, String operator) {
-        log.info("[TaskService] 转交任务 taskNo={}, targetUser={}, operator={}", taskNo, targetUser, operator);
-
-        return taskRepo.findByTaskNo(taskNo)
+    public Mono<ResultVO<Void>> transfer(TransferTaskReq req) {
+        log.info("[TaskService] 转交任务 taskNo={}, targetUser={}", req.getTaskNo(), req.getTargetUser());
+        return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(MISSION_NOT_EXIT + taskNo)))
+                        new IllegalArgumentException("任务不存在: " + req.getTaskNo())))
                 .flatMap(task -> {
-                    if (!CLAIMED.equals(task.getStatus())) {
+                    if (!"CLAIMED".equals(task.getStatus())) {
                         return Mono.error(
-                                new IllegalStateException("只能转交已认领的任务，当前状态: " + task.getStatus()));
+                                new IllegalStateException("只能转交已认领的任务"));
                     }
-                    if (!operator.equals(task.getClaimedBy())) {
+                    if (!req.getOperator().equals(task.getClaimedBy())) {
                         return Mono.error(
                                 new IllegalStateException("只有认领人才能转交任务"));
                     }
-                    // 1. 原任务标记 TRANSFERRED
-                    return taskRepo.transferOut(task.getId(), operator)
+                    return taskRepo.transferOut(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
                             .switchIfEmpty(Mono.<Integer>error(
                                     new IllegalStateException("转交失败")))
-                            // 2. 新建任务
                             .flatMap(rows -> {
                                 var newTask = FlowTask.builder()
                                         .instanceId(task.getInstanceId())
@@ -218,48 +243,17 @@ public class TaskService {
                                         .taskNo("T-" + UUID.randomUUID().toString()
                                                 .replace("-", "").substring(0, 16))
                                         .taskName(task.getTaskName())
-                                        .status(PENDING)
-                                        .assignee(targetUser)
-                                        .candidateUsers("[\"" + targetUser + "\"]")
+                                        .status("PENDING")
+                                        .assignee(req.getTargetUser())
+                                        .candidateUsers("[\"" + req.getTargetUser() + "\"]")
                                         .priority(task.getPriority())
                                         .prevTaskId(task.getId())
-                                        .createUser(operator)
-                                        .updateUser(operator)
+                                        .createUser(req.getOperator())
+                                        .updateUser(req.getOperator())
                                         .build();
-
                                 return taskRepo.save(newTask);
                             });
                 })
-                .doOnSuccess(t -> log.info("[TaskService] 转交成功 原taskNo={}, 新taskNo={}, targetUser={}",
-                        taskNo, Objects.requireNonNull(t).getTaskNo(), targetUser));
-    }
-
-    // ==================== 辅助 ====================
-
-    /**
-     * 发布 TaskCompletedEvent。
-     * 需先查出 instance_no 以构建事件元数据。
-     */
-    private Mono<Void> publishTaskCompletedEvent(FlowTask task,
-                                                 String result,
-                                                 String comment,
-                                                 String completedBy) {
-        // instance_no 可从 task 关联的 instance 获取，但 FlowTask 实体不含此字段
-        // 实际实现中通过 instanceRepo 查询或由调用方传入
-        // 此处用占位逻辑，展示事件发布结构
-        var meta =
-                FlowEventMetadata.of(
-                        task.getInstanceId(),
-                        "",  // instanceNo 需额外查询，或 task 实体扩展此字段
-                        "TASK_COMPLETED");
-        eventBus.publish(TaskCompletedEvent.of(
-                meta,
-                task.getId(),
-                task.getTaskNo(),
-                task.getNodeInstanceId(),
-                result,
-                comment,
-                completedBy));
-        return Mono.empty();
+                .thenReturn(ResultVO.ok());
     }
 }

@@ -6,6 +6,7 @@ import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.InstanceStartedEvent;
 import com.rivers.approval.repository.FlowDefinitionRepository;
 import com.rivers.approval.repository.FlowInstanceRepository;
+import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.StartProcessReq;
 import com.rivers.proto.StartProcessRes;
 import com.rivers.proto.TerminateInstanceReq;
@@ -54,7 +55,7 @@ public class FlowService {
      * @return 创建后的流程实例
      */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<StartProcessRes> startProcess(StartProcessReq req) {
+    public Mono<ResultVO<StartProcessRes>> startProcess(StartProcessReq req) {
         var initiator = req.getInitiator();
         var initiatorName = req.getInitiatorName();
         var variables = req.getVariables();
@@ -89,11 +90,12 @@ public class FlowService {
                     eventBus.publish(InstanceStartedEvent.of(
                             meta, instance.getDefinitionId(),
                             instance.getDefinitionKey(), initiator));
-                    return StartProcessRes.newBuilder()
+                    var res = StartProcessRes.newBuilder()
                             .setInstanceId(instance.getId())
                             .setInstanceNo(instance.getInstanceNo())
                             .setStatus(instance.getStatus())
                             .build();
+                    return ResultVO.ok(res);
                 });
     }
 
@@ -101,17 +103,18 @@ public class FlowService {
      * 终止流程实例（管理员操作）。
      */
     @Transactional(rollbackFor = Exception.class)
-    public Mono<Void> terminateProcess(TerminateInstanceReq req) {
+    public Mono<ResultVO<Void>> terminateProcess(TerminateInstanceReq req) {
         return instanceRepo.findById(req.getInstanceId())
                 .flatMap(instance -> {
                     if (!"RUNNING".equals(instance.getStatus())) {
-                        return Mono.error(new IllegalStateException("只能终止运行中的流程"));
+                        return Mono.<FlowInstance>error(
+                                new IllegalStateException("只能终止运行中的流程"));
                     }
                     return instanceRepo.updateStatus(
                             req.getInstanceId(), "TERMINATED",
                             LocalDateTime.now(), req.getOperator());
                 })
-                .then();
+                .thenReturn(ResultVO.ok());
     }
 
     private String toJson(Object obj) {

@@ -112,7 +112,8 @@ message FlowInstanceRes {
 message ClaimTaskReq {
     string taskNo = 1;
     string instanceId = 2;
-    LoginUser loginUser = 3;
+    string userId = 3;
+    LoginUser loginUser = 4;
 }
 
 message CompleteTaskReq {
@@ -120,7 +121,8 @@ message CompleteTaskReq {
     string result = 2;
     string comment = 3;
     string instanceId = 4;
-    LoginUser loginUser = 5;
+    string userId = 5;
+    LoginUser loginUser = 6;
 }
 
 message TransferTaskReq {
@@ -135,7 +137,8 @@ message CancelTaskReq {
     string taskNo = 1;
     string operator = 2;
     string instanceId = 3;
-    LoginUser loginUser = 4;
+    string userId = 4;
+    LoginUser loginUser = 5;
 }
 
 message ListTaskReq {
