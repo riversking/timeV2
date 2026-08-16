@@ -60,7 +60,7 @@ message StartProcessReq {
     string businessKey = 3;
     string initiator = 4;
     string initiatorName = 5;
-    string  variables = 6;
+    string variables = 6;
     LoginUser loginUser = 7;
 }
 
@@ -208,4 +208,15 @@ message FlowHistoryRes {
 
 message HistoryListRes {
     repeated FlowHistoryRes histories = 1;
+}
+
+message ListInstanceByStatusReq {
+    string status = 1; // 实例状态: RUNNING / COMPLETED / TERMINATED
+    int32 currentPage = 2; // 当前页码（从 1 开始）
+    int32 pageSize = 3; // 每页条数
+}
+
+// 实例列表响应
+message InstanceListRes {
+    repeated FlowInstanceRes instances = 1; // 实例列表
 }

@@ -1,10 +1,11 @@
-package com.rivers.approval.service;
+package com.rivers.approval.service.impl;
 
 import com.rivers.approval.entity.FlowTask;
 import com.rivers.approval.event.FlowEventBus;
 import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.TaskCompletedEvent;
 import com.rivers.approval.repository.FlowTaskRepository;
+import com.rivers.approval.service.ITaskService;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
@@ -16,10 +17,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 任务服务实现。
+ */
 @Service
 @Slf4j
-public class TaskService {
-
+public class TaskServiceImpl implements ITaskService {
 
     private static final String CLAIMED = "CLAIMED";
     private static final String PENDING = "PENDING";
@@ -28,45 +31,20 @@ public class TaskService {
     private final FlowTaskRepository taskRepo;
     private final FlowEventBus eventBus;
 
-    public TaskService(FlowTaskRepository taskRepo, FlowEventBus eventBus) {
+    public TaskServiceImpl(FlowTaskRepository taskRepo, FlowEventBus eventBus) {
         this.taskRepo = taskRepo;
         this.eventBus = eventBus;
     }
 
     // ==================== 查询 ====================
 
+    @Override
     public Mono<ResultVO<TaskListRes>> listTodo(ListTaskReq req) {
         var offset = (req.getCurrentPage() - 1) * req.getPageSize();
         var loginUser = req.getLoginUser();
         var userId = loginUser.getUserId();
         return taskRepo.findTodoByUserWithPage(userId, offset, req.getPageSize())
-                .map(i -> FlowTaskRes.newBuilder()
-                        .setId(i.getId())
-                        .setInstanceId(i.getInstanceId())
-                        .setNodeInstanceId(i.getNodeInstanceId())
-                        .setTaskNo(i.getTaskNo())
-                        .setTaskName(i.getTaskName())
-                        .setStatus(i.getStatus())
-                        .setAssignee(i.getAssignee())
-                        .setCandidateUsers(i.getCandidateUsers())
-                        .setClaimedBy(i.getClaimedBy())
-                        .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setCompletedBy(i.getCompletedBy())
-                        .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setResult(i.getResult())
-                        .setComment(i.getComment())
-                        .setDueTime(Optional.ofNullable(i.getDueTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setPriority(i.getPriority())
-                        .build())
+                .map(this::toTaskRes)
                 .collectList()
                 .map(list -> ResultVO.ok(
                         TaskListRes.newBuilder()
@@ -74,38 +52,13 @@ public class TaskService {
                                 .build()));
     }
 
+    @Override
     public Mono<ResultVO<TaskListRes>> listClaimable(ListTaskReq req) {
         var offset = (req.getCurrentPage() - 1) * req.getPageSize();
         var loginUser = req.getLoginUser();
         var userId = loginUser.getUserId();
         return taskRepo.findClaimableByUserWithPage(userId, offset, req.getPageSize())
-                .map(i -> FlowTaskRes.newBuilder()
-                        .setId(i.getId())
-                        .setInstanceId(i.getInstanceId())
-                        .setNodeInstanceId(i.getNodeInstanceId())
-                        .setTaskNo(i.getTaskNo())
-                        .setTaskName(i.getTaskName())
-                        .setStatus(i.getStatus())
-                        .setAssignee(i.getAssignee())
-                        .setCandidateUsers(i.getCandidateUsers())
-                        .setClaimedBy(i.getClaimedBy())
-                        .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setCompletedBy(i.getCompletedBy())
-                        .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setResult(i.getResult())
-                        .setComment(i.getComment())
-                        .setDueTime(Optional.ofNullable(i.getDueTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setPriority(i.getPriority())
-                        .build())
+                .map(this::toTaskRes)
                 .collectList()
                 .map(list -> ResultVO.ok(
                         TaskListRes.newBuilder()
@@ -113,44 +66,20 @@ public class TaskService {
                                 .build()));
     }
 
+    @Override
     public Mono<ResultVO<FlowTaskRes>> getByTaskNo(TaskNoReq req) {
         return taskRepo.findByTaskNo(req.getTaskNo())
-                .map(i -> FlowTaskRes.newBuilder()
-                        .setId(i.getId())
-                        .setInstanceId(i.getInstanceId())
-                        .setNodeInstanceId(i.getNodeInstanceId())
-                        .setTaskNo(i.getTaskNo())
-                        .setTaskName(i.getTaskName())
-                        .setStatus(i.getStatus())
-                        .setAssignee(i.getAssignee())
-                        .setCandidateUsers(i.getCandidateUsers())
-                        .setClaimedBy(i.getClaimedBy())
-                        .setClaimedTime(Optional.ofNullable(i.getClaimedTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setCompletedBy(i.getCompletedBy())
-                        .setCompletedTime(Optional.ofNullable(i.getCompletedTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setResult(i.getResult())
-                        .setComment(i.getComment())
-                        .setDueTime(Optional.ofNullable(i.getDueTime())
-                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
-                                        .format(c))
-                                .orElse(""))
-                        .setPriority(i.getPriority())
-                        .build())
+                .map(this::toTaskRes)
                 .map(ResultVO::ok)
                 .defaultIfEmpty(ResultVO.fail(404, NO_TASK + ": " + req.getTaskNo()));
     }
 
     // ==================== 操作 ====================
 
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> claim(ClaimTaskReq req) {
-        log.info("[TaskService] 认领任务 taskNo={}, userId={}", req.getTaskNo(), req.getUserId());
+        log.info("[TaskServiceImpl] 认领任务 taskNo={}, userId={}", req.getTaskNo(), req.getUserId());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
                         new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
@@ -165,29 +94,30 @@ public class TaskService {
                                     new IllegalStateException("认领失败：已被他人认领或权限不足")))
                             .flatMap(rows -> taskRepo.findByTaskNo(req.getTaskNo()));
                 })
-                .doOnNext(t -> log.info("[TaskService] 认领成功 taskNo={}", t.getTaskNo()))
+                .doOnNext(t -> log.info("[TaskServiceImpl] 认领成功 taskNo={}", t.getTaskNo()))
                 .thenReturn(ResultVO.ok());
     }
 
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<FlowTaskRes>> complete(CompleteTaskReq req) {
-        log.info("[TaskService] 完成任务 taskNo={}, result={}, userId={}",
+        log.info("[TaskServiceImpl] 完成任务 taskNo={}, result={}, userId={}",
                 req.getTaskNo(), req.getResult(), req.getUserId());
         return taskRepo.findByTaskNo(req.getTaskNo())
-                .switchIfEmpty(Mono.<FlowTask>error(
+                .switchIfEmpty(Mono.error(
                         new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
                 .flatMap(task -> {
                     if (!CLAIMED.equals(task.getStatus())) {
-                        return Mono.<FlowTask>error(
+                        return Mono.error(
                                 new IllegalStateException("任务状态不允许完成: " + task.getStatus()));
                     }
                     if (!req.getUserId().equals(task.getClaimedBy())) {
-                        return Mono.<FlowTask>error(
+                        return Mono.error(
                                 new IllegalStateException("只有认领人才能完成任务"));
                     }
                     return taskRepo.complete(task.getId(), req.getResult(), req.getComment(), req.getUserId())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.<Integer>error(
+                            .switchIfEmpty(Mono.error(
                                     new IllegalStateException("任务完成失败")))
                             .flatMap(rows -> taskRepo.findByTaskNo(req.getTaskNo()));
                 })
@@ -200,9 +130,10 @@ public class TaskService {
                 .thenReturn(ResultVO.ok());
     }
 
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> cancel(CancelTaskReq req) {
-        log.info("[TaskService] 取消任务 taskNo={}", req.getTaskNo());
+        log.info("[TaskServiceImpl] 取消任务 taskNo={}", req.getTaskNo());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
                         new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
@@ -217,13 +148,14 @@ public class TaskService {
                                     new IllegalStateException("取消失败")))
                             .thenReturn(task);
                 })
-                .doOnSuccess(t -> log.info("[TaskService] 任务已取消 taskNo={}", req.getTaskNo()))
+                .doOnSuccess(t -> log.info("[TaskServiceImpl] 任务已取消 taskNo={}", req.getTaskNo()))
                 .thenReturn(ResultVO.ok());
     }
 
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> transfer(TransferTaskReq req) {
-        log.info("[TaskService] 转交任务 taskNo={}, targetUser={}", req.getTaskNo(), req.getTargetUser());
+        log.info("[TaskServiceImpl] 转交任务 taskNo={}, targetUser={}", req.getTaskNo(), req.getTargetUser());
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
                         new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
@@ -259,5 +191,37 @@ public class TaskService {
                             });
                 })
                 .thenReturn(ResultVO.ok());
+    }
+
+    // ==================== 辅助 ====================
+
+    /**
+     * Entity → FlowTaskRes 内联转换（原文件中的重复代码提取为私有方法）
+     */
+    private FlowTaskRes toTaskRes(FlowTask i) {
+        return FlowTaskRes.newBuilder()
+                .setId(i.getId())
+                .setInstanceId(i.getInstanceId())
+                .setNodeInstanceId(i.getNodeInstanceId())
+                .setTaskNo(i.getTaskNo())
+                .setTaskName(i.getTaskName())
+                .setStatus(i.getStatus())
+                .setAssignee(i.getAssignee())
+                .setCandidateUsers(i.getCandidateUsers())
+                .setClaimedBy(i.getClaimedBy())
+                .setClaimedTime(formatTime(i.getClaimedTime()))
+                .setCompletedBy(i.getCompletedBy())
+                .setCompletedTime(formatTime(i.getCompletedTime()))
+                .setResult(i.getResult())
+                .setComment(i.getComment())
+                .setDueTime(formatTime(i.getDueTime()))
+                .setPriority(i.getPriority())
+                .build();
+    }
+
+    private String formatTime(java.time.LocalDateTime time) {
+        return Optional.ofNullable(time)
+                .map(t -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS).format(t))
+                .orElse("");
     }
 }

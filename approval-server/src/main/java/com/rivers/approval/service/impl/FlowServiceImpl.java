@@ -1,4 +1,4 @@
-package com.rivers.approval.service;
+package com.rivers.approval.service.impl;
 
 import com.rivers.approval.entity.FlowInstance;
 import com.rivers.approval.event.FlowEventBus;
@@ -6,6 +6,7 @@ import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.InstanceStartedEvent;
 import com.rivers.approval.repository.FlowDefinitionRepository;
 import com.rivers.approval.repository.FlowInstanceRepository;
+import com.rivers.approval.service.IFlowService;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.StartProcessReq;
 import com.rivers.proto.StartProcessRes;
@@ -20,29 +21,21 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 流程服务 — 对外暴露的流程操作入口。
- *
- * <p>核心职责：
- * <ul>
- *   <li>发起流程：校验定义 → 创建实例 → 发布 InstanceStartedEvent → 引擎自动推进</li>
- *   <li>查询流程：实例详情、待办列表、历史轨迹</li>
- * </ul>
- *
- * <p>发起流程后无需手动调用 FlowExecutor，事件驱动机制会自动接管后续所有推进。
+ * 流程服务实现 — 流程发起与终止。
  */
 @Service
 @Slf4j
-public class FlowService {
+public class FlowServiceImpl implements IFlowService {
 
     private final FlowDefinitionRepository defRepo;
     private final FlowInstanceRepository instanceRepo;
     private final FlowEventBus eventBus;
     private final ObjectMapper objectMapper;
 
-    public FlowService(FlowDefinitionRepository defRepo,
-                       FlowInstanceRepository instanceRepo,
-                       FlowEventBus eventBus,
-                       ObjectMapper objectMapper) {
+    public FlowServiceImpl(FlowDefinitionRepository defRepo,
+                           FlowInstanceRepository instanceRepo,
+                           FlowEventBus eventBus,
+                           ObjectMapper objectMapper) {
         this.defRepo = defRepo;
         this.instanceRepo = instanceRepo;
         this.eventBus = eventBus;
@@ -54,6 +47,7 @@ public class FlowService {
      *
      * @return 创建后的流程实例
      */
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<StartProcessRes>> startProcess(StartProcessReq req) {
         var initiator = req.getInitiator();
@@ -83,7 +77,7 @@ public class FlowService {
                     return instanceRepo.save(instance);
                 })
                 .map(instance -> {
-                    log.info("[FlowService] 流程发起成功 instanceId={}, instanceNo={}",
+                    log.info("[FlowServiceImpl] 流程发起成功 instanceId={}, instanceNo={}",
                             instance.getId(), instance.getInstanceNo());
                     var meta = FlowEventMetadata.of(
                             instance.getId(), instance.getInstanceNo(), "INSTANCE_STARTED");
@@ -102,6 +96,7 @@ public class FlowService {
     /**
      * 终止流程实例（管理员操作）。
      */
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> terminateProcess(TerminateInstanceReq req) {
         return instanceRepo.findById(req.getInstanceId())
@@ -118,11 +113,6 @@ public class FlowService {
     }
 
     private String toJson(Object obj) {
-        try {
-            return objectMapper.writeValueAsString(obj);
-        } catch (Exception e) {
-            log.warn("[FlowService] JSON 序列化失败", e);
-            return "{}";
-        }
+        return objectMapper.writeValueAsString(obj);
     }
 }
