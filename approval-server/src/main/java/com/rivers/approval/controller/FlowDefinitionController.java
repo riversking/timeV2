@@ -33,17 +33,17 @@ public class FlowDefinitionController {
     }
 
     @PostMapping("create")
-    public Mono<ResultVO<FlowDefinitionRes>> create(@RequestBody CreateDefinitionReq createDefinitionReq) {
+    public Mono<ResultVO<Void>> create(@RequestBody CreateDefinitionReq createDefinitionReq) {
         return definitionService.create(createDefinitionReq);
     }
 
     @PostMapping("publish")
-    public Mono<ResultVO<FlowDefinitionRes>> publish(@RequestBody PublishDefinitionReq publishDefinitionReq) {
+    public Mono<ResultVO<Void>> publish(@RequestBody PublishDefinitionReq publishDefinitionReq) {
         return definitionService.publish(publishDefinitionReq);
     }
 
     @PostMapping("disable")
-    public Mono<ResultVO<FlowDefinitionRes>> disable(@RequestBody DisableDefinitionReq disableDefinitionReq) {
+    public Mono<ResultVO<Void>> disable(@RequestBody DisableDefinitionReq disableDefinitionReq) {
         return definitionService.disable(disableDefinitionReq);
     }
 }

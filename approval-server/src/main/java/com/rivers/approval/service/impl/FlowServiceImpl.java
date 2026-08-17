@@ -18,6 +18,7 @@ import reactor.core.publisher.Mono;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 /**
@@ -70,7 +71,7 @@ public class FlowServiceImpl implements IFlowService {
                             .businessKey(req.getBusinessKey())
                             .status("RUNNING")
                             .variables(toJson(variables))
-                            .startTime(LocalDateTime.now())
+                            .startTime(LocalDateTime.now(ZoneId.systemDefault()))
                             .createUser(initiator)
                             .updateUser(initiator)
                             .build();
@@ -107,7 +108,7 @@ public class FlowServiceImpl implements IFlowService {
                     }
                     return instanceRepo.updateStatus(
                             req.getInstanceId(), "TERMINATED",
-                            LocalDateTime.now(), req.getOperator());
+                            LocalDateTime.now(ZoneId.systemDefault()), req.getOperator());
                 })
                 .thenReturn(ResultVO.ok());
     }

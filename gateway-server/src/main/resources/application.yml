@@ -33,6 +33,10 @@ spring:
               uri: lb://im-server
               predicates:
                 - Path=/im-server/**
+            - id: approval-server
+              uri: lb://approval-server
+              predicates:
+                - Path=/approval-server/**
 
 
 ignore:

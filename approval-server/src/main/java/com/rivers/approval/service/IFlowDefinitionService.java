@@ -22,15 +22,15 @@ public interface IFlowDefinitionService {
     /**
      * 创建草稿
      */
-    Mono<ResultVO<FlowDefinitionRes>> create(CreateDefinitionReq req);
+    Mono<ResultVO<Void>> create(CreateDefinitionReq req);
 
     /**
      * 发布
      */
-    Mono<ResultVO<FlowDefinitionRes>> publish(PublishDefinitionReq req);
+    Mono<ResultVO<Void>> publish(PublishDefinitionReq req);
 
     /**
      * 停用
      */
-    Mono<ResultVO<FlowDefinitionRes>> disable(DisableDefinitionReq req);
+    Mono<ResultVO<Void>> disable(DisableDefinitionReq req);
 }

@@ -119,7 +119,7 @@ public class TaskServiceImpl implements ITaskService {
                             .filter(rows -> rows > 0)
                             .switchIfEmpty(Mono.error(
                                     new IllegalStateException("任务完成失败")))
-                            .flatMap(rows -> taskRepo.findByTaskNo(req.getTaskNo()));
+                            .flatMap(_ -> taskRepo.findByTaskNo(req.getTaskNo()));
                 })
                 .doOnNext(t -> {
                     var meta = FlowEventMetadata.of(t.getInstanceId(), "", "TASK_COMPLETED");
