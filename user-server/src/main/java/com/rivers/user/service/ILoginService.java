@@ -2,16 +2,15 @@ package com.rivers.user.service;
 
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
-import org.springframework.http.server.reactive.ServerHttpResponse;
 
 /**
  * @author xx
  */
 public interface ILoginService {
 
-    ResultVO<Void> login(LoginReq loginReq, ServerHttpResponse response);
+    ResultVO<AutoLoginRes> login(LoginReq loginReq);
 
-    ResultVO<Void> autoLogin(String authHeader, ServerHttpResponse response);
+    ResultVO<AutoLoginRes> autoLogin(String authHeader);
 
     ResultVO<QrCodeRes> generateQrCode();
 

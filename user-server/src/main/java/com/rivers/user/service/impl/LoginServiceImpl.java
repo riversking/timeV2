@@ -6,10 +6,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.rivers.core.entity.LoginUser;
 import com.rivers.core.util.JwtUtil;
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.ConfirmQrCodeReq;
-import com.rivers.proto.LoginReq;
-import com.rivers.proto.QrCodeRes;
-import com.rivers.proto.ScanQrCodeReq;
+import com.rivers.proto.*;
 import com.rivers.user.config.QrCodeWebSocketHandler;
 import com.rivers.user.entity.TimerUser;
 import com.rivers.user.mapper.TimerUserMapper;
@@ -46,9 +43,10 @@ public class LoginServiceImpl implements ILoginService {
     private static final long REFRESH_EXPIRE_DAYS = 30L;
     private static final long FAIL_LIMIT = 5L;
     private static final long FAIL_WINDOW_HOURS = 1L;
-    static final String NO_USER = "用户不存在";
-    static final String SCANNED = "SCANNED";
-    static final String COOKIE_SESSION = "SESSION_ID";
+    private static final String ACTIVE_PREFIX = "session:last:";
+    private static final String NO_USER = "用户不存在";
+    private static final String SCANNED = "SCANNED";
+    private static final String COOKIE_SESSION = "SESSION_ID";
     private static final String SESSION_KEY_TOKEN = "accessToken";
     private static final Duration SESSION_TTL = Duration.ofDays(REFRESH_EXPIRE_DAYS);
     private static final Duration QR_TTL = Duration.ofSeconds(QR_CODE_EXPIRE_SECONDS);
@@ -69,7 +67,7 @@ public class LoginServiceImpl implements ILoginService {
     // ═══════════════════════════════════════════════════════════════
 
     @Override
-    public ResultVO<Void> login(LoginReq req, ServerHttpResponse response) {
+    public ResultVO<AutoLoginRes> login(LoginReq req) {
         var username = req.getUsername();
         var password = req.getPassword();
         if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
@@ -77,12 +75,12 @@ public class LoginServiceImpl implements ILoginService {
         }
         var basicToken = Base64.getEncoder()
                 .encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
-        return doLogin(BASIC_AUTH_PREFIX + basicToken, response);
+        return doLogin(BASIC_AUTH_PREFIX + basicToken);
     }
 
     @Override
-    public ResultVO<Void> autoLogin(String authHeader, ServerHttpResponse response) {
-        return doLogin(authHeader, response);
+    public ResultVO<AutoLoginRes> autoLogin(String authHeader) {
+        return doLogin(authHeader);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -181,7 +179,7 @@ public class LoginServiceImpl implements ILoginService {
     //  私有：登录核心
     // ═══════════════════════════════════════════════════════════════
 
-    private ResultVO<Void> doLogin(String authHeader, ServerHttpResponse response) {
+    private ResultVO<AutoLoginRes> doLogin(String authHeader) {
         if (StringUtils.isBlank(authHeader) || !authHeader.startsWith(BASIC_AUTH_PREFIX)) {
             return ResultVO.fail(401, "请先登录");
         }
@@ -201,9 +199,11 @@ public class LoginServiceImpl implements ILoginService {
         stringRedisTemplate.delete(FAIL_PREFIX + username);
         var loginUser = buildLoginUser(user);
         var sessionId = buildSession(loginUser);
-        setSessionCookie(response, sessionId);
+        var autoLoginRes = AutoLoginRes.newBuilder()
+                .setToken(sessionId)
+                .build();
         log.info("登录成功: sessionId={}, userId={}", sessionId, user.getUserId());
-        return ResultVO.ok();
+        return ResultVO.ok(autoLoginRes);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -220,17 +220,9 @@ public class LoginServiceImpl implements ILoginService {
         stringRedisTemplate.opsForValue()
                 .set(SESSION_PREFIX + sessionId,
                         JSONUtil.toJsonStr(session), SESSION_TTL);
+        stringRedisTemplate.opsForValue()
+                .set(ACTIVE_PREFIX + sessionId, "1", Duration.ofDays(2));
         return sessionId;
-    }
-
-    private void setSessionCookie(ServerHttpResponse response, String sessionId) {
-        response.addCookie(ResponseCookie.from(COOKIE_SESSION, sessionId)
-                .httpOnly(true)
-//                .secure(true)
-                .path("/")
-                .maxAge(SESSION_TTL)
-                .sameSite("Strict")
-                .build());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -264,7 +256,7 @@ public class LoginServiceImpl implements ILoginService {
                 .eq(TimerUser::getUserId, userId));
     }
 
-    private ResultVO<Void> handleFailCount(String username) {
+    private ResultVO<AutoLoginRes> handleFailCount(String username) {
         var failKey = FAIL_PREFIX + username;
         var fails = stringRedisTemplate.opsForValue().increment(failKey);
         stringRedisTemplate.expire(failKey, Duration.ofHours(FAIL_WINDOW_HOURS));

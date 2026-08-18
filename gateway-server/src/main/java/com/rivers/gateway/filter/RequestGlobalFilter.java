@@ -14,7 +14,6 @@ import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.stereotype.Component;
@@ -53,8 +52,11 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
 
     private static final String CODE_401 = "{\"code\":401,\"msg\":\"鉴权失败\"}";
     private static final String SESSION_PREFIX = "session:";
+    private static final String ACTIVE_PREFIX = "session:last:";
     private static final String TOKEN_PREFIX = "token:";
-    private static final String COOKIE_SESSION = "SESSION_ID";
+    private static final String BEARER_PREFIX = "Bearer ";
+    private static final String ACTIVE_VALUE = "1";
+    private static final Duration ACTIVE_TTL = Duration.ofDays(2);
     private static final long TOKEN_TTL_MINUTES = 30;
     private static final String ATTR_LOGIN_USER = "gateway.loginUser";
     public static final String LOGIN_USER = "loginUser";
@@ -89,14 +91,18 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
             return clearSessionAnd401(exchange, null);
         }
         return loadValidUser(sessionId)
-                .flatMap(user -> forwardWithIdentity(exchange, chain, user))
-                .switchIfEmpty(Mono.defer(() -> clearSessionAnd401(exchange, sessionId)));
+                .switchIfEmpty(Mono.defer(() -> reject401(exchange, sessionId)))
+                .flatMap(user -> forwardWithIdentity(exchange, chain, user));
     }
 
     private @Nullable String extractSessionId(ServerHttpRequest request) {
-        var cookie = request.getCookies().getFirst(COOKIE_SESSION);
-        return (cookie != null && StringUtils.hasText(cookie.getValue()))
-                ? cookie.getValue() : null;
+        var auth = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        if (auth == null || auth.length() <= BEARER_PREFIX.length()
+                || !auth.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
+            return null;
+        }
+        var sessionId = auth.substring(BEARER_PREFIX.length());
+        return StringUtils.hasText(sessionId) ? sessionId : null;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -104,7 +110,13 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     //  任何环节失败返回 Mono.empty()，由调用方 switchIfEmpty 统一兜底
     // ═══════════════════════════════════════════════════════════════
     private Mono<LoginUser> loadValidUser(String sessionId) {
-        return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
+        // 第一步：活跃窗口检查。session:last:{sid} 不存在 = 两天未登录 → empty → 401
+        // 存在则续期 2 天，再继续会话校验
+        return redisTemplate.opsForValue().get(ACTIVE_PREFIX + sessionId)
+                .filter(StringUtils::hasText)
+                .flatMap(active -> redisTemplate.opsForValue()
+                        .set(ACTIVE_PREFIX + sessionId, ACTIVE_VALUE, ACTIVE_TTL))
+                .then(redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId))
                 .filter(StringUtils::hasText)
                 .flatMap(json -> resolveLoginUser(json)
                         .flatMap(ctx -> refreshOrRenew(sessionId, ctx)));
@@ -216,15 +228,14 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         var cleanup = StringUtils.hasText(sessionId)
                 ? redisTemplate.delete(SESSION_PREFIX + sessionId)
                 : Mono.empty();
-        exchange.getResponse().addCookie(
-                ResponseCookie.from(COOKIE_SESSION, "")
-                        .httpOnly(true).path("/")
-                        .maxAge(0)
-                        .build());
         var response = exchange.getResponse();
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         var buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
         return cleanup.then(response.writeWith(Mono.just(buffer)));
+    }
+
+    private Mono<LoginUser> reject401(ServerWebExchange exchange, String sessionId) {
+        return clearSessionAnd401(exchange, sessionId).then(Mono.empty());
     }
 
     // ═══════════════════════════════════════════════════════════════

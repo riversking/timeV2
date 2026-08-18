@@ -22,13 +22,13 @@ public class LoginController {
     }
 
     @PostMapping("login")
-    public ResultVO<Void> login(@RequestBody LoginReq loginReq, ServerHttpResponse response) {
-        return loginService.login(loginReq, response);
+    public ResultVO<AutoLoginRes> login(@RequestBody LoginReq loginReq) {
+        return loginService.login(loginReq);
     }
 
     @PostMapping("autoLogin")
-    public ResultVO<Void> autoLogin(@RequestHeader("Authorization") String authHeader, ServerHttpResponse response) {
-        return loginService.autoLogin(authHeader, response);
+    public ResultVO<AutoLoginRes> autoLogin(@RequestHeader("Authorization") String authHeader) {
+        return loginService.autoLogin(authHeader);
     }
 
     @PostMapping("/qrcode/generate")
