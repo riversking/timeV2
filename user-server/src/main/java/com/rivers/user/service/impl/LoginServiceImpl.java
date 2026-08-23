@@ -4,7 +4,6 @@ import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.rivers.core.entity.LoginUser;
-import com.rivers.core.util.JwtUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.config.QrCodeWebSocketHandler;
@@ -14,8 +13,6 @@ import com.rivers.user.service.ILoginService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.ResponseCookie;
-import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -23,9 +20,9 @@ import java.time.Duration;
 import java.util.*;
 
 /**
- * SSO 登录服务 — Cookie 会话模式（无 refreshToken）
+ * SSO 登录服务 — 纯 Session Bearer 模式（无 JWT / 无 token 键）
  * <p>
- * session 固定 30 天 TTL 不续期，JWT 过期由网关自动刷新。
+ * session:{sid} 固定 30 天绝对期限不续期；12h 轮换、宽限与盗用吊销由网关负责。
  * 返回值仅含 userId / username，不含任何 token。
  */
 @Service
@@ -33,23 +30,27 @@ import java.util.*;
 public class LoginServiceImpl implements ILoginService {
 
     private static final String FAIL_PREFIX = "login:fail:";
-    private static final String TOKEN_PREFIX = "token:";
-    private static final String QR_PREFIX = "qr:code:";
     private static final String QR_STATUS_PREFIX = "qr:status:";
+    private static final String QR_USER_PREFIX = "qr:user:";
     private static final String QR_SESSION_PREFIX = "qr:session:";
     private static final String SESSION_PREFIX = "session:";
+    private static final String FAMILY_PREFIX = "session:family:";
+    private static final String ACTIVE_PREFIX = "session:last:";
     private static final String BASIC_AUTH_PREFIX = "Basic ";
     private static final long QR_CODE_EXPIRE_SECONDS = 300L;
-    private static final long REFRESH_EXPIRE_DAYS = 30L;
+    private static final long SESSION_EXPIRE_DAYS = 30L;
     private static final long FAIL_LIMIT = 5L;
     private static final long FAIL_WINDOW_HOURS = 1L;
-    private static final String ACTIVE_PREFIX = "session:last:";
     private static final String NO_USER = "用户不存在";
+    private static final String BAD_CREDENTIALS = "用户名或密码错误";
     private static final String SCANNED = "SCANNED";
-    private static final String COOKIE_SESSION = "SESSION_ID";
-    private static final String SESSION_KEY_TOKEN = "accessToken";
-    private static final Duration SESSION_TTL = Duration.ofDays(REFRESH_EXPIRE_DAYS);
+    private static final Duration SESSION_TTL = Duration.ofDays(SESSION_EXPIRE_DAYS);
     private static final Duration QR_TTL = Duration.ofSeconds(QR_CODE_EXPIRE_SECONDS);
+    private static final Duration ACTIVE_TTL = Duration.ofDays(2);
+    private static final Duration ROTATE_INTERVAL = Duration.ofHours(12);
+    private static final String USER_ID = "userId";
+    private static final String USERNAME = "username";
+
     private final TimerUserMapper timerUserMapper;
     private final QrCodeWebSocketHandler qrCodeWebSocketHandler;
     private final StringRedisTemplate stringRedisTemplate;
@@ -71,7 +72,7 @@ public class LoginServiceImpl implements ILoginService {
         var username = req.getUsername();
         var password = req.getPassword();
         if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
-            return ResultVO.fail("登录失败");
+            return ResultVO.fail(BAD_CREDENTIALS);
         }
         var basicToken = Base64.getEncoder()
                 .encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
@@ -120,13 +121,18 @@ public class LoginServiceImpl implements ILoginService {
         if (user == null) {
             return ResultVO.fail(NO_USER);
         }
+        // DEL 作为抢注：返回 true 才继续，防并发重复扫码（Redis DEL 本身原子）
+        var claimed = Boolean.TRUE.equals(stringRedisTemplate.delete(statusKey));
+        if (!claimed) {
+            return ResultVO.fail("二维码已被扫描");
+        }
         stringRedisTemplate.opsForValue().set(statusKey, SCANNED, QR_TTL);
         stringRedisTemplate.opsForValue()
-                .set(QR_PREFIX + qrCodeId + "user", userId, QR_TTL);
+                .set(QR_USER_PREFIX + qrCodeId, userId, QR_TTL);
 
         var scanData = new HashMap<String, String>();
-        scanData.put("userId", userId);
-        scanData.put("username", user.getUsername());
+        scanData.put(USER_ID, userId);
+        scanData.put(USERNAME, user.getUsername());
         qrCodeWebSocketHandler.sendQrCodeStatus(qrCodeId, SCANNED, scanData);
         log.info("二维码已扫描: {}, 用户: {}", qrCodeId, userId);
         return ResultVO.ok();
@@ -145,7 +151,7 @@ public class LoginServiceImpl implements ILoginService {
             return ResultVO.fail("请先扫描二维码");
         }
         var storedUserId = stringRedisTemplate.opsForValue()
-                .get(QR_PREFIX + qrCodeId + "user");
+                .get(QR_USER_PREFIX + qrCodeId);
         if (!userId.equals(storedUserId)) {
             return ResultVO.fail("用户信息不匹配");
         }
@@ -153,15 +159,15 @@ public class LoginServiceImpl implements ILoginService {
         if (user == null) {
             return ResultVO.fail(NO_USER);
         }
-        // 建 JWT + session
+        // 建 session（纯 Bearer 模式，无 JWT）
         var loginUser = buildLoginUser(user);
         var sessionId = buildSession(loginUser);
 
         // 临时映射，供前端 claim 接口领取（5 分钟有效）
         var claimData = Map.of(
                 "sessionId", sessionId,
-                "userId", loginUser.getUserId(),
-                "username", loginUser.getUsername()
+                USER_ID, loginUser.getUserId(),
+                USERNAME, loginUser.getUsername()
         );
         stringRedisTemplate.opsForValue()
                 .set(QR_SESSION_PREFIX + qrCodeId,
@@ -169,9 +175,9 @@ public class LoginServiceImpl implements ILoginService {
         // WebSocket 只发信号，不含敏感数据
         qrCodeWebSocketHandler.sendQrCodeStatus(qrCodeId, "CONFIRMED",
                 Map.of("qrCodeId", qrCodeId, "status", "CONFIRMED"));
-        stringRedisTemplate.delete(QR_PREFIX + qrCodeId + "user");
+        stringRedisTemplate.delete(QR_USER_PREFIX + qrCodeId);
         stringRedisTemplate.delete(statusKey);
-        log.info("二维码已确认: {}, 用户: {}, sessionId={}", qrCodeId, userId, sessionId);
+        log.info("二维码已确认: {}, 用户: {}", qrCodeId, userId);
         return ResultVO.ok();
     }
 
@@ -191,7 +197,7 @@ public class LoginServiceImpl implements ILoginService {
         var password = credentials[1];
         var user = findUserById(username);
         if (user == null) {
-            return ResultVO.fail(NO_USER);
+            return ResultVO.fail(BAD_CREDENTIALS);
         }
         if (!user.getPassword().equals(password)) {
             return handleFailCount(username);
@@ -202,26 +208,34 @@ public class LoginServiceImpl implements ILoginService {
         var autoLoginRes = AutoLoginRes.newBuilder()
                 .setToken(sessionId)
                 .build();
-        log.info("登录成功: sessionId={}, userId={}", sessionId, user.getUserId());
+        log.info("登录成功: userId={}", user.getUserId());
         return ResultVO.ok(autoLoginRes);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  私有：Session / JWT
+    //  私有：Session
     // ═══════════════════════════════════════════════════════════════
 
+    /**
+     * session JSON 直接存用户信息（无 JWT）。
+     * 配套写家族指针（session:family:{familyId}）与活跃窗口（session:last:{sid}），
+     * 轮换/宽限/盗用吊销由网关基于这三个键完成。
+     */
     private String buildSession(LoginUser loginUser) {
-        var key = UUID.randomUUID().toString();
-        var token = JwtUtil.createJwt(loginUser, key);
         var sessionId = UUID.randomUUID().toString();
-        var session = Map.of(SESSION_KEY_TOKEN, token);    // 单字段，Map.of 足够
-        stringRedisTemplate.opsForValue()
-                .set(TOKEN_PREFIX + key, token, SESSION_TTL);
-        stringRedisTemplate.opsForValue()
-                .set(SESSION_PREFIX + sessionId,
-                        JSONUtil.toJsonStr(session), SESSION_TTL);
-        stringRedisTemplate.opsForValue()
-                .set(ACTIVE_PREFIX + sessionId, "1", Duration.ofDays(2));
+        var familyId = UUID.randomUUID().toString();
+        var now = System.currentTimeMillis();
+        var session = Map.of(
+                USER_ID, loginUser.getUserId(),
+                USERNAME, loginUser.getUsername(),
+                "familyId", familyId,
+                "createdAt", now,
+                "rotateAt", now + ROTATE_INTERVAL.toMillis(),
+                "prevSid", "");
+        var json = JSONUtil.toJsonStr(session);
+        stringRedisTemplate.opsForValue().set(SESSION_PREFIX + sessionId, json, SESSION_TTL);
+        stringRedisTemplate.opsForValue().set(FAMILY_PREFIX + familyId, sessionId, SESSION_TTL);
+        stringRedisTemplate.opsForValue().set(ACTIVE_PREFIX + sessionId, "1", ACTIVE_TTL);
         return sessionId;
     }
 
@@ -259,10 +273,14 @@ public class LoginServiceImpl implements ILoginService {
     private ResultVO<AutoLoginRes> handleFailCount(String username) {
         var failKey = FAIL_PREFIX + username;
         var fails = stringRedisTemplate.opsForValue().increment(failKey);
-        stringRedisTemplate.expire(failKey, Duration.ofHours(FAIL_WINDOW_HOURS));
-        if (fails != null && fails > FAIL_LIMIT) {
+        // 仅首次失败设置窗口（INCR 原子；EXPIRE 非原子但崩溃残留概率极低，
+        // 登录成功时会 delete 兜底）
+        if (fails != null && fails == 1L) {
+            stringRedisTemplate.expire(failKey, Duration.ofHours(FAIL_WINDOW_HOURS));
+        }
+        if (fails != null && fails >= FAIL_LIMIT) {
             return ResultVO.fail("请求过于频繁");
         }
-        return ResultVO.fail("登录失败");
+        return ResultVO.fail(BAD_CREDENTIALS);
     }
 }
