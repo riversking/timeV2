@@ -305,14 +305,8 @@ onMounted(() => {
 const showUserCenter = () => {
   router.push("/users/userCenter");
 };
-const logout = async () => {
-  try {
-    localStorage.removeItem("token");
-    userStore.setMenuRoutes([]);
-    await router.replace("/login");
-  } catch (error) {
-    console.error(error);
-  }
+const logout = () => {
+  userStore.logout();
 };
 
 const fetchCurrenntUser = async () => {

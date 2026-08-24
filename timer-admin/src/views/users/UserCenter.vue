@@ -390,15 +390,8 @@ const goBack = () => {
   router.push('/');
 };
 
-const logout = async () => {
-  try {
-    localStorage.removeItem("token");
-    userStore.setToken("");
-    userStore.setMenuRoutes([]);
-    await router.replace("/login");
-  } catch (error) {
-    console.error(error);
-  }
+const logout = () => {
+  userStore.logout();
 };
 
 // 页面加载后获取用户信息

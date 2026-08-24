@@ -31,3 +31,7 @@ export async function claimQrSession(qrCodeId: string) {
     .post(`${API_PREFIX}/qrcode/claim`, { qrCodeId })
     .then((res) => res.data);
 }
+
+export async function logoutApi() {
+  return http.post(`${API_PREFIX}/logout`).then((res) => res.data);
+}

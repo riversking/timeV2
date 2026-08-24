@@ -95,6 +95,7 @@ import { login, getQrCode, claimQrSession } from "@/api/auth";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/store/user";
+import { setSessionId } from "@/services/http";
 
 // 声明 qrcode 模块类型（如果 @types/qrcode 不可用）
 declare module "qrcode" {
@@ -295,16 +296,14 @@ const handleLogin = async () => {
   error.value = null;
   loading.value = true;
   try {
-    const res = await login({
-      username: form.value.username,
-      password: form.value.password,
-    });
-    if (res.code === 200) {
-      ElMessage.success("登录成功！");
-      await router.replace({ path: "/home", replace: true });
-    } else {
-      error.value = res.msg || "登录失败";
-    }
+    const res = await login({ username: form.value.username, password: form.value.password });
+if (res.code === 200 && res.data?.token) {
+  setSessionId(res.data.token);
+  ElMessage.success("登录成功！");
+  await router.replace({ path: "/home", replace: true });
+} else {
+  error.value = res.msg || "登录失败";
+}
   } catch (err: any) {
     console.error("登录请求失败:", err);
     if (err.response?.status === 401) {
