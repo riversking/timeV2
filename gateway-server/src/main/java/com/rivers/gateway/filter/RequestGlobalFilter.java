@@ -7,6 +7,7 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.*;
@@ -15,6 +16,7 @@ import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
@@ -30,6 +32,7 @@ import java.io.Serial;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -43,6 +46,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>
  * 轮换：每 12h（rotateAt 到期）以"墓碑 SETNX"抢占轮换权，赢家才推进家族指针并删旧键，
  * 新 sid 通过响应头 X-New-Session 下发；旧 sid 重放 → 回滚自愈 / 宽限一次 / 整族吊销（终局）。
+ * <p>
+ * Body 重写安全：JSON 预检 + Content-Length 预检透传 + 有上限 join（超限 413）+ 读超时（408）。
  *
  * @author riversking
  */
@@ -66,6 +71,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     private static final String ATTR_LOGIN_USER = "gateway.loginUser";
     public static final String LOGIN_USER = "loginUser";
     private static final int MAX_BODY_BUFFER_SIZE = 1024 * 1024;
+    private static final Duration BODY_READ_TIMEOUT = Duration.ofSeconds(30);
 
     private final FilterIgnorePropertiesConfig filterIgnorePropertiesConfig;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -366,7 +372,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
 
     // ═══════════════════════════════════════════════════════════════
     //  Body 重写装饰器
-    //  JSON 预检 + Content-Type 过滤 + OOM 双重防护 + 空 Body 降级 + 单次缓冲
+    //  JSON 预检 + Content-Type 过滤 + 有上限缓冲(413) + 读超时(408) + 空 Body 降级 + 单次缓冲
     // ═══════════════════════════════════════════════════════════════
     private class BodyRewriteDecorator extends ServerHttpRequestDecorator {
 
@@ -389,8 +395,8 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
             if (!isJsonContentType(contentType)) {
                 return super.getBody();
             }
-            // 预检：Content-Length 超过阈值直接透传，防止 OOM
-            if (getHeaders().getContentLength() > MAX_BODY_BUFFER_SIZE) {
+            // 预检：Content-Length 超过阈值直接透传（读之前判定，防 OOM）
+            if (super.getHeaders().getContentLength() > MAX_BODY_BUFFER_SIZE) {
                 log.warn("Body size {} exceeds limit {}, skip loginUser injection for {}",
                         getHeaders().getContentLength(), MAX_BODY_BUFFER_SIZE, getURI().getPath());
                 return super.getBody();
@@ -407,24 +413,28 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         }
 
         private Mono<byte[]> rewriteBody(Object loginUser) {
-            return DataBufferUtils.join(super.getBody())
+            // 有上限 join：chunked/无 Content-Length 时也不会无限缓冲，
+            // 超限抛 DataBufferLimitException（Spring 会释放已收集的 buffer）。
+            // 带 Content-Length 的超大 body 已在 getBody 预检处透传，根本不会走到这里
+            return DataBufferUtils.join(super.getBody(), MAX_BODY_BUFFER_SIZE)
+                    .timeout(BODY_READ_TIMEOUT)
                     .map(this::drainBuffer)
-                    .flatMap(bytes -> {
-                        // 二次校验实际读取字节数（应对 chunked 等无 Content-Length 场景）
-                        if (bytes.length > MAX_BODY_BUFFER_SIZE) {
-                            return Mono.just(bytes);
-                        }
-                        return Mono.fromCallable(() -> injectLoginUser(bytes, loginUser))
-                                .subscribeOn(Schedulers.boundedElastic())
-                                .onErrorReturn(bytes);
-                    })
+                    .flatMap(bytes -> Mono.fromCallable(() -> injectLoginUser(bytes, loginUser))
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .onErrorReturn(bytes))
                     // 空 Body 降级：构造仅含 loginUser 的 JSON
                     .switchIfEmpty(Mono.fromCallable(() -> {
                                 ObjectNode emptyJson = objectMapper.createObjectNode();
                                 emptyJson.set(LOGIN_USER, objectMapper.valueToTree(loginUser));
                                 return objectMapper.writeValueAsBytes(emptyJson);
                             })
-                            .subscribeOn(Schedulers.boundedElastic()));
+                            .subscribeOn(Schedulers.boundedElastic()))
+                    .onErrorMap(DataBufferLimitException.class,
+                            e -> new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE,
+                                    "请求体超过 " + MAX_BODY_BUFFER_SIZE + " 字节限制", e))
+                    .onErrorMap(TimeoutException.class,
+                            e -> new ResponseStatusException(HttpStatus.REQUEST_TIMEOUT,
+                                    "请求体读取超时", e));
         }
 
         private byte[] drainBuffer(DataBuffer dataBuffer) {

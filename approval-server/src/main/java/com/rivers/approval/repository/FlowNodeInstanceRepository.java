@@ -79,8 +79,21 @@ public interface FlowNodeInstanceRepository extends ReactiveCrudRepository<FlowN
         """)
     Flux<FlowNodeInstance> findPendingByAssignee(String assignee);
 
+    @Query("""
+        SELECT * FROM flow_node_instance
+        WHERE instance_id = :instanceId
+          AND node_id = :nodeId
+          AND status = 'ACTIVE'
+          AND is_deleted = 0
+        ORDER BY create_time ASC
+        LIMIT 1
+        """)
+    Mono<FlowNodeInstance> findActiveByInstanceIdAndNodeId(Long instanceId, String nodeId);
+
     /**
      * 更新节点状态
+     * AND status = 'ACTIVE' 作为乐观锁：并发分支完成同一 Join 节点时，
+     * 只有第一个成功者拿到 rows=1 并发布推进事件
      */
     @Query("""
         UPDATE flow_node_instance
@@ -90,6 +103,7 @@ public interface FlowNodeInstanceRepository extends ReactiveCrudRepository<FlowN
             update_user = :operator,
             update_time = NOW()
         WHERE id = :id
+          AND status = 'ACTIVE'
           AND is_deleted = 0
         """)
     Mono<Integer> updateNodeStatus(
@@ -119,4 +133,6 @@ public interface FlowNodeInstanceRepository extends ReactiveCrudRepository<FlowN
         WHERE id = :id AND is_deleted = 0
         """)
     Mono<FlowNodeInstance> findJoinCountById(@Param("id") Long id);
+
+
 }
