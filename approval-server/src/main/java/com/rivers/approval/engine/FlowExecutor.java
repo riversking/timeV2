@@ -9,8 +9,8 @@ import com.rivers.approval.model.NodeContext;
 import com.rivers.approval.model.NodeDef;
 import com.rivers.approval.model.ProcessDefinition;
 import com.rivers.approval.repository.*;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -24,16 +24,17 @@ import java.util.*;
 /**
  * 流程引擎核心驱动器。
  *
- * <p>通过订阅 {@link FlowEventBus} 的事件流实现事件驱动推进，
- * 启动时建立三条订阅链路：
+ * <p>不再自行订阅内存事件流，改由 {@code FlowEventConsumer}（RabbitMQ）桥接调用
+ * 三个公开入口：
  * <ol>
- *   <li>InstanceStartedEvent  → 定位 Start 节点，创建节点实例，分发给 StartHandler</li>
- *   <li>NodeCompletedEvent    → 定位后继节点（沿 edges 推导），创建实例并分发</li>
- *   <li>TaskCompletedEvent    → 先完成对应 node_instance，再发布 NodeCompletedEvent 推进</li>
+ *   <li>onInstanceStarted(InstanceStartedEvent) → 定位 Start 节点，分发给 StartHandler</li>
+ *   <li>onNodeCompleted(NodeCompletedEvent)     → 定位后继节点，创建实例并分发</li>
+ *   <li>onTaskCompleted(TaskCompletedEvent)     → 完成对应 node_instance，再发布 NodeCompletedEvent</li>
  * </ol>
  *
- * <p>引擎自身不包含业务逻辑，所有节点行为由 {@code NodeHandler} 实现，
- * 引擎只负责"找到下一个节点 → 创建节点实例 → 分发给 Handler"。
+ * <p>入口方法不吞错：异常传播给 RabbitMQ 容器（重试 → 死信），
+ * 保证事件至少被处理一次。引擎自身不包含业务逻辑，所有节点行为由
+ * {@code NodeHandler} 实现，引擎只负责"找到下一个节点 → 创建节点实例 → 分发给 Handler"。
  */
 @Component
 @Slf4j
@@ -43,6 +44,7 @@ public class FlowExecutor {
     private static final String SYSTEM = "SYSTEM";
     private static final String PARALLEL_GATEWAY = "PARALLEL_GATEWAY";
     private static final int MAX_CAS_RETRY = 3;
+    private static final String ACTIVE = "ACTIVE";
 
     private final NodeHandlerRegistry handlerRegistry;
     private final FlowEventBus eventBus;
@@ -74,56 +76,31 @@ public class FlowExecutor {
         this.objectMapper = objectMapper;
     }
 
-    // ==================== 启动订阅（PostConstruct 自动注册） ====================
-    @PostConstruct
-    public void init() {
-        subscribeToInstanceStarted();
-        subscribeToNodeCompleted();
-        subscribeToTaskCompleted();
-        log.info("[FlowExecutor] 三条事件订阅链路已就绪");
+    // ==================== RabbitMQ 消费入口（FlowEventConsumer 桥接调用） ====================
+
+    /**
+     * 引擎对外入口。错误向上传播给 RabbitMQ 容器（重试 → 死信），引擎自身不再吞错。
+     */
+    public Mono<Void> onInstanceStarted(InstanceStartedEvent event) {
+        return advanceToStartNode(event);
     }
 
-    private void subscribeToInstanceStarted() {
-        eventBus.subscribeShared(InstanceStartedEvent.class)
-                .flatMap(this::advanceToStartNode)
-                .subscribe(
-                        _ -> {
-                        },
-                        err -> log.error("[FlowExecutor] InstanceStarted 处理异常", err)
-                );
+    public Mono<Void> onNodeCompleted(NodeCompletedEvent event) {
+        return advanceToNextNodes(event);
     }
 
-    private void subscribeToNodeCompleted() {
-        eventBus.subscribeShared(NodeCompletedEvent.class)
-                .flatMap(this::advanceToNextNodes)
-                .subscribe(
-                        _ -> {
-                        },
-                        err -> log.error("[FlowExecutor] NodeCompleted 处理异常", err)
-                );
-    }
-
-    private void subscribeToTaskCompleted() {
-        eventBus.subscribeShared(TaskCompletedEvent.class)
-                .flatMap(this::resolveTaskCompletion)
-                .subscribe(
-                        _ -> {
-                        },
-                        err -> log.error("[FlowExecutor] TaskCompleted 处理异常", err)
-                );
+    public Mono<Void> onTaskCompleted(TaskCompletedEvent event) {
+        return resolveTaskCompletion(event);
     }
 
     // ==================== InstanceStarted → Start ====================
 
     /**
-     * 流程发起后：加载定义 → 解析 DSL → 找到 Start 节点 → 创建实例 → 分发 StartHandler。
-     * 返回值用 .then() 收拢为 Mono&lt;Void&gt;。
-     * 最终推荐写法 —— 将 definition 沿链传递，避免重复查库。
-     * 上方的 advanceToStartNode 可替换为以下版本。
+     * 流程发起后：加载定义 → 解析 DSL → 找到 Start 节点 → 创建节点实例 → 分发 StartHandler。
      */
     private Mono<Void> advanceToStartNode(InstanceStartedEvent event) {
         log.info("[FlowExecutor] → InstanceStarted instanceId={}", event.instanceId());
-        // 利用 Tuple2 或 record 传递 (definition, nodeInstance)
+        // record 沿链传递 (definition, nodeInstance)，避免重复查库
         record StartContext(ProcessDefinition definition, FlowNodeInstance nodeInstance) {
         }
         return defRepo.findById(event.definitionId())
@@ -138,7 +115,7 @@ public class FlowExecutor {
                             .nodeId(startNode.id())
                             .nodeName(startNode.name())
                             .nodeType(START)
-                            .status("ACTIVE")
+                            .status(ACTIVE)
                             .startTime(LocalDateTime.now(ZoneId.systemDefault()))
                             .createUser(SYSTEM)
                             .updateUser(SYSTEM)
@@ -152,18 +129,14 @@ public class FlowExecutor {
                                     parseVariables(instance.getVariables()));
                             return handlerRegistry.get(START).handle(ctx);
                         }))
-                .then()
-                .onErrorResume(err -> {
-                    log.error("[FlowExecutor] 推进 Start 失败 instanceId={}", event.instanceId(), err);
-                    return Mono.empty();
-                });
+                .then();
     }
 
     // ==================== NodeCompleted → Next ====================
 
     /**
      * 节点完成后：解析 DSL 出边 → 过滤指定分支（排他网关） → 并行创建下一批节点实例 → 分发 Handler。
-     * 完成后更新 instance.current_node_ids。
+     * Fork 网关推进前预创建下游 Join 节点实例；输出变量合并结果落库；完成后 CAS 更新 current_node_ids。
      */
     private Mono<Void> advanceToNextNodes(NodeCompletedEvent event) {
         if ("END".equals(event.nodeType())) {
@@ -173,13 +146,7 @@ public class FlowExecutor {
                 .flatMap(instance -> defRepo.findById(instance.getDefinitionId())
                         .flatMap(def -> {
                             var definition = parseDefinition(def.getDefinitionJson());
-                            var allEdges = definition.edgesFrom(event.nodeId());
-                            // 排他网关：只走 targetNodeId 指定的边
-                            var effectiveEdges = event.targetNodeId() != null
-                                    ? allEdges.stream()
-                                    .filter(e -> e.target().equals(event.targetNodeId()))
-                                    .toList()
-                                    : allEdges;
+                            var effectiveEdges = getEdgeDefs(event, definition);
                             if (effectiveEdges.isEmpty()) {
                                 log.warn("[FlowExecutor] 节点 {} 无出边 instanceId={}",
                                         event.nodeId(), event.instanceId());
@@ -205,12 +172,17 @@ public class FlowExecutor {
                                     .then(persistVars)
                                     .then(performAdvance(instance, definition, effectiveEdges,
                                             event.operatorId(), mergedVars, event.nodeId()));
-                        }))
-                .onErrorResume(err -> {
-                    log.error("[FlowExecutor] 推进后继失败 instanceId={}, nodeId={}",
-                            event.instanceId(), event.nodeId(), err);
-                    return Mono.empty();
-                });
+                        }));
+    }
+
+    private static @NonNull List<EdgeDef> getEdgeDefs(NodeCompletedEvent event, ProcessDefinition definition) {
+        var allEdges = definition.edgesFrom(event.nodeId());
+        // 排他网关：只走 targetNodeId 指定的边
+        return event.targetNodeId() != null
+                ? allEdges.stream()
+                .filter(e -> e.target().equals(event.targetNodeId()))
+                .toList()
+                : allEdges;
     }
 
     /**
@@ -233,8 +205,8 @@ public class FlowExecutor {
     // ==================== TaskCompleted → NodeCompleted ====================
 
     /**
-     * 用户任务完成后：标记对应 node_instance 完成 → 发布 NodeCompletedEvent。
-     * NodeCompleted 的订阅会自动接管后续推进，形成闭环。
+     * 用户任务完成后：标记对应 node_instance 完成 → 合并审批结果到实例变量 → 发布 NodeCompletedEvent。
+     * NodeCompletedEvent 经 RabbitMQ 回到 onNodeCompleted 入口，形成闭环。
      */
     private Mono<Void> resolveTaskCompletion(TaskCompletedEvent event) {
         log.info("[FlowExecutor] → TaskCompleted taskId={}, nodeInstanceId={}, result={}",
@@ -247,10 +219,7 @@ public class FlowExecutor {
                                 instance.getId(), instance.getStatus());
                         return Mono.empty();
                     }
-                    var outputVars = Map.<String, Object>of(
-                            "approvalResult", event.result() != null ? event.result() : "",
-                            "approvalComment", event.comment() != null ? event.comment() : "",
-                            "approvedBy", event.completedBy() != null ? event.completedBy() : "");
+                    var outputVars = getOutPut(event);
                     var mergedVars = mergeVariables(parseVariables(instance.getVariables()), outputVars);
                     return nodeRepo.findById(event.nodeInstanceId())
                             .switchIfEmpty(Mono.error(
@@ -290,17 +259,21 @@ public class FlowExecutor {
                                         null));
                                 return Mono.<Void>empty();
                             });
-                })
-                .onErrorResume(err -> {
-                    log.error("[FlowExecutor] TaskCompleted 处理失败 taskId={}", event.taskId(), err);
-                    return Mono.empty();
                 });
+    }
+
+    private static @NonNull Map<String, Object> getOutPut(TaskCompletedEvent event) {
+        return Map.<String, Object>of(
+                "approvalResult", event.result() != null ? event.result() : "",
+                "approvalComment", event.comment() != null ? event.comment() : "",
+                "approvedBy", event.completedBy() != null ? event.completedBy() : "");
     }
 
     // ==================== 节点创建 + Handler 分发 ====================
 
     /**
      * 为指定边创建 FlowNodeInstance 并分发到对应的 NodeHandler。
+     * Join 网关节点不新建实例：复用 Fork 推进时预创建的唯一实例。
      */
     private Mono<Void> createAndHandleNode(FlowInstance instance,
                                            ProcessDefinition definition,
@@ -321,7 +294,7 @@ public class FlowExecutor {
                 .nodeId(targetNode.id())
                 .nodeName(targetNode.name())
                 .nodeType(targetNode.type())
-                .status("ACTIVE")
+                .status(ACTIVE)
                 .inputVariables(toJson(variables))
                 .startTime(LocalDateTime.now(ZoneId.systemDefault()))
                 .createUser(operatorId != null ? operatorId : SYSTEM)
@@ -378,15 +351,8 @@ public class FlowExecutor {
                 .map(EdgeDef::target).toList());
         while (!queue.isEmpty()) {
             var nodeId = queue.poll();
-            if (!visited.add(nodeId)) {
-                continue;
-            }
             var node = definition.nodeById(nodeId).orElse(null);
-            if (node == null) {
-                continue;
-            }
-            if (isJoinGateway(definition, node)) {
-                result.add(nodeId);
+            if (!visited.add(nodeId) || node == null || isJoinGateway(definition, node)) {
                 continue;
             }
             definition.edgesFrom(nodeId).forEach(e -> queue.add(e.target()));
@@ -402,7 +368,7 @@ public class FlowExecutor {
                 .nodeId(joinNode.id())
                 .nodeName(joinNode.name())
                 .nodeType(joinNode.type())
-                .status("ACTIVE")
+                .status(ACTIVE)
                 .forkCount(forkCount)
                 .joinCount(0)
                 .startTime(LocalDateTime.now(ZoneId.systemDefault()))
@@ -429,7 +395,7 @@ public class FlowExecutor {
                 .filter(e -> e.target().equals(nodeId)).count();
     }
 
-    // ==================== current_node_ids 刷新 ====================
+    // ==================== current_node_ids 刷新（乐观锁 CAS） ====================
 
     /**
      * 移除完成的节点 ID，加入新激活的节点 ID。
