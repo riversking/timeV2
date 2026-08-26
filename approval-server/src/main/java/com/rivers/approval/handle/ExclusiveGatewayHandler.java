@@ -36,9 +36,11 @@ public class ExclusiveGatewayHandler implements NodeHandler {
 
 
     private final ConditionEvaluator evaluator;
+    private final ObjectMapper objectMapper;
 
-    public ExclusiveGatewayHandler(ConditionEvaluator evaluator) {
+    public ExclusiveGatewayHandler(ConditionEvaluator evaluator, ObjectMapper objectMapper) {
         this.evaluator = evaluator;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -85,12 +87,7 @@ public class ExclusiveGatewayHandler implements NodeHandler {
                     // 4. 完成网关节点
                     return completeGateway(ctx, targetNodeId, outputVars);
                 })
-                .onErrorResume(err -> {
-                    log.error("[ExclusiveGateway] 处理失败 instanceId={}, nodeId={}",
-                            instance.getId(), nodeInstance.getNodeId(), err);
-                    // 发布失败事件的 NodeCompleted 带 null targetNodeId，由上层处理
-                    return completeGateway(ctx, null, Collections.emptyMap());
-                });
+                .onErrorResume(err -> failInstance(ctx, err));
     }
 
     private Mono<Void> completeGateway(NodeContext ctx,
@@ -121,7 +118,24 @@ public class ExclusiveGatewayHandler implements NodeHandler {
                 }));
     }
 
+    /**
+     * 评估失败：实例置 FAILED、网关节点置 SKIPPED，终止推进。
+     */
+    private Mono<Void> failInstance(NodeContext ctx, Throwable err) {
+        var instance = ctx.instance();
+        var nodeInstance = ctx.currentNode();
+        log.error("[ExclusiveGateway] 条件评估失败，实例置为 FAILED instanceId={}, nodeId={}",
+                instance.getId(), nodeInstance.getNodeId(), err);
+        return ctx.instanceRepo().updateStatus(
+                        instance.getId(), "FAILED",
+                        LocalDateTime.now(ZoneId.systemDefault()), "SYSTEM")
+                .then(ctx.nodeRepo().updateNodeStatus(
+                        nodeInstance.getId(), "SKIPPED", null,
+                        LocalDateTime.now(ZoneId.systemDefault()), "SYSTEM"))
+                .then();
+    }
+
     private String toJson(Object obj) {
-        return new ObjectMapper().writeValueAsString(obj);
+        return objectMapper.writeValueAsString(obj);
     }
 }

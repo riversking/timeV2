@@ -36,19 +36,25 @@ public class EndHandler implements NodeHandler {
                         LocalDateTime.now(ZoneId.systemDefault()),
                         "SYSTEM"
                 )
-                // 2. 终止流程实例
-                .then(ctx.instanceRepo().updateStatus(
+                // 2. 终止流程实例（CAS：仅 RUNNING 可完成，避免覆盖 TERMINATED）
+                .then(ctx.instanceRepo().completeIfRunning(
                         instance.getId(),
-                        "COMPLETED",
                         LocalDateTime.now(ZoneId.systemDefault()),
                         "SYSTEM"))
-                .then(Mono.fromRunnable(() -> {
+                .flatMap(rows -> {
+                    if (rows <= 0) {
+                        log.info("[EndHandler] 实例已非运行中（可能已被终止），跳过完成 instanceId={}",
+                                instance.getId());
+                        return Mono.empty();
+                    }
                     // 3. 发布 InstanceCompletedEvent
-                    var meta = FlowEventMetadata.of(
-                            instance.getId(), instance.getInstanceNo(), "INSTANCE_COMPLETED");
-                    ctx.eventBus().publish(
-                            InstanceCompletedEvent.of(meta, "NORMAL"));
-                    log.info("[EndHandler] 流程实例已终止 instanceId={}", instance.getId());
-                }));
+                    return Mono.fromRunnable(() -> {
+                        var meta = FlowEventMetadata.of(
+                                instance.getId(), instance.getInstanceNo(), "INSTANCE_COMPLETED");
+                        ctx.eventBus().publish(
+                                InstanceCompletedEvent.of(meta, "NORMAL"));
+                        log.info("[EndHandler] 流程实例已终止 instanceId={}", instance.getId());
+                    });
+                });
     }
 }

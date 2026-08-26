@@ -21,49 +21,49 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
      * 查询某人发起的流程实例（分页，按发起时间倒序）
      */
     @Query("""
-        SELECT * FROM flow_instance
-        WHERE initiator = :initiator
-          AND is_deleted = 0
-        ORDER BY create_time DESC
-        LIMIT :size OFFSET :offset
-        """)
+            SELECT * FROM flow_instance
+            WHERE initiator = :initiator
+              AND is_deleted = 0
+            ORDER BY create_time DESC
+            LIMIT :size OFFSET :offset
+            """)
     Flux<FlowInstance> findByInitiatorWithPage(String initiator, int offset, int size);
 
     /**
      * 按状态查询流程实例（分页）
      */
     @Query("""
-        SELECT * FROM flow_instance
-        WHERE status = :status
-          AND is_deleted = 0
-        ORDER BY create_time DESC
-        LIMIT :size OFFSET :offset
-        """)
+            SELECT * FROM flow_instance
+            WHERE status = :status
+              AND is_deleted = 0
+            ORDER BY create_time DESC
+            LIMIT :size OFFSET :offset
+            """)
     Flux<FlowInstance> findByStatusWithPage(String status, int offset, int size);
 
     /**
      * 根据关联业务主键查询运行中的实例
      */
     @Query("""
-        SELECT * FROM flow_instance
-        WHERE business_key = :businessKey
-          AND status = 'RUNNING'
-          AND is_deleted = 0
-        """)
+            SELECT * FROM flow_instance
+            WHERE business_key = :businessKey
+              AND status = 'RUNNING'
+              AND is_deleted = 0
+            """)
     Flux<FlowInstance> findRunningByBusinessKey(String businessKey);
 
     /**
      * 更新实例状态（用于终止/完成操作）
      */
     @Query("""
-        UPDATE flow_instance
-        SET status = :status,
-            end_time = :endTime,
-            update_user = :operator,
-            update_time = NOW()
-        WHERE id = :id
-          AND is_deleted = 0
-        """)
+            UPDATE flow_instance
+            SET status = :status,
+                end_time = :endTime,
+                update_user = :operator,
+                update_time = NOW()
+            WHERE id = :id
+              AND is_deleted = 0
+            """)
     Mono<Integer> updateStatus(
             @Param("id") Long id,
             @Param("status") String status,
@@ -74,15 +74,68 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
      * 更新当前活跃节点ID列表（流程推进时用）
      */
     @Query("""
-        UPDATE flow_instance
-        SET current_node_ids = :currentNodeIds,
-            update_user = :operator,
-            update_time = NOW()
-        WHERE id = :id
-          AND is_deleted = 0
-        """)
+            UPDATE flow_instance
+            SET current_node_ids = :currentNodeIds,
+                update_user = :operator,
+                update_time = NOW()
+            WHERE id = :id
+              AND is_deleted = 0
+            """)
     Mono<Integer> updateCurrentNodeIds(
             @Param("id") Long id,
             @Param("currentNodeIds") String currentNodeIds,
+            @Param("operator") String operator);
+
+    /**
+     * 更新实例变量（全局上下文，JSON字符串）
+     */
+    @Query("""
+            UPDATE flow_instance
+            SET variables = :variables,
+                update_user = :operator,
+                update_time = NOW()
+            WHERE id = :id
+              AND is_deleted = 0
+            """)
+    Mono<Integer> updateVariables(
+            @Param("id") Long id,
+            @Param("variables") String variables,
+            @Param("operator") String operator);
+
+    /**
+     * CAS 更新当前活跃节点ID列表（version 乐观锁，防并行分支 lost update）
+     */
+    @Query("""
+            UPDATE flow_instance
+            SET current_node_ids = :currentNodeIds,
+                version = version + 1,
+                update_user = :operator,
+                update_time = NOW()
+            WHERE id = :id
+              AND version = :expectedVersion
+              AND is_deleted = 0
+            """)
+    Mono<Integer> updateCurrentNodeIdsCas(
+            @Param("id") Long id,
+            @Param("currentNodeIds") String currentNodeIds,
+            @Param("expectedVersion") Integer expectedVersion,
+            @Param("operator") String operator);
+
+    /**
+     * 完成流程实例（CAS：仅 RUNNING 可置为 COMPLETED，防止覆盖 TERMINATED）
+     */
+    @Query("""
+            UPDATE flow_instance
+            SET status = 'COMPLETED',
+                end_time = :endTime,
+                update_user = :operator,
+                update_time = NOW()
+            WHERE id = :id
+              AND status = 'RUNNING'
+              AND is_deleted = 0
+            """)
+    Mono<Integer> completeIfRunning(
+            @Param("id") Long id,
+            @Param("endTime") java.time.LocalDateTime endTime,
             @Param("operator") String operator);
 }

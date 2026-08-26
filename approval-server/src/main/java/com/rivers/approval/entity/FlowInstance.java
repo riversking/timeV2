@@ -71,6 +71,7 @@ public class FlowInstance {
      * RUNNING    — 运行中
      * COMPLETED  — 已完成
      * TERMINATED — 已终止
+     * FAILED     — 执行失败
      */
     private String status;
 
@@ -90,6 +91,12 @@ public class FlowInstance {
      */
     @Column("start_time")
     private LocalDateTime startTime;
+
+    /**
+     * 乐观锁版本号（current_node_ids CAS 并发更新用）
+     */
+    @Column("version")
+    private Integer version;
 
     /**
      * 结束时间

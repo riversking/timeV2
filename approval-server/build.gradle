@@ -27,7 +27,7 @@ ext {
 }
 
 dependencies {
-    implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
     implementation ('io.github.riversking:rivers-core:1.0.23')
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
@@ -35,7 +35,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'io.asyncer:r2dbc-mysql'
     implementation 'io.r2dbc:r2dbc-proxy'
-    implementation 'io.asyncer:r2dbc-mysql'
     implementation files('../protos/approvalservice_protos.jar')
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

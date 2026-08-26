@@ -11,6 +11,7 @@ import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.format.DateTimeFormatter;
@@ -28,12 +29,16 @@ public class TaskServiceImpl implements ITaskService {
     private static final String PENDING = "PENDING";
     private static final String NO_TASK = "任务不存在";
     private static final String YYYY_MM_DD_HH_MM_SS = "yyyy-MM-dd HH:mm:ss";
+
     private final FlowTaskRepository taskRepo;
     private final FlowEventBus eventBus;
+    private final TransactionalOperator txOperator;
 
-    public TaskServiceImpl(FlowTaskRepository taskRepo, FlowEventBus eventBus) {
+    public TaskServiceImpl(FlowTaskRepository taskRepo, FlowEventBus eventBus,
+                           TransactionalOperator txOperator) {
         this.taskRepo = taskRepo;
         this.eventBus = eventBus;
+        this.txOperator = txOperator;
     }
 
     // ==================== 查询 ====================
@@ -99,11 +104,11 @@ public class TaskServiceImpl implements ITaskService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<FlowTaskRes>> complete(CompleteTaskReq req) {
         log.info("[TaskServiceImpl] 完成任务 taskNo={}, result={}, userId={}",
                 req.getTaskNo(), req.getResult(), req.getUserId());
-        return taskRepo.findByTaskNo(req.getTaskNo())
+        // 1) 事务内：CAS 完成任务并回读最新状态
+        Mono<FlowTask> completed = taskRepo.findByTaskNo(req.getTaskNo())
                 .switchIfEmpty(Mono.error(
                         new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
                 .flatMap(task -> {
@@ -121,13 +126,15 @@ public class TaskServiceImpl implements ITaskService {
                                     new IllegalStateException("任务完成失败")))
                             .flatMap(_ -> taskRepo.findByTaskNo(req.getTaskNo()));
                 })
-                .doOnNext(t -> {
-                    var meta = FlowEventMetadata.of(t.getInstanceId(), "", "TASK_COMPLETED");
-                    eventBus.publish(TaskCompletedEvent.of(
-                            meta, t.getId(), t.getTaskNo(), t.getNodeInstanceId(),
-                            req.getResult(), req.getComment(), req.getUserId()));
-                })
-                .thenReturn(ResultVO.ok());
+                .as(txOperator::transactional);
+        // 2) 事务提交后：发布事件，由引擎推进流程
+        return completed.map(t -> {
+            var meta = FlowEventMetadata.of(t.getInstanceId(), "", "TASK_COMPLETED");
+            eventBus.publish(TaskCompletedEvent.of(
+                    meta, t.getId(), t.getTaskNo(), t.getNodeInstanceId(),
+                    req.getResult(), req.getComment(), req.getUserId()));
+            return ResultVO.<FlowTaskRes>ok();
+        });
     }
 
     @Override

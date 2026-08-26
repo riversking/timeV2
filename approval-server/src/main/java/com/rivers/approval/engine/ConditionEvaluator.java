@@ -4,6 +4,7 @@ import com.rivers.approval.entity.FlowRule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.SimpleEvaluationContext;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
@@ -35,7 +36,10 @@ public class ConditionEvaluator {
     }
 
     public Optional<EvalResult> evaluate(List<FlowRule> rules, Map<String, Object> variables) {
-        var ctx = new StandardEvaluationContext();
+        // SimpleEvaluationContext.forReadOnlyDataBinding：
+        // 禁用 T(...) 类型引用、构造器与任意方法调用，仅允许属性访问，
+        // 防止恶意规则注入执行任意代码（如 T(java.lang.Runtime).getRuntime().exec(...)）
+        var ctx = SimpleEvaluationContext.forReadOnlyDataBinding().build();
         variables.forEach(ctx::setVariable);
         for (var rule : rules) {
             var ruleConfig = parseRuleConfig(rule.getRuleConfig());

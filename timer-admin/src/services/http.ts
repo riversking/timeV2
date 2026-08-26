@@ -1,24 +1,42 @@
 import axios from "axios";
 
+const SESSION_KEY = "sessionId";
+
+export const getSessionId = () => sessionStorage.getItem(SESSION_KEY);
+export const setSessionId = (sid: string) => sessionStorage.setItem(SESSION_KEY, sid);
+export const clearSessionId = () => sessionStorage.removeItem(SESSION_KEY);
+
 const http = axios.create({
   timeout: 10000,
-  headers: {
-    "Content-Type": "application/json",
-  },
-  withCredentials: true,    // ★ 跨域时自动携带 cookie
+  headers: { "Content-Type": "application/json" },
 });
 
-// ★ 请求拦截器：不再需要手动加 Authorization 头，cookie 自动带上
-// （保留空壳，方便以后扩展）
+// 请求拦截器：所有请求统一挂 Authorization: Bearer <sessionId>
+http.interceptors.request.use((config) => {
+  const sid = getSessionId();
+  if (sid) {
+    config.headers.Authorization = `Bearer ${sid}`;
+  }
+  return config;
+});
 
-// ★ 响应拦截器：不再需要 401 → refresh → retry 逻辑，网关已处理
-// 只保留最终兜底：双 token 全失效 → 跳转登录
+// 响应拦截器：
+// 1) 网关轮换/宽限补发的新 sid 通过 X-New-Session 响应头下发，收到立即覆盖本地存储
+// 2) HTTP 401 = 会话彻底失效 → 清本地 sid 并跳登录
 http.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const newSid = response.headers["x-new-session"];
+    if (newSid) {
+      setSessionId(newSid);
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
-      // 会话彻底失效，跳登录
-      window.location.href = "/login";
+      clearSessionId();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
     }
     console.error("API Error:", error);
     return Promise.reject(error);

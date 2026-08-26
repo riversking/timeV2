@@ -42,6 +42,7 @@ public class FlowEventBus {
 
 
     private static final int DEFAULT_BUFFER_SIZE = 256;
+    private static final int MAX_EMIT_ATTEMPTS = 3;
 
     private final ConcurrentMap<Class<? extends FlowEvent>, Sinks.Many<FlowEvent>> sinkMap =
             new ConcurrentHashMap<>();
@@ -59,15 +60,39 @@ public class FlowEventBus {
         var eventClass = (Class<? extends FlowEvent>) event.getClass();
         var sink = sinkMap.computeIfAbsent(eventClass,
                 _ -> newSink());
+        emitWithRetry(sink, event);
+    }
 
-        switch (sink.tryEmitNext(event)) {
-            case FAIL_NON_SERIALIZED ->
-                    log.warn("[FlowEventBus] 并发冲突，{}/{}", event.eventType(), event.instanceId());
-            case FAIL_OVERFLOW -> log.warn("[FlowEventBus] 缓冲区溢出，{}/{}", event.eventType(), event.instanceId());
-            case FAIL_CANCELLED -> log.warn("[FlowEventBus] Sink 已取消，{}/{}", event.eventType(), event.instanceId());
-            case FAIL_TERMINATED -> log.warn("[FlowEventBus] Sink 已终止，{}/{}", event.eventType(), event.instanceId());
-            case OK -> log.debug("[FlowEventBus] ✓ {} instanceId={}", event.eventType(), event.instanceId());
+    /**
+     * 带重试的事件发射。
+     * FAIL_NON_SERIALIZED 为并发竞争瞬时态，重试即可；
+     * FAIL_OVERFLOW 在无界缓冲下不应出现；
+     * FAIL_CANCELLED/FAIL_TERMINATED 仅发生在停机清理阶段。
+     */
+    private void emitWithRetry(Sinks.Many<FlowEvent> sink, FlowEvent event) {
+        for (int attempt = 1; attempt <= MAX_EMIT_ATTEMPTS; attempt++) {
+            switch (sink.tryEmitNext(event)) {
+                case OK -> {
+                    log.debug("[FlowEventBus] ✓ {} instanceId={}", event.eventType(), event.instanceId());
+                    return;
+                }
+                case FAIL_NON_SERIALIZED -> log.debug(
+                        "[FlowEventBus] 并发竞争，重试 {}/{}，{}/{}",
+                        attempt, MAX_EMIT_ATTEMPTS, event.eventType(), event.instanceId());
+                case FAIL_OVERFLOW -> {
+                    log.error("[FlowEventBus] 缓冲区溢出（无界缓冲下不应出现），{}/{}",
+                            event.eventType(), event.instanceId());
+                    return;
+                }
+                case FAIL_CANCELLED, FAIL_TERMINATED -> {
+                    log.error("[FlowEventBus] Sink 已终止，事件丢弃 {}/{}",
+                            event.eventType(), event.instanceId());
+                    return;
+                }
+            }
         }
+        log.error("[FlowEventBus] 重试 {} 次后仍失败，事件丢失 {}/{}，请检查引擎订阅是否存活",
+                MAX_EMIT_ATTEMPTS, event.eventType(), event.instanceId());
     }
 
     // ==================== 订阅 ====================
@@ -101,9 +126,11 @@ public class FlowEventBus {
     // ==================== 辅助 ====================
 
     private static Sinks.Many<FlowEvent> newSink() {
+        // 无界缓冲：事件丢失即流程卡死，正确性优先于内存占用；
+        // 生产环境建议进一步替换为 RabbitMQ（spring-cloud-starter-bus-amqp 已在依赖中）
         return Sinks.many()
                 .multicast()
-                .onBackpressureBuffer(DEFAULT_BUFFER_SIZE, false);
+                .onBackpressureBuffer();
     }
 
     public int registeredEventTypes() {

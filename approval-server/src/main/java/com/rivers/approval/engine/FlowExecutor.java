@@ -6,6 +6,7 @@ import com.rivers.approval.event.*;
 import com.rivers.approval.handle.NodeHandlerRegistry;
 import com.rivers.approval.model.EdgeDef;
 import com.rivers.approval.model.NodeContext;
+import com.rivers.approval.model.NodeDef;
 import com.rivers.approval.model.ProcessDefinition;
 import com.rivers.approval.repository.*;
 import jakarta.annotation.PostConstruct;
@@ -18,10 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 流程引擎核心驱动器。
@@ -41,8 +39,11 @@ import java.util.Map;
 @Slf4j
 public class FlowExecutor {
 
-    public static final String START = "START";
-    public static final String SYSTEM = "SYSTEM";
+    private static final String START = "START";
+    private static final String SYSTEM = "SYSTEM";
+    private static final String PARALLEL_GATEWAY = "PARALLEL_GATEWAY";
+    private static final int MAX_CAS_RETRY = 3;
+
     private final NodeHandlerRegistry handlerRegistry;
     private final FlowEventBus eventBus;
     private final FlowInstanceRepository instanceRepo;
@@ -138,7 +139,7 @@ public class FlowExecutor {
                             .nodeName(startNode.name())
                             .nodeType(START)
                             .status("ACTIVE")
-                            .startTime(LocalDateTime.now())
+                            .startTime(LocalDateTime.now(ZoneId.systemDefault()))
                             .createUser(SYSTEM)
                             .updateUser(SYSTEM)
                             .build();
@@ -188,8 +189,22 @@ public class FlowExecutor {
                                     parseVariables(instance.getVariables()),
                                     event.outputVariables() != null
                                             ? event.outputVariables() : Map.of());
-                            return performAdvance(instance, definition, effectiveEdges,
-                                    event.operatorId(), mergedVars, event.nodeId());
+                            // Fork 网关推进前：预创建下游 Join 节点实例并写入 fork_count，
+                            // 保证所有分支汇聚到同一个 Join 节点实例
+                            var preCreate = isFork(event, effectiveEdges)
+                                    ? preCreateJoinNodes(instance, definition, event.nodeId())
+                                    : Mono.<Void>empty();
+                            // 输出变量合并结果落库，避免重启/重载后审批上下文丢失
+                            var hasOutput = event.outputVariables() != null
+                                    && !event.outputVariables().isEmpty();
+                            var persistVars = hasOutput
+                                    ? instanceRepo.updateVariables(
+                                    instance.getId(), toJson(mergedVars), SYSTEM).then()
+                                    : Mono.<Void>empty();
+                            return preCreate
+                                    .then(persistVars)
+                                    .then(performAdvance(instance, definition, effectiveEdges,
+                                            event.operatorId(), mergedVars, event.nodeId()));
                         }))
                 .onErrorResume(err -> {
                     log.error("[FlowExecutor] 推进后继失败 instanceId={}, nodeId={}",
@@ -224,22 +239,42 @@ public class FlowExecutor {
     private Mono<Void> resolveTaskCompletion(TaskCompletedEvent event) {
         log.info("[FlowExecutor] → TaskCompleted taskId={}, nodeInstanceId={}, result={}",
                 event.taskId(), event.nodeInstanceId(), event.result());
-        return nodeRepo.findById(event.nodeInstanceId())
-                // 修复：显式声明 Mono<FlowNodeInstance>.error，杜绝 Object 泛型退化
-                .switchIfEmpty(Mono.error(
-                        new IllegalStateException("节点实例不存在: " + event.nodeInstanceId())))
-                .flatMap(nodeInstance -> {
+        return loadInstanceById(event.instanceId())
+                .flatMap(instance -> {
+                    // 终止/完成的实例不再推进，防止 terminate 后继续流转
+                    if (!"RUNNING".equals(instance.getStatus())) {
+                        log.warn("[FlowExecutor] 实例非运行中，忽略任务完成事件 instanceId={}, status={}",
+                                instance.getId(), instance.getStatus());
+                        return Mono.empty();
+                    }
                     var outputVars = Map.<String, Object>of(
                             "approvalResult", event.result() != null ? event.result() : "",
                             "approvalComment", event.comment() != null ? event.comment() : "",
                             "approvedBy", event.completedBy() != null ? event.completedBy() : "");
-                    return nodeRepo.updateNodeStatus(
-                                    nodeInstance.getId(),
-                                    "COMPLETED",
-                                    toJson(outputVars),
-                                    LocalDateTime.now(),
-                                    event.completedBy())
-                            .flatMap(rows -> {
+                    var mergedVars = mergeVariables(parseVariables(instance.getVariables()), outputVars);
+                    return nodeRepo.findById(event.nodeInstanceId())
+                            .switchIfEmpty(Mono.error(
+                                    new IllegalStateException("节点实例不存在: " + event.nodeInstanceId())))
+                            .flatMap(nodeInstance -> nodeRepo.updateNodeStatus(
+                                            nodeInstance.getId(),
+                                            "COMPLETED",
+                                            toJson(outputVars),
+                                            LocalDateTime.now(ZoneId.systemDefault()),
+                                            event.completedBy())
+                                    .flatMap(rows -> {
+                                        if (rows <= 0) {
+                                            log.warn("[FlowExecutor] 节点实例已非 ACTIVE，跳过重复完成 nodeInstanceId={}",
+                                                    nodeInstance.getId());
+                                            return Mono.<FlowNodeInstance>empty();
+                                        }
+                                        // 审批结果合并进实例变量并落库
+                                        return instanceRepo.updateVariables(
+                                                        instance.getId(),
+                                                        toJson(mergedVars),
+                                                        event.completedBy() != null ? event.completedBy() : SYSTEM)
+                                                .thenReturn(nodeInstance);
+                                    }))
+                            .flatMap(nodeInstance -> {
                                 log.info("[FlowExecutor] 节点实例已标记完成 nodeInstanceId={}",
                                         nodeInstance.getId());
                                 var meta = FlowEventMetadata.of(
@@ -274,6 +309,13 @@ public class FlowExecutor {
                                            Map<String, Object> variables) {
         var targetNode = definition.nodeById(edge.target()).orElseThrow(
                 () -> new IllegalStateException("边指向的节点不存在: " + edge.target()));
+        // Join 网关：所有分支复用同一个节点实例（Fork 推进时已预创建）
+        if (isJoinGateway(definition, targetNode)) {
+            return nodeRepo.findActiveByInstanceIdAndNodeId(instance.getId(), targetNode.id())
+                    .switchIfEmpty(createJoinInstance(instance, targetNode,
+                            incomingCount(definition, targetNode.id())))
+                    .flatMap(ni -> dispatchToHandler(instance, definition, ni, variables));
+        }
         var nodeInstance = FlowNodeInstance.builder()
                 .instanceId(instance.getId())
                 .nodeId(targetNode.id())
@@ -286,35 +328,151 @@ public class FlowExecutor {
                 .updateUser(operatorId != null ? operatorId : SYSTEM)
                 .build();
         return nodeRepo.save(nodeInstance)
-                .flatMap(ni -> {
-                    log.info("[FlowExecutor] 节点实例创建 nodeInstanceId={}, type={}, name={}",
-                            ni.getId(), ni.getNodeType(), ni.getNodeName());
-                    var ctx = buildContext(instance, definition, ni,
-                            variables);
-                    return handlerRegistry.get(ni.getNodeType()).handle(ctx);
-                });
+                .flatMap(ni -> dispatchToHandler(instance, definition, ni, variables));
+    }
+
+    private Mono<Void> dispatchToHandler(FlowInstance instance,
+                                         ProcessDefinition definition,
+                                         FlowNodeInstance ni,
+                                         Map<String, Object> variables) {
+        log.info("[FlowExecutor] 节点实例就绪 nodeInstanceId={}, type={}, name={}",
+                ni.getId(), ni.getNodeType(), ni.getNodeName());
+        var ctx = buildContext(instance, definition, ni, variables);
+        return handlerRegistry.get(ni.getNodeType()).handle(ctx);
+    }
+
+    // ==================== Fork/Join 预创建 ====================
+
+    /**
+     * Fork 网关推进前，预创建下游 Join 网关的节点实例并写入 fork_count。
+     * 各分支到达 Join 时通过 createAndHandleNode 复用该实例，join_count 原子递增，
+     * 保证汇聚计数收敛到 fork_count。
+     */
+    private Mono<Void> preCreateJoinNodes(FlowInstance instance,
+                                          ProcessDefinition definition,
+                                          String forkNodeId) {
+        var joinNodeIds = findDownstreamJoinNodeIds(definition, forkNodeId);
+        if (joinNodeIds.isEmpty()) {
+            return Mono.empty();
+        }
+        return Flux.fromIterable(joinNodeIds)
+                .flatMap(joinId -> definition.nodeById(joinId)
+                        .map(joinNode -> nodeRepo
+                                .findActiveByInstanceIdAndNodeId(instance.getId(), joinId)
+                                .switchIfEmpty(createJoinInstance(instance, joinNode,
+                                        incomingCount(definition, joinId)))
+                                .then())
+                        .orElse(Mono.empty()))
+                .then();
+    }
+
+    /**
+     * BFS 查找 Fork 下游的 Join 网关（入边≥2 的 PARALLEL_GATEWAY），
+     * 遇到 Join 即停止向下，visited 防环。
+     */
+    private List<String> findDownstreamJoinNodeIds(ProcessDefinition definition,
+                                                   String forkNodeId) {
+        var result = new ArrayList<String>();
+        var visited = new HashSet<String>();
+        var queue = new ArrayDeque<>(definition.edgesFrom(forkNodeId).stream()
+                .map(EdgeDef::target).toList());
+        while (!queue.isEmpty()) {
+            var nodeId = queue.poll();
+            if (!visited.add(nodeId)) {
+                continue;
+            }
+            var node = definition.nodeById(nodeId).orElse(null);
+            if (node == null) {
+                continue;
+            }
+            if (isJoinGateway(definition, node)) {
+                result.add(nodeId);
+                continue;
+            }
+            definition.edgesFrom(nodeId).forEach(e -> queue.add(e.target()));
+        }
+        return result;
+    }
+
+    private Mono<FlowNodeInstance> createJoinInstance(FlowInstance instance,
+                                                      NodeDef joinNode,
+                                                      int forkCount) {
+        var ni = FlowNodeInstance.builder()
+                .instanceId(instance.getId())
+                .nodeId(joinNode.id())
+                .nodeName(joinNode.name())
+                .nodeType(joinNode.type())
+                .status("ACTIVE")
+                .forkCount(forkCount)
+                .joinCount(0)
+                .startTime(LocalDateTime.now(ZoneId.systemDefault()))
+                .createUser(SYSTEM)
+                .updateUser(SYSTEM)
+                .build();
+        return nodeRepo.save(ni)
+                .doOnNext(saved -> log.info(
+                        "[FlowExecutor] 预创建 Join 节点实例 nodeInstanceId={}, nodeId={}, forkCount={}",
+                        saved.getId(), joinNode.id(), forkCount));
+    }
+
+    private boolean isFork(NodeCompletedEvent event, List<EdgeDef> effectiveEdges) {
+        return PARALLEL_GATEWAY.equals(event.nodeType()) && effectiveEdges.size() >= 2;
+    }
+
+    private boolean isJoinGateway(ProcessDefinition definition, NodeDef node) {
+        return PARALLEL_GATEWAY.equals(node.type())
+                && incomingCount(definition, node.id()) >= 2;
+    }
+
+    private int incomingCount(ProcessDefinition definition, String nodeId) {
+        return (int) definition.edges().stream()
+                .filter(e -> e.target().equals(nodeId)).count();
     }
 
     // ==================== current_node_ids 刷新 ====================
 
     /**
      * 移除完成的节点 ID，加入新激活的节点 ID。
-     * 并行网关场景下，Fork 节点的所有子节点会同时加入。
+     * 并行分支并发刷新时用 version 字段 CAS + 有限重试，每次重试重读最新列表，
+     * 避免读-改-写 lost update。
      */
     private Mono<Void> refreshCurrentNodeIds(FlowInstance instance,
                                              String completedNodeId,
                                              List<EdgeDef> newEdges) {
-        var currentIds = parseStringList(instance.getCurrentNodeIds());
-        currentIds.remove(completedNodeId);
-        newEdges.forEach(e -> {
-            if (!currentIds.contains(e.target())) {
-                currentIds.add(e.target());
-            }
-        });
+        return casUpdateNodeIds(instance.getId(), completedNodeId, newEdges, 0);
+    }
 
-        return instanceRepo.updateCurrentNodeIds(
-                        instance.getId(), toJson(currentIds), SYSTEM)
-                .then();
+    private Mono<Void> casUpdateNodeIds(Long instanceId,
+                                        String completedNodeId,
+                                        List<EdgeDef> newEdges,
+                                        int attempt) {
+        return loadInstanceById(instanceId)
+                .flatMap(latest -> {
+                    var currentIds = parseStringList(latest.getCurrentNodeIds());
+                    currentIds.remove(completedNodeId);
+                    newEdges.forEach(e -> {
+                        if (!currentIds.contains(e.target())) {
+                            currentIds.add(e.target());
+                        }
+                    });
+                    return instanceRepo.updateCurrentNodeIdsCas(
+                                    instanceId, toJson(currentIds),
+                                    latest.getVersion(), SYSTEM)
+                            .flatMap(rows -> {
+                                if (rows > 0) {
+                                    return Mono.<Void>empty();
+                                }
+                                if (attempt >= MAX_CAS_RETRY) {
+                                    log.error("[FlowExecutor] current_node_ids CAS 重试耗尽 instanceId={}",
+                                            instanceId);
+                                    return Mono.<Void>empty();
+                                }
+                                log.debug("[FlowExecutor] current_node_ids CAS 冲突，重试 {}/{} instanceId={}",
+                                        attempt + 1, MAX_CAS_RETRY, instanceId);
+                                return casUpdateNodeIds(instanceId, completedNodeId,
+                                        newEdges, attempt + 1);
+                            });
+                });
     }
 
     // ==================== NodeContext 组装 ====================
