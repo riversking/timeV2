@@ -19,6 +19,8 @@ import java.util.Optional;
 @Slf4j
 public class FlowHistoryServiceImpl implements IFlowHistoryService {
 
+    private static final String YYYY_MM_DD_HH_MM_SS = "yyyy-MM-dd HH:mm:ss";
+
     private final FlowHistoryRepository historyRepo;
 
     public FlowHistoryServiceImpl(FlowHistoryRepository historyRepo) {
@@ -39,7 +41,7 @@ public class FlowHistoryServiceImpl implements IFlowHistoryService {
                         .setDetail(i.getDetail())
                         .setRemark(i.getRemark())
                         .setCreateTime(Optional.ofNullable(i.getCreateTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .build())
@@ -62,7 +64,7 @@ public class FlowHistoryServiceImpl implements IFlowHistoryService {
                         .setDetail(i.getDetail())
                         .setRemark(i.getRemark())
                         .setCreateTime(Optional.ofNullable(i.getCreateTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .build())
@@ -87,7 +89,7 @@ public class FlowHistoryServiceImpl implements IFlowHistoryService {
                         .setDetail(i.getDetail())
                         .setRemark(i.getRemark())
                         .setCreateTime(Optional.ofNullable(i.getCreateTime())
-                                .map(c -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                .map(c -> DateTimeFormatter.ofPattern(YYYY_MM_DD_HH_MM_SS)
                                         .format(c))
                                 .orElse(""))
                         .build())

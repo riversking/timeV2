@@ -136,7 +136,8 @@ public class FlowExecutor {
 
     /**
      * 节点完成后：解析 DSL 出边 → 过滤指定分支（排他网关） → 并行创建下一批节点实例 → 分发 Handler。
-     * Fork 网关推进前预创建下游 Join 节点实例；输出变量合并结果落库；完成后 CAS 更新 current_node_ids。
+     * 下游 Join 实例的预创建由 ParallelGatewayHandler 在 Fork 时完成；
+     * 输出变量合并结果落库；完成后 CAS 更新 current_node_ids。
      */
     private Mono<Void> advanceToNextNodes(NodeCompletedEvent event) {
         if ("END".equals(event.nodeType())) {
@@ -156,11 +157,6 @@ public class FlowExecutor {
                                     parseVariables(instance.getVariables()),
                                     event.outputVariables() != null
                                             ? event.outputVariables() : Map.of());
-                            // Fork 网关推进前：预创建下游 Join 节点实例并写入 fork_count，
-                            // 保证所有分支汇聚到同一个 Join 节点实例
-                            var preCreate = isFork(event, effectiveEdges)
-                                    ? preCreateJoinNodes(instance, definition, event.nodeId())
-                                    : Mono.<Void>empty();
                             // 输出变量合并结果落库，避免重启/重载后审批上下文丢失
                             var hasOutput = event.outputVariables() != null
                                     && !event.outputVariables().isEmpty();
@@ -168,8 +164,7 @@ public class FlowExecutor {
                                     ? instanceRepo.updateVariables(
                                     instance.getId(), toJson(mergedVars), SYSTEM).then()
                                     : Mono.<Void>empty();
-                            return preCreate
-                                    .then(persistVars)
+                            return persistVars
                                     .then(performAdvance(instance, definition, effectiveEdges,
                                             event.operatorId(), mergedVars, event.nodeId()));
                         }));
@@ -273,7 +268,8 @@ public class FlowExecutor {
 
     /**
      * 为指定边创建 FlowNodeInstance 并分发到对应的 NodeHandler。
-     * Join 网关节点不新建实例：复用 Fork 推进时预创建的唯一实例。
+     * Join 网关节点不新建实例：复用 ParallelGatewayHandler 在 Fork 时预创建的唯一实例；
+     * 实例缺失（异常时序）时兜底创建。
      */
     private Mono<Void> createAndHandleNode(FlowInstance instance,
                                            ProcessDefinition definition,
@@ -282,7 +278,7 @@ public class FlowExecutor {
                                            Map<String, Object> variables) {
         var targetNode = definition.nodeById(edge.target()).orElseThrow(
                 () -> new IllegalStateException("边指向的节点不存在: " + edge.target()));
-        // Join 网关：所有分支复用同一个节点实例（Fork 推进时已预创建）
+        // Join 网关：所有分支复用同一个节点实例（Fork 时已由 ParallelGatewayHandler 预创建）
         if (isJoinGateway(definition, targetNode)) {
             return nodeRepo.findActiveByInstanceIdAndNodeId(instance.getId(), targetNode.id())
                     .switchIfEmpty(createJoinInstance(instance, targetNode,
@@ -314,52 +310,13 @@ public class FlowExecutor {
         return handlerRegistry.get(ni.getNodeType()).handle(ctx);
     }
 
-    // ==================== Fork/Join 预创建 ====================
+    // ==================== Join 实例复用 / 兜底创建 ====================
 
     /**
-     * Fork 网关推进前，预创建下游 Join 网关的节点实例并写入 fork_count。
-     * 各分支到达 Join 时通过 createAndHandleNode 复用该实例，join_count 原子递增，
-     * 保证汇聚计数收敛到 fork_count。
+     * 兜底创建 Join 节点实例（fork_count = 入边数）。
+     * 正常路径由 ParallelGatewayHandler 在 Fork 时预创建，
+     * 此处仅覆盖"首条分支到达时实例缺失"的异常时序。
      */
-    private Mono<Void> preCreateJoinNodes(FlowInstance instance,
-                                          ProcessDefinition definition,
-                                          String forkNodeId) {
-        var joinNodeIds = findDownstreamJoinNodeIds(definition, forkNodeId);
-        if (joinNodeIds.isEmpty()) {
-            return Mono.empty();
-        }
-        return Flux.fromIterable(joinNodeIds)
-                .flatMap(joinId -> definition.nodeById(joinId)
-                        .map(joinNode -> nodeRepo
-                                .findActiveByInstanceIdAndNodeId(instance.getId(), joinId)
-                                .switchIfEmpty(createJoinInstance(instance, joinNode,
-                                        incomingCount(definition, joinId)))
-                                .then())
-                        .orElse(Mono.empty()))
-                .then();
-    }
-
-    /**
-     * BFS 查找 Fork 下游的 Join 网关（入边≥2 的 PARALLEL_GATEWAY），
-     * 遇到 Join 即停止向下，visited 防环。
-     */
-    private List<String> findDownstreamJoinNodeIds(ProcessDefinition definition,
-                                                   String forkNodeId) {
-        var result = new ArrayList<String>();
-        var visited = new HashSet<String>();
-        var queue = new ArrayDeque<>(definition.edgesFrom(forkNodeId).stream()
-                .map(EdgeDef::target).toList());
-        while (!queue.isEmpty()) {
-            var nodeId = queue.poll();
-            var node = definition.nodeById(nodeId).orElse(null);
-            if (!visited.add(nodeId) || node == null || isJoinGateway(definition, node)) {
-                continue;
-            }
-            definition.edgesFrom(nodeId).forEach(e -> queue.add(e.target()));
-        }
-        return result;
-    }
-
     private Mono<FlowNodeInstance> createJoinInstance(FlowInstance instance,
                                                       NodeDef joinNode,
                                                       int forkCount) {
@@ -377,12 +334,8 @@ public class FlowExecutor {
                 .build();
         return nodeRepo.save(ni)
                 .doOnNext(saved -> log.info(
-                        "[FlowExecutor] 预创建 Join 节点实例 nodeInstanceId={}, nodeId={}, forkCount={}",
+                        "[FlowExecutor] 兜底创建 Join 节点实例 nodeInstanceId={}, nodeId={}, forkCount={}",
                         saved.getId(), joinNode.id(), forkCount));
-    }
-
-    private boolean isFork(NodeCompletedEvent event, List<EdgeDef> effectiveEdges) {
-        return PARALLEL_GATEWAY.equals(event.nodeType()) && effectiveEdges.size() >= 2;
     }
 
     private boolean isJoinGateway(ProcessDefinition definition, NodeDef node) {
@@ -489,7 +442,7 @@ public class FlowExecutor {
         if (json == null || json.isBlank()) {
             return new ArrayList<>();
         }
-        return objectMapper.readValue(json, new TypeReference<List<String>>() {
+        return objectMapper.readValue(json, new TypeReference<>() {
         });
     }
 
