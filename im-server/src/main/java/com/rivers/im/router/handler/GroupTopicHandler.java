@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
@@ -21,7 +22,6 @@ import java.time.LocalDateTime;
 
 /**
  * group topic handler
- *
  */
 @Component
 @Slf4j
@@ -48,13 +48,16 @@ public class GroupTopicHandler implements TopicHandler {
     private final TimerGroupMemberMapper timerGroupMemberMapper;
     private final IWebSocketPushService webSocketPushService;
     private final ObjectMapper objectMapper;
+    private final TransactionalOperator txOperator;
 
     public GroupTopicHandler(TimerGroupMapper timerGroupMapper, TimerGroupMemberMapper timerGroupMemberMapper,
-                             IWebSocketPushService webSocketPushService, ObjectMapper objectMapper) {
+                             IWebSocketPushService webSocketPushService, ObjectMapper objectMapper,
+                             TransactionalOperator txOperator) {
         this.timerGroupMapper = timerGroupMapper;
         this.timerGroupMemberMapper = timerGroupMemberMapper;
         this.webSocketPushService = webSocketPushService;
         this.objectMapper = objectMapper;
+        this.txOperator = txOperator;
     }
 
 
@@ -83,7 +86,8 @@ public class GroupTopicHandler implements TopicHandler {
 
     /**
      * 创建群组（静默模式）
-     * 拉入选中的好友但不通知他们 —— 首条消息发出后好友才能看到群
+     * 拉入选中的好友但不通知他们 —— 首条消息发出后好友才能看到群。
+     * 群 + 成员同事务：成员写入失败则群也不落库，避免孤儿群。
      */
     private Mono<Void> handleCreate(String userId, JsonNode payload) {
         String name = payload.path("name").asString("");
@@ -101,32 +105,30 @@ public class GroupTopicHandler implements TopicHandler {
         group.setMaxMembers(DEFAULT_MAX_MEMBERS);
         group.setCreateUser(userId);
         group.setUpdateUser(userId);
-        return timerGroupMapper.save(group)
-                .flatMap(savedGroup -> {
-                    TimerGroupMember owner = newMember(savedGroup.getId(), userId, ROLE_OWNER, userId);
-                    Flux<TimerGroupMember> friendMembers = extractUserIds(userIdsNode, userId)
-                            .map(id -> newMember(savedGroup.getId(), id, ROLE_MEMBER, userId));
-                    return friendMembers.collectList()
-                            .flatMapMany(friends -> {
-                                friends.addFirst(owner);
-                                return timerGroupMemberMapper.saveAll(friends);
-                            })
-                            .then(Mono.fromCallable(() -> {
-                                ArrayNode memberArr = objectMapper.createArrayNode();
-                                extractUserIds(userIdsNode, userId)
-                                        .subscribe(memberArr::add);
-                                return memberArr;
-                            }))
-                            .flatMap(memberArr -> pushToUser(userId, "group_created",
-                                    objectMapper.createObjectNode()
-                                            .put(GROUP_ID, savedGroup.getId())
-                                            .put("name", savedGroup.getName())
-                                            .put("avatar", savedGroup.getAvatar() != null ?
-                                                    savedGroup.getAvatar() : "")
-                                            .put("description", savedGroup.getDescription() != null ?
-                                                    savedGroup.getDescription() : "")
-                                            .set("members", memberArr)));
-                })
+        return txOperator.transactional(
+                        timerGroupMapper.save(group)
+                                .flatMap(savedGroup -> {
+                                    TimerGroupMember owner = newMember(savedGroup.getId(), userId, ROLE_OWNER, userId);
+                                    return extractUserIds(userIdsNode, userId)
+                                            .map(id -> newMember(savedGroup.getId(), id, ROLE_MEMBER, userId))
+                                            .collectList()
+                                            .flatMap(friends -> {
+                                                friends.addFirst(owner);
+                                                return timerGroupMemberMapper.saveAll(friends)
+                                                        .thenReturn(savedGroup);
+                                            });
+                                }))
+                .flatMap(savedGroup -> extractUserIds(userIdsNode, userId)
+                        .collectList()
+                        .flatMap(memberIds -> pushToUser(userId, "group_created",
+                                objectMapper.createObjectNode()
+                                        .put(GROUP_ID, savedGroup.getId())
+                                        .put("name", savedGroup.getName())
+                                        .put("avatar", savedGroup.getAvatar() != null ?
+                                                savedGroup.getAvatar() : "")
+                                        .put("description", savedGroup.getDescription() != null ?
+                                                savedGroup.getDescription() : "")
+                                        .set("members", objectMapper.valueToTree(memberIds)))))
                 .then(sendResult(userId, GROUP_CREATE, true, "群组创建成功"))
                 .doOnSuccess(v -> log.info("👥 [Group] 群组创建成功(静默): name={}, creator={}", name, userId))
                 .onErrorResume(e -> {
@@ -162,8 +164,7 @@ public class GroupTopicHandler implements TopicHandler {
     }
 
     /**
-     * 解散群组
-     *
+     * 解散群组 —— 先取成员快照，事务内删成员 + 软删群，提交后推送
      */
     private Mono<Void> handleDismiss(String userId, JsonNode payload) {
         long groupId = payload.path(GROUP_ID).asLong(0);
@@ -178,15 +179,14 @@ public class GroupTopicHandler implements TopicHandler {
                         return sendResult(userId, GROUP_DISMISS, false, "只有群主可以解散群组");
                     }
                     ObjectNode notifyData = buildSimplePayload(groupId);
-                    return pushToGroup(groupId, "group_dismissed", notifyData)
-                            .then(timerGroupMemberMapper.deleteAllMembers(groupId, userId))
-                            .then(timerGroupMapper.findById(groupId)
-                                    .flatMap(g -> {
-                                        g.setIsDeleted(1);
-                                        g.setUpdateUser(userId);
-                                        return timerGroupMapper.save(g).then();
-                                    }))
-                            .then(sendResult(userId, GROUP_DISMISS, true, "群组已解散"));
+                    return timerGroupMemberMapper.selectByGroupId(groupId)
+                            .map(TimerGroupMember::getUserId)
+                            .collectList()
+                            .flatMap(memberIds ->
+                                    deleteAndSoftDelete(groupId, userId)
+                                            .then(pushToUserIds(Flux.fromIterable(memberIds),
+                                                    "group_dismissed", notifyData))
+                                            .then(sendResult(userId, GROUP_DISMISS, true, "群组已解散")));
                 })
                 .onErrorResume(e -> {
                     log.error("❌ [Group] 解散群组失败: userId={}, groupId={}", userId, groupId, e);
@@ -195,8 +195,21 @@ public class GroupTopicHandler implements TopicHandler {
     }
 
     /**
+     * 删空成员 + 软删群，同一事务：中途失败全部回滚，不会出现"群活着但成员为空"。
+     */
+    private Mono<Void> deleteAndSoftDelete(long groupId, String operator) {
+        return timerGroupMemberMapper.deleteAllMembers(groupId, operator)
+                .then(timerGroupMapper.findById(groupId)
+                        .flatMap(g -> {
+                            g.setIsDeleted(1);
+                            g.setUpdateUser(operator);
+                            return timerGroupMapper.save(g).then();
+                        }))
+                .as(txOperator::transactional);
+    }
+
+    /**
      * 踢人
-     *
      */
     private Mono<Void> handleKick(String userId, JsonNode payload) {
         long groupId = payload.path(GROUP_ID).asLong(0);
@@ -236,8 +249,7 @@ public class GroupTopicHandler implements TopicHandler {
     }
 
     /**
-     * 邀请
-     *
+     * 邀请 —— upsert 幂等：活跃成员跳过；软删成员（退出/被踢）复活；整批同事务
      */
     private Mono<Void> handleInvite(String userId, JsonNode payload) {
         long groupId = payload.path(GROUP_ID).asLong(0);
@@ -250,25 +262,24 @@ public class GroupTopicHandler implements TopicHandler {
                 .flatMap(member -> timerGroupMemberMapper.selectMembersCount(groupId)
                         .flatMap(count -> timerGroupMapper.findById(groupId)
                                 .flatMap(group -> {
-                                    int remaining = group.getMaxMembers() - count;
+                                    Integer maxMembers = group.getMaxMembers();
+                                    if (maxMembers == null || maxMembers <= 0) {
+                                        return sendResult(userId, GROUP_INVITE, false, "群组人数上限未配置");
+                                    }
+                                    int remaining = maxMembers - count;
                                     return extractUserIds(userIdsNode, null)
                                             .take(remaining)
                                             .concatMap(targetUserId ->
                                                     timerGroupMemberMapper
                                                             .selectByGroupIdAndUserId(groupId, targetUserId)
-                                                            .flatMap(_ -> {
-                                                                log.debug("👥 [Group] 用户已在群中: {}", targetUserId);
-                                                                return Mono.empty();
-                                                            })
-                                                            .switchIfEmpty(Mono.defer(() -> {
-                                                                TimerGroupMember newM = newMember(
-                                                                        groupId, targetUserId,
-                                                                        ROLE_MEMBER, userId);
-                                                                return timerGroupMemberMapper.save(newM)
-                                                                        .thenReturn(targetUserId);
-                                                            }))
-                                            )
+                                                            .flatMap(_ -> Mono.<String>empty())
+                                                            .switchIfEmpty(Mono.defer(() ->
+                                                                    timerGroupMemberMapper
+                                                                            .upsertMember(groupId, targetUserId,
+                                                                                    (int) ROLE_MEMBER, null, userId, userId)
+                                                                            .thenReturn(targetUserId))))
                                             .collectList()
+                                            .as(txOperator::transactional)
                                             .flatMap(joined -> {
                                                 if (joined.isEmpty()) {
                                                     return sendResult(userId, GROUP_INVITE,
@@ -291,7 +302,6 @@ public class GroupTopicHandler implements TopicHandler {
 
     /**
      * 公告
-     *
      */
     private Mono<Void> handleAnnounce(String userId, JsonNode payload) {
         long groupId = payload.path(GROUP_ID).asLong(0);
@@ -348,6 +358,17 @@ public class GroupTopicHandler implements TopicHandler {
         return timerGroupMemberMapper.selectByGroupId(groupId)
                 .flatMap(member ->
                         webSocketPushService.pushToUser(member.getUserId(), GROUP_NOTIFY, data)
+                                .onErrorResume(e -> Mono.empty()))
+                .then();
+    }
+
+    /**
+     * 按用户列表逐个推送（解散场景：成员已删，无法再按 groupId 查询）
+     */
+    private Mono<Void> pushToUserIds(Flux<String> userIds, String action, ObjectNode data) {
+        data.put(ACTION, action).put("ts", System.currentTimeMillis());
+        return userIds.flatMap(uid ->
+                        webSocketPushService.pushToUser(uid, GROUP_NOTIFY, data)
                                 .onErrorResume(e -> Mono.empty()))
                 .then();
     }

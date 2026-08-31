@@ -12,6 +12,7 @@ import com.rivers.im.util.SnowflakeIdGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -42,16 +43,19 @@ public class FriendTopicHandler implements TopicHandler {
     private final IWebSocketPushService webSocketPushService;
     private final ObjectMapper objectMapper;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
+    private final TransactionalOperator txOperator;
 
     public FriendTopicHandler(TimerFriendRequestMapper timerFriendRequestMapper, TimerFriendMapper timerFriendMapper,
                               TimerMessageMapper timerMessageMapper, IWebSocketPushService webSocketPushService,
-                              ObjectMapper objectMapper, SnowflakeIdGenerator snowflakeIdGenerator) {
+                              ObjectMapper objectMapper, SnowflakeIdGenerator snowflakeIdGenerator,
+                              TransactionalOperator txOperator) {
         this.timerFriendRequestMapper = timerFriendRequestMapper;
         this.timerFriendMapper = timerFriendMapper;
         this.timerMessageMapper = timerMessageMapper;
         this.webSocketPushService = webSocketPushService;
         this.objectMapper = objectMapper;
         this.snowflakeIdGenerator = snowflakeIdGenerator;
+        this.txOperator = txOperator;
     }
 
 
@@ -75,8 +79,9 @@ public class FriendTopicHandler implements TopicHandler {
     }
 
     /**
-     * 发送好友请求 —— 写扩散模型
-     * 创建两条记录（发送方 + 接收方），用 relation_id 绑定，一条 SQL 即可双向同步状态
+     * 发送好友请求 —— 写扩散模型。
+     * 唯一约束 (user_id, opponent_id) + upsert 替代"先查后插"：
+     * 并发重复请求不会产生重复记录，预检仅用于提示语。
      */
     private Mono<Void> handleRequest(String userId, JsonNode payload) {
         String targetUserId = payload.path("to").asString("");
@@ -89,54 +94,44 @@ public class FriendTopicHandler implements TopicHandler {
             return sendResult(userId, FRIEND_REQUEST, false, "不能添加自己为好友");
         }
         String msg = payload.path("msg").asString("");
+        // 预检仅用于提示（读写分离），并发安全由唯一约束 + upsert 兜底
         return timerFriendRequestMapper
                 .selectByUserIdAndOpponentId(userId, targetUserId)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
                 .flatMap(optional -> {
-                    if (optional.isEmpty()) {
-                        long relationId = snowflakeIdGenerator.nextId();
-                        TimerFriendRequest senderRecord = TimerFriendRequest.builder()
-                                .userId(userId)
-                                .opponentId(targetUserId)
-                                .direction(TimerFriendRequest.Direction.SENT.getCode())
-                                .status(TimerFriendRequest.Status.PENDING.getCode())
-                                .message(msg)
-                                .relationId(relationId)
-                                .createUser(userId)
-                                .updateUser(userId)
-                                .build();
-                        TimerFriendRequest receiverRecord = TimerFriendRequest.builder()
-                                .userId(targetUserId)
-                                .opponentId(userId)
-                                .direction(TimerFriendRequest.Direction.RECEIVED.getCode())
-                                .status(TimerFriendRequest.Status.PENDING.getCode())
-                                .message(msg)
-                                .relationId(relationId)
-                                .createUser(userId)
-                                .updateUser(userId)
-                                .build();
-                        return Mono.zip(
-                                        timerFriendRequestMapper.save(senderRecord),
-                                        timerFriendRequestMapper.save(receiverRecord)
-                                )
-                                .flatMap(tuple ->
-                                        saveAndPush(targetUserId, FRIEND_REQUEST, userId, tuple.getT2().getId()))
-                                .then(sendResult(userId, FRIEND_REQUEST, true, "好友请求已发送"));
+                    if (optional.isPresent()
+                            && optional.get().getStatus() != TimerFriendRequest.Status.PENDING.getCode()) {
+                        log.info("👥 [Friend] 请求已处理，无需重复操作: {} <-> {}", userId, targetUserId);
+                        return sendResult(userId, FRIEND_REQUEST, false, "该好友请求已处理，无需重复操作");
                     }
-                    TimerFriendRequest existing = optional.get();
-                    if (existing.getStatus() == TimerFriendRequest.Status.PENDING.getCode()) {
-                        log.info("👥 [Friend] 已存在待处理请求，更新更新时间: {} <-> {}", userId, targetUserId);
-                        return timerFriendRequestMapper
-                                .updateTimeByRelationId(existing.getRelationId(), LocalDateTime.now())
-                                .then(timerFriendRequestMapper
-                                        .selectByRelationIdAndUserId(existing.getRelationId(), targetUserId))
-                                .flatMap(receiverRecord ->
-                                        saveAndPush(targetUserId, FRIEND_REQUEST, userId, receiverRecord.getId()))
-                                .then(sendResult(userId, FRIEND_REQUEST, true, "好友请求已发送"));
-                    }
-                    log.info("👥 [Friend] 请求已处理，无需重复操作: {} <-> {}", userId, targetUserId);
-                    return sendResult(userId, FRIEND_REQUEST, false, "该好友请求已处理，无需重复操作");
+                    long relationId = optional.map(TimerFriendRequest::getRelationId)
+                            .orElseGet(snowflakeIdGenerator::nextId);
+                    TimerFriendRequest senderRecord = buildRequest(userId, targetUserId,
+                            TimerFriendRequest.Direction.SENT.getCode(), msg, relationId);
+                    TimerFriendRequest receiverRecord = buildRequest(targetUserId, userId,
+                            TimerFriendRequest.Direction.RECEIVED.getCode(), msg, relationId);
+                    // 双向记录同事务 upsert；重复请求只刷新 update_time
+                    return timerFriendRequestMapper.upsertRequest(
+                                    senderRecord.getUserId(), senderRecord.getOpponentId(),
+                                    senderRecord.getDirection(), senderRecord.getStatus(),
+                                    senderRecord.getMessage(), senderRecord.getRelationId(),
+                                    senderRecord.getCreateUser(), senderRecord.getUpdateUser())
+                            .then(timerFriendRequestMapper.upsertRequest(
+                                    receiverRecord.getUserId(), receiverRecord.getOpponentId(),
+                                    receiverRecord.getDirection(), receiverRecord.getStatus(),
+                                    receiverRecord.getMessage(), receiverRecord.getRelationId(),
+                                    receiverRecord.getCreateUser(), receiverRecord.getUpdateUser()))
+                            .as(txOperator::transactional)
+                            // 按 (user, opponent) 唯一行重读接收方记录：
+                            // 并发场景下 relationId 可能被并发请求覆盖，以实际落库行取 id
+                            .then(timerFriendRequestMapper
+                                    .selectByUserIdAndOpponentId(targetUserId, userId))
+                            .switchIfEmpty(Mono.error(
+                                    new IllegalStateException("接收方记录写入异常: " + targetUserId)))
+                            .flatMap(receiver ->
+                                    saveAndPush(targetUserId, FRIEND_REQUEST, userId, receiver.getId()))
+                            .then(sendResult(userId, FRIEND_REQUEST, true, "好友请求已发送"));
                 })
                 .onErrorResume(e -> {
                     log.error("❌ [Friend] 发送好友请求失败: {} -> {}", userId, targetUserId, e);
@@ -144,8 +139,23 @@ public class FriendTopicHandler implements TopicHandler {
                 });
     }
 
+    private TimerFriendRequest buildRequest(String userId, String opponentId,
+                                            int direction, String msg, long relationId) {
+        return TimerFriendRequest.builder()
+                .userId(userId)
+                .opponentId(opponentId)
+                .direction(direction)
+                .status(TimerFriendRequest.Status.PENDING.getCode())
+                .message(msg)
+                .relationId(relationId)
+                .createUser(userId)
+                .updateUser(userId)
+                .build();
+    }
+
     /**
-     * 接受好友请求 —— 通过 relation_id 批量更新双向记录状态
+     * 接受好友请求 —— 乐观锁推进（AND status=0）+ 好友关系写入同事务。
+     * 并发双击 accept 只有一个 rows>0，重复插入由 timer_friend 唯一约束兜底。
      */
     private Mono<Void> handleAccept(String userId, JsonNode payload) {
         long requestId = payload.path(REQUEST_ID).asLong(0);
@@ -181,15 +191,32 @@ public class FriendTopicHandler implements TopicHandler {
                             .createUser(userId)
                             .updateUser(userId)
                             .build();
+                    // 状态推进 + 双向好友写入同一事务；rows=0 说明并发已被处理
                     return timerFriendRequestMapper
                             .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.ACCEPTED.getCode())
-                            .then(timerFriendMapper.save(requestFriend))
-                            .then(timerFriendMapper.save(targetFriend))
-                            .then(saveAndPush(opponentId, FRIEND_ACCEPT, userId, requestId))
-                            .then(sendResult(userId, FRIEND_ACCEPT, true, "已接受好友请求"))
-                            .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已接受: {} <-> {}",
-                                    opponentId, userId));
+                            .flatMap(rows -> {
+                                if (rows <= 0) {
+                                    return Mono.just(false);
+                                }
+                                return timerFriendMapper.save(requestFriend)
+                                        .then(timerFriendMapper.save(targetFriend))
+                                        .thenReturn(true);
+                            })
+                            .as(txOperator::transactional)
+                            .flatMap(proceeded -> {
+                                if (!proceeded) {
+                                    log.info("👥 [Friend] 并发操作，请求已被处理: requestId={}", requestId);
+                                    return sendResult(userId, FRIEND_ACCEPT,
+                                            false, "请求已处理，无需重复操作");
+                                }
+                                // 事务提交后才推送通知
+                                return saveAndPush(opponentId, FRIEND_ACCEPT, userId, requestId)
+                                        .then(sendResult(userId, FRIEND_ACCEPT,
+                                                true, "已接受好友请求"))
+                                        .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已接受: {} <-> {}",
+                                                opponentId, userId));
+                            });
                 })
                 .onErrorResume(e -> {
                     log.error("❌ [Friend] 接受好友请求失败: requestId={}", requestId, e);
@@ -198,7 +225,7 @@ public class FriendTopicHandler implements TopicHandler {
     }
 
     /**
-     * 拒绝好友请求 —— 通过 relation_id 批量更新双向记录状态
+     * 拒绝好友请求 —— 通过 relation_id 批量更新双向记录状态（AND status=0 乐观锁）
      */
     private Mono<Void> handleReject(String userId, JsonNode payload) {
         long requestId = payload.path(REQUEST_ID).asLong(0);
@@ -224,10 +251,17 @@ public class FriendTopicHandler implements TopicHandler {
                     return timerFriendRequestMapper
                             .updateStatusByRelationId(request.getRelationId(), userId,
                                     TimerFriendRequest.Status.REJECTED.getCode())
-                            .then(saveAndPush(request.getOpponentId(), FRIEND_REJECT, userId, requestId))
-                            .then(sendResult(userId, FRIEND_REJECT, true, "已拒绝好友请求"))
-                            .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已拒绝: {} -> {}",
-                                    request.getOpponentId(), userId));
+                            .flatMap(rows -> {
+                                if (rows <= 0) {
+                                    log.info("👥 [Friend] 并发操作，请求已被处理: requestId={}", requestId);
+                                    return sendResult(userId, FRIEND_REJECT,
+                                            false, "请求已处理，无需重复操作");
+                                }
+                                return saveAndPush(request.getOpponentId(), FRIEND_REJECT, userId, requestId)
+                                        .then(sendResult(userId, FRIEND_REJECT, true, "已拒绝好友请求"))
+                                        .doOnSuccess(v -> log.info("👥 [Friend] 好友请求已拒绝: {} -> {}",
+                                                request.getOpponentId(), userId));
+                            });
                 })
                 .onErrorResume(e -> {
                     log.error("❌ [Friend] 拒绝好友请求失败: requestId={}", requestId, e);

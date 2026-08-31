@@ -1,6 +1,7 @@
 package com.rivers.im.util;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import com.rivers.core.exception.BusinessException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -22,12 +23,13 @@ public class SnowflakeIdGenerator {
     private long sequence = 0L;
     private long lastTimestamp = -1L;
 
-    @Autowired
-    public SnowflakeIdGenerator() {
-        this(1L, 1L);
-    }
-
-    public SnowflakeIdGenerator(long workerId, long datacenterId) {
+    /**
+     * workerId/datacenterId 由配置注入（默认 1，仅限单实例部署）。
+     * 多实例必须通过 IM_WORKER_ID / IM_DATACENTER_ID 环境变量区分，
+     * 否则所有节点生成相同序列，消息 ID / relation_id / 群 ID 会跨节点冲突。
+     */
+    public SnowflakeIdGenerator(@Value("${im.snowflake.worker-id:1}") long workerId,
+                                @Value("${im.snowflake.datacenter-id:1}") long datacenterId) {
         if (workerId > MAX_WORKER_ID || workerId < 0) {
             throw new IllegalArgumentException("workerId must be 0.." + MAX_WORKER_ID);
         }
@@ -41,7 +43,7 @@ public class SnowflakeIdGenerator {
     public synchronized long nextId() {
         long currentTimestamp = System.currentTimeMillis();
         if (currentTimestamp < lastTimestamp) {
-            throw new RuntimeException("Clock moved backwards. Refusing to generate id");
+            throw new BusinessException("Clock moved backwards. Refusing to generate id");
         }
         if (currentTimestamp == lastTimestamp) {
             sequence = (sequence + 1) & SEQUENCE_MASK;

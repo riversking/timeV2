@@ -22,9 +22,10 @@ import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
-import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -67,13 +68,19 @@ public class UnifiedWebSocketHandler implements WebSocketHandler {
     @PostConstruct
     public void init() {
         String channel = "ws:node:" + currentServerId;
+        // 订阅是"永久频道"：无限退避重试（1s → 上限 30s），绝不静默死亡
         crossServerSubscription = listenerContainer.receive(ChannelTopic.of(channel))
                 .map(ReactiveSubscription.Message::getMessage)
+                .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(1))
+                        .maxBackoff(Duration.ofSeconds(30))
+                        .doBeforeRetry(rs -> log.warn("🔁 Redis Pub/Sub 订阅重试: attempt={}, error={}",
+                                rs.totalRetries() + 1,
+                                rs.failure() != null ? rs.failure().getMessage() : "unknown")))
                 .subscribe(
                         this::handleCrossServerMessage,
                         e -> log.error("❌ Redis Pub/Sub 监听异常，跨服消息将不可用", e)
                 );
-        log.info("📡 节点 [{}] 已订阅跨服频道", currentServerId);
+        log.info("📡 节点 [ {}] 已订阅跨服频道", currentServerId);
     }
 
     @PreDestroy
@@ -112,7 +119,8 @@ public class UnifiedWebSocketHandler implements WebSocketHandler {
                 .takeWhile(tick -> session.isOpen())
                 .concatMap(tick ->
                         redisTemplate.expire(routeKey, Duration.ofMinutes(5))
-                                .doOnError(e -> log.warn("⚠️ 心跳续期失败: userId={}, connId={}", userId, connId))
+                                .doOnError(_ -> log.warn("⚠️ 心跳续期失败: userId={}, connId={}",
+                                        userId, connId))
                                 .onErrorComplete()
                                 .then()
                 );
@@ -124,17 +132,39 @@ public class UnifiedWebSocketHandler implements WebSocketHandler {
     private Mono<Void> dispatchMessage(String userId, String connId, String raw) {
         return Mono.fromCallable(() -> objectMapper.readValue(raw, WsEnvelope.class))
                 .flatMap(env -> {
+                    if (StringUtils.isBlank(env.topic()) || env.payload() == null) {
+                        return Mono.error(new IllegalArgumentException("消息格式不合法: topic 或 payload 缺失"));
+                    }
                     TopicHandler handler = routerMap.get(env.topic());
                     if (handler == null) {
-                        log.warn("⚠️ 未知 Topic: {}", env.topic());
-                        return Mono.empty();
+                        return Mono.error(new IllegalArgumentException("未知 Topic: " + env.topic()));
                     }
                     return handler.handleInbound(userId, connId, env.payload());
                 })
                 .onErrorResume(e -> {
-                    log.warn("⚠️ 消息解析或路由失败: {}", e.getMessage());
-                    return Mono.empty();
+                    log.warn("⚠️ 消息解析或路由失败: connId={}, error={}", connId, e.getMessage());
+                    return sendErrorResult(connId, e.getMessage());
                 });
+    }
+
+    /**
+     * 错误反馈闭环：解析/路由失败以 system topic 推回客户端，
+     * 客户端不再"消息石沉大海"。
+     */
+    private Mono<Void> sendErrorResult(String connId, String message) {
+        return Mono.fromCallable(() -> {
+                    ObjectNode errorPayload = objectMapper.createObjectNode()
+                            .put("code", 400)
+                            .put("message", message == null ? "消息处理失败" : message);
+                    WsEnvelope error = new WsEnvelope("system", UUID.randomUUID().toString(), errorPayload);
+                    return objectMapper.writeValueAsString(error);
+                })
+                .doOnNext(json -> sessionManager.pushToLocal(connId, json))
+                .onErrorResume(e -> {
+                    log.warn("⚠️ 错误反馈序列化失败: connId={}", connId, e);
+                    return Mono.empty();
+                })
+                .then();
     }
 
     private void handleCrossServerMessage(String json) {
@@ -162,19 +192,8 @@ public class UnifiedWebSocketHandler implements WebSocketHandler {
     }
 
     private @Nullable String extractUserId(WebSocketSession session) {
+        // 仅信任握手装饰器注入的 userId；删除 query 参数兜底，堵死未鉴权直连旁路
         Object obj = session.getAttributes().get("userId");
-        if (obj != null) {
-            return obj.toString();
-        }
-        URI uri = session.getHandshakeInfo().getUri();
-        if (uri.getQuery() != null) {
-            for (String param : uri.getQuery().split("&")) {
-                String[] kv = param.split("=", 2);
-                if (kv.length == 2 && "userId".equals(kv[0])) {
-                    return kv[1];
-                }
-            }
-        }
-        return null;
+        return obj != null ? obj.toString() : null;
     }
 }

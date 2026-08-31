@@ -12,15 +12,14 @@ import java.time.LocalDateTime;
 public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFriendRequest, Long> {
 
     /**
-     * 根据 relationId 批量更新状态（一条 SQL 同时更新发送方和接收方的记录）
+     * 根据 relationId 批量更新状态（一条 SQL 同时更新发送方和接收方的记录）。
+     * AND status = 0 乐观锁：并发 accept/reject 只有一个能推进，rows>0 者继续。
      */
     @Query("UPDATE timer_friend_request SET status = :status, update_user = :userId " +
-            "WHERE relation_id = :relationId AND is_deleted = 0")
-    Mono<Integer> updateStatusByRelationId(
-            @Param("relationId") Long relationId,
-            @Param("userId") String userId,
-            @Param("status") Integer status);
-
+            "WHERE relation_id = :relationId AND status = 0 AND is_deleted = 0")
+    Mono<Integer> updateStatusByRelationId(@Param("relationId") Long relationId,
+                                           @Param("userId") String userId,
+                                           @Param("status") Integer status);
 
     /**
      * 检查是否存在待处理的请求
@@ -51,7 +50,7 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
             "WHERE user_id = :userId AND opponent_id = :opponentId " +
             "AND is_deleted = 0 LIMIT 1")
     Mono<TimerFriendRequest> selectByUserIdAndOpponentId(@Param("userId") String userId,
-                                                       @Param("opponentId") String opponentId);
+                                                         @Param("opponentId") String opponentId);
 
     /**
      * 通过 relationId 批量更新 update_time（同时更新发送方和接收方）
@@ -68,5 +67,27 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
             "WHERE relation_id = :relationId AND user_id = :userId " +
             "AND is_deleted = 0 LIMIT 1")
     Mono<TimerFriendRequest> selectByRelationIdAndUserId(@Param("relationId") Long relationId,
-                                                       @Param("userId") String userId);
+                                                         @Param("userId") String userId);
+
+    /**
+     * 幂等写入好友请求记录：(user_id, opponent_id) 唯一约束 + upsert。
+     * 并发重复请求只会刷新 update_time，不会产生重复记录；
+     * 重复时不覆盖 status/direction（保留已处理状态）。
+     */
+    @Query("""
+            INSERT INTO timer_friend_request
+                (user_id, opponent_id, direction, status, message, relation_id,
+                 create_user, update_user, create_time, update_time, is_deleted)
+            VALUES (:userId, :opponentId, :direction, :status, :message, :relationId,
+                    :createUser, :updateUser, NOW(), NOW(), 0)
+            ON DUPLICATE KEY UPDATE update_time = NOW(), update_user = :updateUser
+            """)
+    Mono<Integer> upsertRequest(@Param("userId") String userId,
+                                @Param("opponentId") String opponentId,
+                                @Param("direction") Integer direction,
+                                @Param("status") Integer status,
+                                @Param("message") String message,
+                                @Param("relationId") Long relationId,
+                                @Param("createUser") String createUser,
+                                @Param("updateUser") String updateUser);
 }
