@@ -1,5 +1,6 @@
 package com.rivers.im.service.impl;
 
+import com.rivers.im.constant.CrossServerChannel;
 import com.rivers.im.manage.LocalSessionManager;
 import com.rivers.im.record.WsEnvelope;
 import com.rivers.im.service.IWebSocketPushService;
@@ -9,9 +10,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -78,11 +82,16 @@ public class WebSocketPushServiceImpl implements IWebSocketPushService {
             sessionManager.pushToLocal(connId, jsonMsg);
             return Mono.empty();
         }
-        ObjectNode crossMsg = objectMapper.createObjectNode()
-                .put("connId", connId)
-                .put("payload", jsonMsg);
-        return redisTemplate.convertAndSend("ws:node:" + targetServerId, crossMsg.toString())
-                .doOnError(e -> log.warn("⚠️ 跨服推送失败: target={}, connId={}", targetServerId, connId, e))
+        String streamKey = CrossServerChannel.streamKeyOf(targetServerId);
+        Map<String, String> fields = Map.of("connId", connId, "payload", jsonMsg);
+        // XADD（目标节点宕机期间消息仍持久在流中，恢复后消费组自动补投）+ MAXLEN 裁剪
+        return redisTemplate.opsForStream()
+                .add(streamKey, fields)
+                .retryWhen(Retry.backoff(2, Duration.ofMillis(300)))
+                .then(redisTemplate.opsForStream()
+                        .trim(streamKey, CrossServerChannel.MAX_LEN))
+                .doOnError(e -> log.warn("⚠️ 跨服推送失败(重试后): target={}, connId={}",
+                        targetServerId, connId, e))
                 .onErrorResume(e -> Mono.empty())
                 .then();
     }

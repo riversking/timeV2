@@ -115,7 +115,7 @@ public class GroupTopicHandler implements TopicHandler {
                                             .flatMap(friends -> {
                                                 friends.addFirst(owner);
                                                 return timerGroupMemberMapper.saveAll(friends)
-                                                        .thenReturn(savedGroup);
+                                                        .then(Mono.just(savedGroup));
                                             });
                                 }))
                 .flatMap(savedGroup -> extractUserIds(userIdsNode, userId)
