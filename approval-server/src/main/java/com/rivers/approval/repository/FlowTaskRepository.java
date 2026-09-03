@@ -18,32 +18,28 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     Mono<FlowTask> findByTaskNo(String taskNo);
 
     /**
-     * 查询某实例下所有任务
+     * 查询某实例下所有活跃任务
      */
     @Query("""
             SELECT * FROM flow_task
             WHERE instance_id = :instanceId
-              AND is_deleted = 0
+            AND is_deleted = 0
             ORDER BY create_time ASC
             """)
     Flux<FlowTask> findByInstanceId(Long instanceId);
 
     /**
-     * 查询节点实例对应的任务（一对一）
+     * 查询节点实例对应的任务（多候选人时一对多）
      */
-    @Query("""
-            SELECT * FROM flow_task
-            WHERE node_instance_id = :nodeInstanceId
-              AND is_deleted = 0
-            """)
-    Mono<FlowTask> findByNodeInstanceId(Long nodeInstanceId);
+    @Query("SELECT * FROM flow_task WHERE node_instance_id = :nodeInstanceId AND is_deleted = 0")
+    Flux<FlowTask> findByNodeInstanceId(Long nodeInstanceId);
 
     /**
      * 查某人的待办任务（已认领，未完成）
      */
     @Query("""
             SELECT * FROM flow_task
-            WHERE claimed_by = :userId
+            WHERE assignee = :userId
               AND status = 'CLAIMED'
               AND is_deleted = 0
             ORDER BY priority DESC, create_time DESC
@@ -52,13 +48,12 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     Flux<FlowTask> findTodoByUserWithPage(String userId, int offset, int size);
 
     /**
-     * 查待认领池（状态 PENDING，候选人包含该用户）
-     * 注意: candidate_users 是 JSON 数组字符串，用 JSON_CONTAINS 匹配
+     * 查待认领池（assignee 指向自己的 PENDING 行）
      */
     @Query("""
             SELECT * FROM flow_task
-            WHERE status = 'PENDING'
-              AND JSON_CONTAINS(candidate_users, JSON_QUOTE(:userId))
+            WHERE assignee = :userId
+              AND status = 'PENDING'
               AND is_deleted = 0
             ORDER BY priority DESC, create_time DESC
             LIMIT :size OFFSET :offset
@@ -70,8 +65,8 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
      */
     @Query("""
             SELECT COUNT(*) FROM flow_task
-            WHERE ((claimed_by = :userId AND status = 'CLAIMED')
-                OR (status = 'PENDING' AND JSON_CONTAINS(candidate_users, JSON_QUOTE(:userId))))
+            WHERE assignee = :userId
+              AND status IN ('PENDING', 'CLAIMED')
               AND is_deleted = 0
             """)
     Mono<Long> countPendingByUser(String userId);
@@ -87,50 +82,54 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
             """)
     Mono<Long> countByInstanceIdAndStatus(Long instanceId, String status);
 
-    // ========== 任务操作 ==========
+    // ========== 任务操作（CAS 标记 → 归档 → 物理删除，三步由 Service 事务编排） ==========
 
     /**
-     * 认领任务（PENDING → CLAIMED，需 CAS 防并发）
+     * 认领任务（PENDING → CLAIMED，assignee 指向自己即具备认领资格）
      */
     @Query("""
             UPDATE flow_task
             SET status = 'CLAIMED',
-                claimed_by = :userId,
                 claimed_time = NOW(),
                 update_user = :userId,
                 update_time = NOW()
             WHERE id = :id
               AND status = 'PENDING'
+              AND assignee = :userId
               AND is_deleted = 0
-              AND JSON_CONTAINS(candidate_users, JSON_QUOTE(:userId))
             """)
     Mono<Integer> claim(@Param("id") Long id, @Param("userId") String userId);
 
     /**
-     * 完成任务（CLAIMED → COMPLETED）
+     * 认领成功后清理同节点实例的其他候选行
+     */
+    @Query("""
+            DELETE FROM flow_task
+            WHERE node_instance_id = :nodeInstanceId
+              AND status = 'PENDING'
+              AND id <> :claimedId
+              AND is_deleted = 0
+            """)
+    Mono<Integer> deleteOtherPending(@Param("nodeInstanceId") Long nodeInstanceId,
+                                     @Param("claimedId") Long claimedId);
+
+    /**
+     * 完成任务标记（CLAIMED → COMPLETED，只有认领人能完成）
      */
     @Query("""
             UPDATE flow_task
             SET status = 'COMPLETED',
-                result = :result,
-                comment = :comment,
-                completed_by = :userId,
-                completed_time = NOW(),
                 update_user = :userId,
                 update_time = NOW()
             WHERE id = :id
               AND status = 'CLAIMED'
-              AND claimed_by = :userId
+              AND assignee = :userId
               AND is_deleted = 0
             """)
-    Mono<Integer> complete(
-            @Param("id") Long id,
-            @Param("result") String result,
-            @Param("comment") String comment,
-            @Param("userId") String userId);
+    Mono<Integer> completeTask(@Param("id") Long id, @Param("userId") String userId);
 
     /**
-     * 取消任务
+     * 取消任务标记
      */
     @Query("""
             UPDATE flow_task
@@ -141,10 +140,10 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
               AND status IN ('PENDING', 'CLAIMED')
               AND is_deleted = 0
             """)
-    Mono<Integer> cancel(@Param("id") Long id, @Param("operator") String operator);
+    Mono<Integer> cancelTask(@Param("id") Long id, @Param("operator") String operator);
 
     /**
-     * 转交任务（CLAIMED → PENDING，保留前驱引用）
+     * 转出标记（CLAIMED → TRANSFERRED，只有认领人能转交）
      */
     @Query("""
             UPDATE flow_task
@@ -153,11 +152,24 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
                 update_time = NOW()
             WHERE id = :id
               AND status = 'CLAIMED'
-              AND claimed_by = :operator
+              AND assignee = :operator
               AND is_deleted = 0
             """)
     Mono<Integer> transferOut(@Param("id") Long id, @Param("operator") String operator);
 
+    /**
+     * 归档后物理删除待办行（status 条件防误删）
+     */
+    @Query("""
+            DELETE FROM flow_task
+            WHERE id = :id AND status = :status
+            AND is_deleted = 0
+            """)
+    Mono<Integer> deleteByIdAndStatus(@Param("id") Long id, @Param("status") String status);
+
+    /**
+     * 实例终止：冻结全部活跃任务（CAS 标记，后续归档删除）
+     */
     @Query("""
             UPDATE flow_task
             SET status = 'CANCELLED',
@@ -167,7 +179,15 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
               AND status IN ('PENDING', 'CLAIMED')
               AND is_deleted = 0
             """)
-    Mono<Integer> cancelActiveByInstanceId(
-            @Param("instanceId") Long instanceId,
-            @Param("operator") String operator);
+    Mono<Integer> cancelActiveByInstanceId(@Param("instanceId") Long instanceId,
+                                           @Param("operator") String operator);
+
+    /**
+     * 实例终止：归档后批量物理删除
+     */
+    @Query("""
+            DELETE FROM flow_task
+            WHERE instance_id = :instanceId AND status = 'CANCELLED' AND is_deleted = 0
+            """)
+    Mono<Integer> deleteCancelledByInstanceId(@Param("instanceId") Long instanceId);
 }

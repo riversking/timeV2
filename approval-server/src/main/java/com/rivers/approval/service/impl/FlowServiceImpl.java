@@ -6,6 +6,7 @@ import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.InstanceStartedEvent;
 import com.rivers.approval.repository.FlowDefinitionRepository;
 import com.rivers.approval.repository.FlowInstanceRepository;
+import com.rivers.approval.repository.FlowTaskDoneRepository;
 import com.rivers.approval.repository.FlowTaskRepository;
 import com.rivers.approval.service.IFlowService;
 import com.rivers.core.vo.ResultVO;
@@ -14,7 +15,6 @@ import com.rivers.proto.StartProcessRes;
 import com.rivers.proto.TerminateInstanceReq;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.ObjectMapper;
@@ -33,6 +33,7 @@ public class FlowServiceImpl implements IFlowService {
     private final FlowDefinitionRepository defRepo;
     private final FlowInstanceRepository instanceRepo;
     private final FlowTaskRepository taskRepo;
+    private final FlowTaskDoneRepository taskDoneRepo;
     private final FlowEventBus eventBus;
     private final ObjectMapper objectMapper;
     private final TransactionalOperator txOperator;
@@ -40,12 +41,14 @@ public class FlowServiceImpl implements IFlowService {
     public FlowServiceImpl(FlowDefinitionRepository defRepo,
                            FlowInstanceRepository instanceRepo,
                            FlowTaskRepository taskRepo,
+                           FlowTaskDoneRepository taskDoneRepo,
                            FlowEventBus eventBus,
                            ObjectMapper objectMapper,
                            TransactionalOperator txOperator) {
         this.defRepo = defRepo;
         this.instanceRepo = instanceRepo;
         this.taskRepo = taskRepo;
+        this.taskDoneRepo = taskDoneRepo;
         this.eventBus = eventBus;
         this.objectMapper = objectMapper;
         this.txOperator = txOperator;
@@ -107,14 +110,17 @@ public class FlowServiceImpl implements IFlowService {
 
     /**
      * 终止流程实例（管理员操作）。
+     * <p>
+     * 新模型终止闭环：实例置 TERMINATED 后，未完成任务按
+     * "CAS 标记 CANCELLED → 归档已办表 → 物理删除"三步冻结，
+     * 全程同一事务，阻止终止后继续推进流程。
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> terminateProcess(TerminateInstanceReq req) {
-        return instanceRepo.findById(req.getInstanceId())
+        Mono<Void> terminated = instanceRepo.findById(req.getInstanceId())
                 .flatMap(instance -> {
                     if (!"RUNNING".equals(instance.getStatus())) {
-                        return Mono.<FlowInstance>error(
+                        return Mono.<Void>error(
                                 new IllegalStateException("只能终止运行中的流程"));
                     }
                     return instanceRepo.updateStatus(
@@ -123,11 +129,16 @@ public class FlowServiceImpl implements IFlowService {
                             .filter(rows -> rows > 0)
                             .switchIfEmpty(Mono.<Integer>error(
                                     new IllegalStateException("终止失败：实例状态已变更")))
-                            // 冻结未完成任务，阻止终止后继续推进流程
+                            // 冻结未完成任务：CAS 标记 → 归档已办表 → 物理删除（同事务）
                             .then(taskRepo.cancelActiveByInstanceId(
-                                    req.getInstanceId(), req.getOperator()));
+                                    req.getInstanceId(), req.getOperator()))
+                            .then(taskDoneRepo.archiveCancelledByInstanceId(
+                                    req.getInstanceId(), req.getOperator()))
+                            .then(taskRepo.deleteCancelledByInstanceId(req.getInstanceId()))
+                            .then();
                 })
-                .thenReturn(ResultVO.ok());
+                .as(txOperator::transactional);
+        return terminated.thenReturn(ResultVO.<Void>ok());
     }
 
     private String toJson(Object obj) {

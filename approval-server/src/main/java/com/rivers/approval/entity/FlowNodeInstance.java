@@ -58,16 +58,6 @@ public class FlowNodeInstance {
      */
     private String status;
 
-    /**
-     * 指定处理人（USER_TASK节点使用）
-     */
-    private String assignee;
-
-    /**
-     * 候选人列表（USER_TASK节点使用，JSON数组字符串）
-     */
-    @Column("candidate_users")
-    private String candidateUsers;
 
     /**
      * 节点输入变量（进入节点时的上下文快照，JSON字符串）

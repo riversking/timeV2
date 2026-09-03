@@ -14,79 +14,61 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table("flow_task")
-public class FlowTask {
+@Table("flow_task_done")
+public class FlowTaskDone {
 
+    /**
+     * 复用原待办任务 id（转交链 prev_task_id 引用基准）
+     */
     @Id
     private Long id;
 
-    /**
-     * 关联流程实例ID
-     */
     @Column("instance_id")
     private Long instanceId;
 
-    /**
-     * 关联节点实例ID
-     */
     @Column("node_instance_id")
     private Long nodeInstanceId;
 
-    /**
-     * 任务编号（业务流水号）
-     */
     @Column("task_no")
     private String taskNo;
 
-    /**
-     * 任务名称（继承节点名称）
-     */
     @Column("task_name")
     private String taskName;
 
     /**
-     * 任务状态
-     * PENDING     — 待认领
-     * CLAIMED     — 已认领
-     * COMPLETED   — 已完成
-     * CANCELLED   — 已取消
-     * TRANSFERRED — 已转交
+     * 终态：COMPLETED / TRANSFERRED / CANCELLED
      */
     private String status;
 
     /**
-     * 指定处理人（如为空则需认领）
+     * 实际处理人快照（= 审批人/转交人）
      */
     private String assignee;
 
+    private Integer priority;
 
-    /**
-     * 认领时间
-     */
+    @Column("due_time")
+    private LocalDateTime dueTime;
+
     @Column("claimed_time")
     private LocalDateTime claimedTime;
 
     /**
-     * 截止时间
+     * 终态时间（完成/转交/取消）
      */
-    @Column("due_time")
-    private LocalDateTime dueTime;
+    @Column("end_time")
+    private LocalDateTime endTime;
 
     /**
-     * 优先级
-     * 0 — 普通
-     * 1 — 紧急
-     * 2 — 非常紧急
+     * APPROVED / REJECTED（仅完成时有值）
      */
-    private Integer priority;
+    private String result;
 
-    /**
-     * 前驱任务ID（转交场景追溯）
-     */
+    private String comment;
+
     @Column("prev_task_id")
     private Long prevTaskId;
 
-    // ========== 审计字段 ==========
     @Column("create_user")
     private String createUser;
 
@@ -98,7 +80,4 @@ public class FlowTask {
 
     @Column("update_time")
     private LocalDateTime updateTime;
-
-    @Column("is_deleted")
-    private Integer isDeleted;
 }
