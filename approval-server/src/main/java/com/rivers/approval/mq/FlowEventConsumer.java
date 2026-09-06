@@ -28,7 +28,7 @@ public class FlowEventConsumer {
         this.executor = executor;
     }
 
-    @RabbitListener(queues = FlowRabbitConfig.AUDIT_QUEUE)
+    @RabbitListener(queues = FlowRabbitConfig.ENGINE_QUEUE)
     public Mono<Void> onEngineEvent(FlowEvent event) {
         log.debug("[FlowEventConsumer] 收到引擎事件 type={}, instanceId={}",
                 event.eventType(), event.instanceId());

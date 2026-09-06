@@ -110,7 +110,8 @@ public class TaskServiceImpl implements ITaskService {
                             .switchIfEmpty(Mono.error(
                                     new IllegalStateException("认领失败：已被他人认领或权限不足")))
                             .then(taskRepo.deleteOtherPending(
-                                    task.getNodeInstanceId(), task.getId()));
+                                    task.getNodeInstanceId(), task.getId()))
+                            .then();
                 })
                 .as(txOperator::transactional)
                 .doOnSuccess(v -> log.info("[TaskServiceImpl] 认领成功 taskNo={}", req.getTaskNo()));
@@ -172,7 +173,8 @@ public class TaskServiceImpl implements ITaskService {
                                     new IllegalStateException("取消失败")))
                             .then(taskDoneRepo.archiveById(
                                     task.getId(), CANCELLED, null, null, req.getOperator()))
-                            .then(taskRepo.deleteByIdAndStatus(task.getId(), CANCELLED));
+                            .then(taskRepo.deleteByIdAndStatus(task.getId(), CANCELLED))
+                            .then();
                 })
                 .as(txOperator::transactional)
                 .doOnSuccess(v -> log.info("[TaskServiceImpl] 任务已取消 taskNo={}", req.getTaskNo()));

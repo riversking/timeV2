@@ -120,14 +120,14 @@ public class FlowServiceImpl implements IFlowService {
         Mono<Void> terminated = instanceRepo.findById(req.getInstanceId())
                 .flatMap(instance -> {
                     if (!"RUNNING".equals(instance.getStatus())) {
-                        return Mono.<Void>error(
+                        return Mono.error(
                                 new IllegalStateException("只能终止运行中的流程"));
                     }
                     return instanceRepo.updateStatus(
                                     req.getInstanceId(), "TERMINATED",
                                     LocalDateTime.now(ZoneId.systemDefault()), req.getOperator())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.<Integer>error(
+                            .switchIfEmpty(Mono.error(
                                     new IllegalStateException("终止失败：实例状态已变更")))
                             // 冻结未完成任务：CAS 标记 → 归档已办表 → 物理删除（同事务）
                             .then(taskRepo.cancelActiveByInstanceId(
@@ -138,7 +138,7 @@ public class FlowServiceImpl implements IFlowService {
                             .then();
                 })
                 .as(txOperator::transactional);
-        return terminated.thenReturn(ResultVO.<Void>ok());
+        return terminated.thenReturn(ResultVO.ok());
     }
 
     private String toJson(Object obj) {

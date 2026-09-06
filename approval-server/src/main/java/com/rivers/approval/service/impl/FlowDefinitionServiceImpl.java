@@ -19,7 +19,6 @@ import java.util.Optional;
 @Slf4j
 public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
 
-    private static final String ADMIN = "ADMIN";
     private static final String FLOW_DEF_FAIL = "流程定义不存在: ";
     private static final String YYYY_MM_DD_HH_MM_SS = "yyyy-MM-dd HH:mm:ss";
 
