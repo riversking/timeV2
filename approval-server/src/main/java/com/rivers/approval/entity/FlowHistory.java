@@ -27,29 +27,91 @@ public class FlowHistory {
     private Long instanceId;
 
     /**
-     * 关联节点实例ID（可为空，用于流程级事件）
+     * 流程实例编号
+     */
+    @Column("instance_no")
+    private String instanceNo;
+
+    /**
+     * 关联节点实例ID（流程级事件为空）
      */
     @Column("node_instance_id")
     private Long nodeInstanceId;
 
     /**
-     * 关联任务ID（可为空）
+     * 节点ID
+     */
+    @Column("node_id")
+    private String nodeId;
+
+    /**
+     * 节点名称
+     */
+    @Column("node_name")
+    private String nodeName;
+
+    /**
+     * 节点类型
+     */
+    @Column("node_type")
+    private String nodeType;
+
+    /**
+     * 关联任务ID（流程级/节点级事件为空）
      */
     @Column("task_id")
     private Long taskId;
 
     /**
+     * 任务编号
+     */
+    @Column("task_no")
+    private String taskNo;
+
+    /**
+     * 任务名称
+     */
+    @Column("task_name")
+    private String taskName;
+
+    /**
+     * 办理人
+     */
+    private String assignee;
+
+    /**
+     * 转交目标人
+     */
+    @Column("target_assignee")
+    private String targetAssignee;
+
+    /**
+     * 审批结果（APPROVED / REJECTED）
+     */
+    private String result;
+
+    /**
+     * 审批意见
+     */
+    private String opinion;
+
+    /**
+     * 变更前状态
+     */
+    @Column("from_status")
+    private String fromStatus;
+
+    /**
+     * 变更后状态
+     */
+    @Column("to_status")
+    private String toStatus;
+
+    /**
      * 事件类型
-     * INSTANCE_STARTED    — 流程发起
-     * INSTANCE_COMPLETED  — 流程完成
-     * INSTANCE_TERMINATED — 流程终止
-     * NODE_STARTED        — 节点开始
-     * NODE_COMPLETED      — 节点完成
-     * TASK_CREATED        — 任务创建
-     * TASK_CLAIMED        — 任务认领
-     * TASK_COMPLETED      — 任务完成
-     * TASK_CANCELLED      — 任务取消
-     * GATEWAY_EVALUATED   — 网关条件评估
+     * INSTANCE_STARTED / INSTANCE_COMPLETED / INSTANCE_TERMINATED
+     * NODE_STARTED / NODE_COMPLETED
+     * TASK_CREATED / TASK_CLAIMED / TASK_COMPLETED / TASK_CANCELLED / TASK_TRANSFERRED
      */
     @Column("event_type")
     private String eventType;
@@ -67,12 +129,7 @@ public class FlowHistory {
     private String operatorName;
 
     /**
-     * 事件详情（JSON字符串，含变更前后的快照）
-     */
-    private String detail;
-
-    /**
-     * 备注
+     * 人读摘要（如：完成任务 结果:APPROVED 意见:同意）
      */
     private String remark;
 

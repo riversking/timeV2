@@ -210,7 +210,7 @@ public class FlowExecutor {
     private Mono<Void> resolveTaskCompletion(TaskCompletedEvent event) {
         log.info("[FlowExecutor] → TaskCompleted taskId={}, nodeInstanceId={}, result={}",
                 event.taskId(), event.nodeInstanceId(), event.result());
-        if (Boolean.FALSE.equals(event.advanceNode())) {
+        if (!event.advanceNode()) {
             log.info("[FlowExecutor] 节点办理未集齐，暂不推进 taskId={}, nodeInstanceId={}",
                     event.taskId(), event.nodeInstanceId());
             return Mono.empty();

@@ -201,9 +201,21 @@ message FlowHistoryRes {
     string eventType = 5;
     string operatorId = 6;
     string operatorName = 7;
-    string detail = 8;
+    // 8 废弃：原 detail(JSON) 字段，历史记录已改为结构化列
     string remark = 9;
     string createTime = 10;
+    string instanceNo = 11;      // 流程实例编号
+    string nodeId = 12;          // 节点ID
+    string nodeName = 13;        // 节点名称
+    string nodeType = 14;        // 节点类型
+    string taskNo = 15;          // 任务编号
+    string taskName = 16;        // 任务名称
+    string assignee = 17;        // 办理人
+    string targetAssignee = 18;  // 转交目标人
+    string result = 19;          // 审批结果
+    string opinion = 20;         // 审批意见
+    string fromStatus = 21;      // 变更前状态
+    string toStatus = 22;        // 变更后状态
 }
 
 message HistoryListRes {
