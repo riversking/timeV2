@@ -14,19 +14,23 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * USER_TASK 节点处理器。
  * <p>
  * 到达该节点时：
- * 1. 合并指定处理人与候选人（去重），每人创建一条 FlowTask 记录（PENDING），
- * 待办表无候选人 JSON 字段，多候选以"每人一行"表达
- * 2. 每条任务行发布 TaskCreatedEvent（外部系统可监听做通知推送）
- * 3. 不发布 NodeCompletedEvent —— 任务需要人工完成，由 TaskService.complete() 触达
+ * 1. 解析任务模式 taskMode：
+ *    <ul>
+ *      <li>CLAIM（默认）— 需领单：多人候选每人一行 PENDING，先领先得</li>
+ *      <li>ANY_ONE      — 并签1人：无需领单，任一人办理即节点通过</li>
+ *      <li>ALL          — 并签多人：无需领单，全部办理后节点通过</li>
+ *      <li>SEQUENTIAL   — 串签所有人：无需领单，按序逐个办理</li>
+ *    </ul>
+ * 2. 每人创建一条 FlowTask 记录；SEQUENTIAL 仅首位 PENDING（可办理），
+ *    后续顺位 WAITING（前序办理完成后由 Service 激活）
+ * 3. 仅 PENDING 行发布 TaskCreatedEvent（WAITING 行办理时再感知）
+ * 4. 不发布 NodeCompletedEvent —— 任务需人工办理，由 TaskService.complete() 触达
  * <p>
  * 幂等性：重复建行会触发 uk_node_assignee 唯一约束，单行跳过，
  * 保证 RabbitMQ 事件重投不会产生重复待办。
@@ -34,6 +38,13 @@ import java.util.UUID;
 @Component
 @Slf4j
 public class UserTaskHandler implements NodeHandler {
+
+    private static final String CLAIM = "CLAIM";
+    private static final String ANY_ONE = "ANY_ONE";
+    private static final String ALL = "ALL";
+    private static final String SEQUENTIAL = "SEQUENTIAL";
+    private static final String PENDING = "PENDING";
+    private static final String WAITING = "WAITING";
 
     private final FlowTaskRepository taskRepo;
 
@@ -54,39 +65,36 @@ public class UserTaskHandler implements NodeHandler {
         var config = def.nodeById(nodeInstance.getNodeId())
                 .map(NodeDef::config)
                 .orElse(Collections.emptyMap());
-        // 1. 从节点配置解析指定处理人与候选人
-        var assignee = (String) config.get("assignee");
-        var candidateUsers = (List<String>) config.getOrDefault("candidateUsers", List.of());
-        // 2. 处理人集合：候选人 + 指定人，去重；为空时兜底一行
-        var handlers = new LinkedHashSet<String>();
-        if (candidateUsers != null) {
-            candidateUsers.stream()
-                    .filter(u -> u != null && !u.isBlank())
-                    .forEach(handlers::add);
-        }
-        if (assignee != null && !assignee.isBlank()) {
-            handlers.add(assignee);
-        }
+        // 1. 任务模式（非法值回退 CLAIM，兼容存量定义）
+        var taskMode = resolveTaskMode(config);
+        // 2. 处理人集合：candidateUsers 保序 + assignee 兜底，去重；为空时兜底一行
+        var handlers = collectHandlers(config);
         if (handlers.isEmpty()) {
             handlers.add("");
         }
-        // 3. 每人一行；唯一约束冲突时单行跳过，保证引擎重投幂等
-        return Flux.fromIterable(handlers)
-                .concatMap(user -> createTask(instance, nodeInstance, user, ctx))
+        // 3. 逐人建行：SEQUENTIAL 仅首位 PENDING，其余 WAITING；其他模式全部 PENDING
+        return Flux.range(1, handlers.size())
+                .concatMap(seq -> createTask(instance, nodeInstance,
+                        handlers.get(seq - 1), taskMode, seq, ctx))
                 .then();
     }
 
     private Mono<Void> createTask(FlowInstance instance,
                                   FlowNodeInstance nodeInstance,
                                   String user,
+                                  String taskMode,
+                                  int seq,
                                   NodeContext ctx) {
+        var status = SEQUENTIAL.equals(taskMode) && seq > 1 ? WAITING : PENDING;
         var task = FlowTask.builder()
                 .instanceId(instance.getId())
                 .nodeInstanceId(nodeInstance.getId())
                 .taskNo("T-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16))
                 .taskName(nodeInstance.getNodeName())
-                .status("PENDING")
+                .status(status)
                 .assignee(user)
+                .taskMode(taskMode)
+                .seq(seq)
                 .createUser("SYSTEM")
                 .updateUser("SYSTEM")
                 .build();
@@ -97,8 +105,11 @@ public class UserTaskHandler implements NodeHandler {
                     return Mono.empty();
                 })
                 .doOnNext(t -> {
-                    log.info("[UserTaskHandler] 任务已创建 taskId={}, taskNo={}, assignee={}",
-                            t.getId(), t.getTaskNo(), t.getAssignee());
+                    if (!PENDING.equals(t.getStatus())) {
+                        return;
+                    }
+                    log.info("[UserTaskHandler] 任务已创建 taskId={}, taskNo={}, assignee={}, mode={}",
+                            t.getId(), t.getTaskNo(), t.getAssignee(), t.getTaskMode());
                     var meta = FlowEventMetadata.of(
                             instance.getId(), instance.getInstanceNo(), "TASK_CREATED");
                     ctx.eventBus().publish(TaskCreatedEvent.of(
@@ -106,5 +117,44 @@ public class UserTaskHandler implements NodeHandler {
                             t.getTaskName(), t.getAssignee(), List.of(t.getAssignee())));
                 })
                 .then();
+    }
+
+    /**
+     * 解析任务模式：config.taskMode ∈ {CLAIM, ANY_ONE, ALL, SEQUENTIAL}，
+     * 缺省或非法值回退 CLAIM。
+     */
+    private String resolveTaskMode(Map<String, Object> config) {
+        var raw = config.get("taskMode");
+        if (raw == null) {
+            return CLAIM;
+        }
+        var mode = String.valueOf(raw).trim().toUpperCase();
+        return switch (mode) {
+            case CLAIM, ANY_ONE, ALL, SEQUENTIAL -> mode;
+            default -> {
+                log.warn("[UserTaskHandler] 未知任务模式 {}，回退 CLAIM", mode);
+                yield CLAIM;
+            }
+        };
+    }
+
+    /**
+     * 处理人集合：candidateUsers 保序去重在前，assignee 兜底在后
+     * （SEQUENTIAL 的办理顺序即此顺序）。
+     */
+    private List<String> collectHandlers(Map<String, Object> config) {
+        var handlers = new ArrayList<String>();
+        var candidateUsers = (List<String>) config.getOrDefault("candidateUsers", List.of());
+        if (candidateUsers != null) {
+            candidateUsers.stream()
+                    .filter(u -> u != null && !u.isBlank())
+                    .filter(u -> !handlers.contains(u))
+                    .forEach(handlers::add);
+        }
+        var assignee = (String) config.get("assignee");
+        if (assignee != null && !assignee.isBlank() && !handlers.contains(assignee)) {
+            handlers.add(assignee);
+        }
+        return handlers;
     }
 }

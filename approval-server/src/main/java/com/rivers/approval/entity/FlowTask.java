@@ -46,8 +46,9 @@ public class FlowTask {
 
     /**
      * 任务状态
-     * PENDING     — 待认领
+     * PENDING     — 待办理
      * CLAIMED     — 已认领
+     * WAITING     — 串签等待中（尚未轮到）
      * COMPLETED   — 已完成
      * CANCELLED   — 已取消
      * TRANSFERRED — 已转交
@@ -58,7 +59,6 @@ public class FlowTask {
      * 指定处理人（如为空则需认领）
      */
     private String assignee;
-
 
     /**
      * 认领时间
@@ -79,6 +79,21 @@ public class FlowTask {
      * 2 — 非常紧急
      */
     private Integer priority;
+
+    /**
+     * 任务模式
+     * CLAIM      — 需领单（默认，先领先得）
+     * ANY_ONE    — 并签1人：无需领单，任一人办理即节点通过
+     * ALL        — 并签多人：无需领单，全部办理后节点通过
+     * SEQUENTIAL — 串签所有人：无需领单，按序逐个办理
+     */
+    @Column("task_mode")
+    private String taskMode;
+
+    /**
+     * 串签顺序号（从 1 开始，SEQUENTIAL 模式使用）
+     */
+    private Integer seq;
 
     /**
      * 前驱任务ID（转交场景追溯）

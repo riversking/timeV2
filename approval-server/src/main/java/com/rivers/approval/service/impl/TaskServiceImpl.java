@@ -24,18 +24,25 @@ import java.util.UUID;
  * <p>
  * 新模型约定：
  * <ul>
- *   <li>待办表（flow_task）只存在 PENDING / CLAIMED 两种活跃状态，任务终态物理删除</li>
+ *   <li>待办表（flow_task）只存在 PENDING / CLAIMED / WAITING 三种活跃状态，任务终态物理删除</li>
  *   <li>终态快照（COMPLETED / TRANSFERRED / CANCELLED）统一归档到已办表（flow_task_done）</li>
  *   <li>所有写操作遵循"CAS 标记 → 归档 → 删除"三步，同一事务内完成</li>
  *   <li>业务失败不抛异常：统一返回 ResultVO.fail(msg)</li>
+ *   <li>任务模式 taskMode：
+ *       CLAIM 需领单 / ANY_ONE 任一人 / ALL 全部 / SEQUENTIAL 串签；
+ *       推进判定统一在事务提交后当前读统计剩余活跃行，0 才发推进事件</li>
  * </ul>
  */
 @Service
 @Slf4j
 public class TaskServiceImpl implements ITaskService {
 
-    private static final String CLAIMED = "CLAIMED";
+    private static final String CLAIM = "CLAIM";
+    private static final String ANY_ONE = "ANY_ONE";
+    private static final String ALL = "ALL";
+    private static final String SEQUENTIAL = "SEQUENTIAL";
     private static final String PENDING = "PENDING";
+    private static final String CLAIMED = "CLAIMED";
     private static final String COMPLETED = "COMPLETED";
     private static final String CANCELLED = "CANCELLED";
     private static final String TRANSFERRED = "TRANSFERRED";
@@ -108,6 +115,10 @@ public class TaskServiceImpl implements ITaskService {
         }
         Mono<ResultVO<Void>> claimed = taskRepo.findByTaskNo(req.getTaskNo())
                 .flatMap(task -> {
+                    var mode = modeOf(task);
+                    if (!CLAIM.equals(mode)) {
+                        return Mono.just(ResultVO.<Void>fail("该任务无需认领，请直接办理"));
+                    }
                     if (!PENDING.equals(task.getStatus())) {
                         return Mono.just(ResultVO.<Void>fail("任务状态不允许认领: " + task.getStatus()));
                     }
@@ -133,34 +144,89 @@ public class TaskServiceImpl implements ITaskService {
         log.info("[TaskServiceImpl] 完成任务 taskNo={}, result={}, userId={}",
                 req.getTaskNo(), req.getResult(), req.getUserId());
         return taskRepo.findByTaskNo(req.getTaskNo())
-                .flatMap(task -> {
-                    if (!CLAIMED.equals(task.getStatus())) {
-                        return Mono.just(ResultVO.<FlowTaskRes>fail("任务状态不允许完成: " + task.getStatus()));
-                    }
-                    if (!Objects.equals(req.getUserId(), task.getAssignee())) {
-                        return Mono.just(ResultVO.<FlowTaskRes>fail("只有认领人才能完成任务"));
-                    }
-                    // 1) 事务内：CAS 标记 COMPLETED → 归档已办表 → 物理删除待办行
-                    Mono<FlowTask> done = taskRepo.completeTask(task.getId(), req.getUserId())
-                            .filter(rows -> rows > 0)
-                            .flatMap(_ -> taskDoneRepo.archiveById(
-                                            task.getId(), COMPLETED,
-                                            req.getResult(), req.getComment(), req.getUserId())
-                                    .then(taskRepo.deleteByIdAndStatus(task.getId(), COMPLETED))
-                                    .thenReturn(task));
-                    // 2) 事务提交后：发布事件，由引擎推进流程
-                    return done.as(txOperator::transactional)
-                            .map(t -> {
-                                var meta = FlowEventMetadata.of(
-                                        t.getInstanceId(), "", "TASK_COMPLETED");
-                                eventBus.publish(TaskCompletedEvent.of(
-                                        meta, t.getId(), t.getTaskNo(), t.getNodeInstanceId(),
-                                        req.getResult(), req.getComment(), req.getUserId()));
-                                return ResultVO.<FlowTaskRes>ok();
-                            })
-                            .switchIfEmpty(Mono.just(ResultVO.fail("任务完成失败")));
-                })
+                .flatMap(task -> completeTask(task, req))
                 .switchIfEmpty(Mono.just(ResultVO.fail(NO_TASK + ": " + req.getTaskNo())));
+    }
+
+    /**
+     * 按任务模式完成：
+     * <ul>
+     *   <li>CLAIM      — 已认领行完成（原语义）</li>
+     *   <li>ANY_ONE    — 任一人直接完成，同节点其他候选行作废</li>
+     *   <li>ALL        — 各自完成，全部完成后节点才推进</li>
+     *   <li>SEQUENTIAL — 按序完成，当前行完成后激活下一顺位</li>
+     * </ul>
+     * 推进判定统一放在事务提交后的当前读统计：剩余活跃行数为 0 才发推进事件，
+     * 避免并发完成时（REPEATABLE READ 快照）漏推节点。
+     */
+    private Mono<ResultVO<FlowTaskRes>> completeTask(FlowTask task, CompleteTaskReq req) {
+        var mode = modeOf(task);
+        switch (mode) {
+            case CLAIM -> {
+                if (!CLAIMED.equals(task.getStatus())) {
+                    return Mono.just(ResultVO.fail("任务状态不允许完成: " + task.getStatus()));
+                }
+                if (!Objects.equals(req.getUserId(), task.getAssignee())) {
+                    return Mono.just(ResultVO.fail("只有认领人才能完成任务"));
+                }
+            }
+            case ANY_ONE, ALL, SEQUENTIAL -> {
+                if (!PENDING.equals(task.getStatus())) {
+                    return Mono.just(ResultVO.fail("任务状态不允许完成: " + task.getStatus()));
+                }
+                if (!Objects.equals(req.getUserId(), task.getAssignee())) {
+                    return Mono.just(ResultVO.fail("只有任务办理人才能完成"));
+                }
+            }
+            default -> {
+                return Mono.just(ResultVO.fail("不支持的任务模式: " + mode));
+            }
+        }
+        // 1) 事务内：CAS 标记 COMPLETED → 归档已办表 → 物理删除 → 模式收尾
+        var cas = CLAIM.equals(mode)
+                ? taskRepo.completeTask(task.getId(), req.getUserId())
+                : taskRepo.completeNoClaim(task.getId(), req.getUserId());
+        Mono<Void> done = cas.filter(rows -> rows > 0)
+                .flatMap(_ -> taskDoneRepo.archiveById(task.getId(), COMPLETED,
+                                req.getResult(), req.getComment(), req.getUserId())
+                        .then(taskRepo.deleteByIdAndStatus(task.getId(), COMPLETED))
+                        .then(modeCleanup(task, mode)));
+        // 2) 事务提交后：当前读统计剩余活跃行，0 才推进节点；事件恒发布（审计每次办理）
+        return done.as(txOperator::transactional)
+                .then(taskRepo.countActiveByNodeInstanceId(task.getNodeInstanceId()))
+                .map(count -> {
+                    boolean advance = count == 0;
+                    publishCompleted(task, req, advance);
+                    return ResultVO.<FlowTaskRes>ok();
+                })
+                .switchIfEmpty(Mono.just(ResultVO.fail("任务完成失败")));
+    }
+
+    /**
+     * 模式专属收尾（事务内执行）：
+     * ANY_ONE    — 作废同节点其他候选行
+     * SEQUENTIAL — 激活下一顺位（WAITING → PENDING）
+     * 其余模式无收尾动作。
+     */
+    private Mono<Void> modeCleanup(FlowTask task, String mode) {
+        return switch (mode) {
+            case ANY_ONE -> taskRepo.deleteOtherPending(task.getNodeInstanceId(), task.getId())
+                    .then();
+            case SEQUENTIAL -> taskRepo.activateNextWaiting(task.getNodeInstanceId(),
+                            task.getSeq() == null ? 1 : task.getSeq() + 1)
+                    .then();
+            default -> Mono.empty();
+        };
+    }
+
+    private void publishCompleted(FlowTask task, CompleteTaskReq req, boolean advance) {
+        var meta = FlowEventMetadata.of(task.getInstanceId(), "", "TASK_COMPLETED");
+        eventBus.publish(TaskCompletedEvent.of(
+                meta, task.getId(), task.getTaskNo(), task.getNodeInstanceId(),
+                req.getResult(), req.getComment(), req.getUserId(), advance));
+        if (!advance) {
+            log.info("[TaskServiceImpl] 节点办理未集齐，暂不推进 taskNo={}", task.getTaskNo());
+        }
     }
 
     @Override
@@ -173,7 +239,7 @@ public class TaskServiceImpl implements ITaskService {
                     }
                     return taskRepo.cancelTask(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
-                            .flatMap(rows -> taskDoneRepo.archiveById(
+                            .flatMap(_ -> taskDoneRepo.archiveById(
                                             task.getId(), CANCELLED, "", "", req.getOperator())
                                     .then(taskRepo.deleteByIdAndStatus(task.getId(), CANCELLED))
                                     .doOnNext(ignored -> log.info(
@@ -214,6 +280,8 @@ public class TaskServiceImpl implements ITaskService {
                                                 .status(PENDING)
                                                 .assignee(req.getTargetUser())
                                                 .priority(task.getPriority())
+                                                .taskMode(task.getTaskMode())
+                                                .seq(task.getSeq())
                                                 .prevTaskId(task.getId())
                                                 .createUser(req.getOperator())
                                                 .updateUser(req.getOperator())
@@ -228,6 +296,15 @@ public class TaskServiceImpl implements ITaskService {
     }
 
     // ==================== 辅助 ====================
+
+    /**
+     * 任务模式（存量行无该字段时按 CLAIM 处理）
+     */
+    private String modeOf(FlowTask task) {
+        return Optional.ofNullable(task.getTaskMode())
+                .filter(m -> !m.isBlank())
+                .orElse(CLAIM);
+    }
 
     /**
      * Entity → FlowTaskRes 内联转换。
