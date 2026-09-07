@@ -1,6 +1,7 @@
 package com.rivers.approval.repository;
 
 import com.rivers.approval.entity.FlowNodeInstance;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -84,13 +85,13 @@ public interface FlowNodeInstanceRepository extends ReactiveCrudRepository<FlowN
      * AND status = 'ACTIVE' 作为乐观锁：并发分支完成同一 Join 节点时，
      * 只有第一个成功者拿到 rows=1 并发布推进事件
      */
+    @Modifying
     @Query("""
             UPDATE flow_node_instance
             SET status = :status,
                 output_variables = :outputVariables,
                 end_time = :endTime,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND status = 'ACTIVE'
               AND is_deleted = 0
@@ -105,10 +106,10 @@ public interface FlowNodeInstanceRepository extends ReactiveCrudRepository<FlowN
     /**
      * 递增 Join 计数（原子操作，用于并行网关 Join 节点）
      */
+    @Modifying
     @Query("""
             UPDATE flow_node_instance
-            SET join_count = join_count + 1,
-                update_time = NOW()
+            SET join_count = join_count + 1
             WHERE id = :id
               AND is_deleted = 0
             """)

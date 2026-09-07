@@ -1,6 +1,7 @@
 package com.rivers.approval.repository;
 
 import com.rivers.approval.entity.FlowInstance;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -55,12 +56,12 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
     /**
      * 更新实例状态（用于终止/完成操作）
      */
+    @Modifying
     @Query("""
             UPDATE flow_instance
             SET status = :status,
                 end_time = :endTime,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND is_deleted = 0
             """)
@@ -73,11 +74,11 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
     /**
      * 更新当前活跃节点ID列表（流程推进时用）
      */
+    @Modifying
     @Query("""
             UPDATE flow_instance
             SET current_node_ids = :currentNodeIds,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND is_deleted = 0
             """)
@@ -89,11 +90,11 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
     /**
      * 更新实例变量（全局上下文，JSON字符串）
      */
+    @Modifying
     @Query("""
             UPDATE flow_instance
             SET variables = :variables,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND is_deleted = 0
             """)
@@ -105,12 +106,12 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
     /**
      * CAS 更新当前活跃节点ID列表（version 乐观锁，防并行分支 lost update）
      */
+    @Modifying
     @Query("""
             UPDATE flow_instance
             SET current_node_ids = :currentNodeIds,
                 version = version + 1,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND version = :expectedVersion
               AND is_deleted = 0
@@ -124,12 +125,12 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
     /**
      * 完成流程实例（CAS：仅 RUNNING 可置为 COMPLETED，防止覆盖 TERMINATED）
      */
+    @Modifying
     @Query("""
             UPDATE flow_instance
             SET status = 'COMPLETED',
                 end_time = :endTime,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND status = 'RUNNING'
               AND is_deleted = 0

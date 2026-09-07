@@ -77,10 +77,10 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
     @Query("""
             INSERT INTO timer_friend_request
                 (user_id, opponent_id, direction, status, message, relation_id,
-                 create_user, update_user, create_time, update_time, is_deleted)
+                 create_user, update_user)
             VALUES (:userId, :opponentId, :direction, :status, :message, :relationId,
-                    :createUser, :updateUser, NOW(), NOW(), 0)
-            ON DUPLICATE KEY UPDATE update_time = NOW(), update_user = :updateUser
+                    :createUser, :updateUser)
+            ON DUPLICATE KEY UPDATE update_user = :updateUser
             """)
     Mono<Integer> upsertRequest(@Param("userId") String userId,
                                 @Param("opponentId") String opponentId,

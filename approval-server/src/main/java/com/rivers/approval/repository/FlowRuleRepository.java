@@ -1,6 +1,7 @@
 package com.rivers.approval.repository;
 
 import com.rivers.approval.entity.FlowRule;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -63,11 +64,11 @@ public interface FlowRuleRepository extends ReactiveCrudRepository<FlowRule, Lon
     /**
      * 更新启用状态
      */
+    @Modifying
     @Query("""
             UPDATE flow_rule
             SET enabled = :enabled,
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id AND is_deleted = 0
             """)
     Mono<Integer> toggleEnabled(

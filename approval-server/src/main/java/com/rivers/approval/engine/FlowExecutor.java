@@ -16,10 +16,14 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.exc.MismatchedInputException;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 流程引擎核心驱动器。
@@ -258,7 +262,7 @@ public class FlowExecutor {
     }
 
     private static @NonNull Map<String, Object> getOutPut(TaskCompletedEvent event) {
-        return Map.<String, Object>of(
+        return Map.of(
                 "approvalResult", event.result() != null ? event.result() : "",
                 "approvalComment", event.comment() != null ? event.comment() : "",
                 "approvedBy", event.completedBy() != null ? event.completedBy() : "");
@@ -420,12 +424,23 @@ public class FlowExecutor {
     }
 
     private Map<String, Object> parseVariables(String json) {
-        if (json == null || json.isBlank()) {
+        if (json == null || json.isBlank() || "null".equalsIgnoreCase(json)) {
             return new LinkedHashMap<>();
         }
-        return objectMapper.readValue(json,
-                new TypeReference<LinkedHashMap<String, Object>>() {
-                });
+        try {
+            return objectMapper.readValue(json,
+                    new TypeReference<LinkedHashMap<String, Object>>() {
+                    });
+        } catch (MismatchedInputException _) {
+            // 存量数据双重编码兼容：外层是 JSON 字符串，内层才是对象
+            String inner = objectMapper.readValue(json, String.class);
+            if (inner == null || inner.isBlank() || "null".equalsIgnoreCase(inner)) {
+                return new LinkedHashMap<>();
+            }
+            return objectMapper.readValue(inner,
+                    new TypeReference<LinkedHashMap<String, Object>>() {
+                    });
+        }
     }
 
     private Map<String, Object> mergeVariables(Map<String, Object> base,
@@ -454,7 +469,7 @@ public class FlowExecutor {
 
     private String toJson(Object obj) {
         if (obj == null) {
-            return null;
+            return "";
         }
         return objectMapper.writeValueAsString(obj);
     }

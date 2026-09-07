@@ -37,9 +37,7 @@ public class FlowEventConsumer {
             case InstanceStartedEvent e -> executor.onInstanceStarted(e);
             case NodeCompletedEvent e -> executor.onNodeCompleted(e);
             case TaskCompletedEvent e -> executor.onTaskCompleted(e);
-            case InstanceCompletedEvent e -> Mono.empty();
-            case NodeStartedEvent e -> Mono.empty();
-            case TaskCreatedEvent e -> Mono.empty();
+            case InstanceCompletedEvent _, NodeStartedEvent _, TaskCreatedEvent _ -> Mono.empty();
         };
     }
 

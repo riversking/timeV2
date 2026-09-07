@@ -14,6 +14,8 @@ import java.util.Optional;
 
 /**
  * 流程实例查询服务实现。
+ * <p>
+ * 业务失败不抛异常：统一返回 ResultVO.fail(msg)。
  */
 @Service
 @Slf4j
@@ -30,10 +32,10 @@ public class FlowInstanceServiceImpl implements IFlowInstanceService {
     @Override
     public Mono<ResultVO<FlowInstanceRes>> getByNo(InstanceNoReq req) {
         return instanceRepo.findByInstanceNo(req.getInstanceNo())
-                .switchIfEmpty(Mono.<FlowInstance>error(
-                        new IllegalArgumentException("流程实例不存在: " + req.getInstanceNo())))
                 .map(this::toInstanceRes)
-                .map(ResultVO::ok);
+                .map(ResultVO::ok)
+                .switchIfEmpty(Mono.just(ResultVO.fail(
+                        "流程实例不存在: " + req.getInstanceNo())));
     }
 
     @Override

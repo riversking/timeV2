@@ -35,6 +35,7 @@ import java.util.Collections;
 public class ExclusiveGatewayHandler implements NodeHandler {
 
 
+    private static final String SYSTEM = "SYSTEM";
     private final ConditionEvaluator evaluator;
     private final ObjectMapper objectMapper;
 
@@ -95,14 +96,14 @@ public class ExclusiveGatewayHandler implements NodeHandler {
                                        java.util.Map<String, Object> outputVars) {
         var nodeInstance = ctx.currentNode();
         var instance = ctx.instance();
-        var toJson = outputVars.isEmpty() ? null : toJson(outputVars);
+        var toJson = outputVars.isEmpty() ? "" : toJson(outputVars);
 
         return ctx.nodeRepo().updateNodeStatus(
                         nodeInstance.getId(),
                         "COMPLETED",
                         toJson,
                         LocalDateTime.now(ZoneId.systemDefault()),
-                        "SYSTEM"
+                        SYSTEM
                 )
                 .then(Mono.fromRunnable(() -> {
                     var meta = FlowEventMetadata.of(
@@ -128,10 +129,10 @@ public class ExclusiveGatewayHandler implements NodeHandler {
                 instance.getId(), nodeInstance.getNodeId(), err);
         return ctx.instanceRepo().updateStatus(
                         instance.getId(), "FAILED",
-                        LocalDateTime.now(ZoneId.systemDefault()), "SYSTEM")
+                        LocalDateTime.now(ZoneId.systemDefault()), SYSTEM)
                 .then(ctx.nodeRepo().updateNodeStatus(
-                        nodeInstance.getId(), "SKIPPED", null,
-                        LocalDateTime.now(ZoneId.systemDefault()), "SYSTEM"))
+                        nodeInstance.getId(), "SKIPPED", "",
+                        LocalDateTime.now(ZoneId.systemDefault()), SYSTEM))
                 .then();
     }
 

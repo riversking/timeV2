@@ -32,7 +32,7 @@ public class EndHandler implements NodeHandler {
         return ctx.nodeRepo().updateNodeStatus(
                         nodeInstance.getId(),
                         "COMPLETED",
-                        null,
+                        "",
                         LocalDateTime.now(ZoneId.systemDefault()),
                         "SYSTEM"
                 )

@@ -27,7 +27,7 @@ public class StartHandler implements NodeHandler {
         return ctx.nodeRepo().updateNodeStatus(
                         nodeInstance.getId(),
                         "COMPLETED",
-                        null,                         // 无输出变量
+                        "",                         // 无输出变量
                         LocalDateTime.now(ZoneId.systemDefault()),
                         "SYSTEM"
                 )

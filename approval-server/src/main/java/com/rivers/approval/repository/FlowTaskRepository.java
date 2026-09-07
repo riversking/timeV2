@@ -1,6 +1,7 @@
 package com.rivers.approval.repository;
 
 import com.rivers.approval.entity.FlowTask;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -87,12 +88,12 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 认领任务（PENDING → CLAIMED，assignee 指向自己即具备认领资格）
      */
+    @Modifying
     @Query("""
             UPDATE flow_task
             SET status = 'CLAIMED',
                 claimed_time = NOW(),
-                update_user = :userId,
-                update_time = NOW()
+                update_user = :userId
             WHERE id = :id
               AND status = 'PENDING'
               AND assignee = :userId
@@ -103,6 +104,7 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 认领成功后清理同节点实例的其他候选行
      */
+    @Modifying
     @Query("""
             DELETE FROM flow_task
             WHERE node_instance_id = :nodeInstanceId
@@ -116,11 +118,11 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 完成任务标记（CLAIMED → COMPLETED，只有认领人能完成）
      */
+    @Modifying
     @Query("""
             UPDATE flow_task
             SET status = 'COMPLETED',
-                update_user = :userId,
-                update_time = NOW()
+                update_user = :userId
             WHERE id = :id
               AND status = 'CLAIMED'
               AND assignee = :userId
@@ -131,11 +133,11 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 取消任务标记
      */
+    @Modifying
     @Query("""
             UPDATE flow_task
             SET status = 'CANCELLED',
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND status IN ('PENDING', 'CLAIMED')
               AND is_deleted = 0
@@ -145,11 +147,11 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 转出标记（CLAIMED → TRANSFERRED，只有认领人能转交）
      */
+    @Modifying
     @Query("""
             UPDATE flow_task
             SET status = 'TRANSFERRED',
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE id = :id
               AND status = 'CLAIMED'
               AND assignee = :operator
@@ -160,6 +162,7 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 归档后物理删除待办行（status 条件防误删）
      */
+    @Modifying
     @Query("""
             DELETE FROM flow_task
             WHERE id = :id AND status = :status
@@ -170,11 +173,11 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 实例终止：冻结全部活跃任务（CAS 标记，后续归档删除）
      */
+    @Modifying
     @Query("""
             UPDATE flow_task
             SET status = 'CANCELLED',
-                update_user = :operator,
-                update_time = NOW()
+                update_user = :operator
             WHERE instance_id = :instanceId
               AND status IN ('PENDING', 'CLAIMED')
               AND is_deleted = 0
@@ -185,6 +188,7 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
     /**
      * 实例终止：归档后批量物理删除
      */
+    @Modifying
     @Query("""
             DELETE FROM flow_task
             WHERE instance_id = :instanceId AND status = 'CANCELLED' AND is_deleted = 0

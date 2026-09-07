@@ -14,6 +14,8 @@ import java.util.Optional;
 
 /**
  * 流程定义服务实现。
+ * <p>
+ * 业务失败不抛异常：统一返回 ResultVO.fail(msg)。
  */
 @Service
 @Slf4j
@@ -33,8 +35,6 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
     @Override
     public Mono<ResultVO<FlowDefinitionRes>> getLatest(GetDefinitionReq req) {
         return defRepo.findLatestPublishedByKey(req.getDefinitionKey())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("流程定义不存在或未发布: " + req.getDefinitionKey())))
                 .map(i -> FlowDefinitionRes.newBuilder()
                         .setId(i.getId())
                         .setDefinitionKey(i.getDefinitionKey())
@@ -56,15 +56,14 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
                                         .format(c))
                                 .orElse(""))
                         .build())
-                .map(ResultVO::ok);
+                .map(ResultVO::ok)
+                .switchIfEmpty(Mono.just(ResultVO.fail(
+                        "流程定义不存在或未发布: " + req.getDefinitionKey())));
     }
 
     @Override
     public Mono<ResultVO<FlowDefinitionRes>> getByKeyAndVersion(GetDefinitionReq req) {
         return defRepo.findByKeyAndVersion(req.getDefinitionKey(), req.getVersion())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(FLOW_DEF_FAIL
-                                + req.getDefinitionKey() + " v" + req.getVersion())))
                 .map(i -> FlowDefinitionRes.newBuilder()
                         .setId(i.getId())
                         .setDefinitionKey(i.getDefinitionKey())
@@ -86,7 +85,9 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
                                         .format(c))
                                 .orElse(""))
                         .build())
-                .map(ResultVO::ok);
+                .map(ResultVO::ok)
+                .switchIfEmpty(Mono.just(ResultVO.fail(
+                        FLOW_DEF_FAIL + req.getDefinitionKey() + " v" + req.getVersion())));
     }
 
     // ==================== 生命周期 ====================
@@ -116,35 +117,34 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
     public Mono<ResultVO<Void>> publish(PublishDefinitionReq req) {
         var loginUser = req.getLoginUser();
         return defRepo.findById(req.getId())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(FLOW_DEF_FAIL + req.getId())))
                 .flatMap(def -> {
                     if (!"DRAFT".equals(def.getStatus())) {
-                        return Mono.error(
-                                new IllegalStateException("只能发布草稿状态的流程定义"));
+                        return Mono.just(ResultVO.<Void>fail("只能发布草稿状态的流程定义"));
                     }
                     def.setStatus("PUBLISHED");
                     def.setUpdateUser(loginUser.getUserId());
-                    return defRepo.save(def);
+                    return defRepo.save(def)
+                            .doOnNext(d -> log.info(
+                                    "[FlowDefinitionServiceImpl] 定义已发布 definitionKey={}",
+                                    d.getDefinitionKey()))
+                            .map(_ -> ResultVO.<Void>ok());
                 })
-                .doOnNext(d -> log.info("[FlowDefinitionServiceImpl] 定义已发布 definitionKey={}",
-                        d.getDefinitionKey()))
-                .map(_ -> ResultVO.ok());
+                .switchIfEmpty(Mono.just(ResultVO.fail(FLOW_DEF_FAIL + req.getId())));
     }
 
     @Override
     public Mono<ResultVO<Void>> disable(DisableDefinitionReq req) {
         var loginUser = req.getLoginUser();
         return defRepo.findById(req.getId())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(FLOW_DEF_FAIL + req.getId())))
                 .flatMap(def -> {
                     def.setStatus("DISABLED");
                     def.setUpdateUser(loginUser.getUserId());
-                    return defRepo.save(def);
+                    return defRepo.save(def)
+                            .doOnNext(d -> log.info(
+                                    "[FlowDefinitionServiceImpl] 定义已停用 definitionKey={}",
+                                    d.getDefinitionKey()))
+                            .map(_ -> ResultVO.<Void>ok());
                 })
-                .doOnNext(d -> log.info("[FlowDefinitionServiceImpl] 定义已停用 definitionKey={}",
-                        d.getDefinitionKey()))
-                .map(_ -> ResultVO.ok());
+                .switchIfEmpty(Mono.just(ResultVO.fail(FLOW_DEF_FAIL + req.getId())));
     }
 }

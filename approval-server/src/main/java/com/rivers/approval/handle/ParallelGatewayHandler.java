@@ -97,7 +97,7 @@ public class ParallelGatewayHandler implements NodeHandler {
                 .then(ctx.nodeRepo().updateNodeStatus(
                         nodeInstance.getId(),
                         COMPLETED,
-                        null,
+                        "",
                         LocalDateTime.now(ZoneId.systemDefault()),
                         SYSTEM
                 ))
@@ -237,7 +237,7 @@ public class ParallelGatewayHandler implements NodeHandler {
         return ctx.nodeRepo().updateNodeStatus(
                         nodeInstance.getId(),
                         COMPLETED,
-                        null,
+                        "",
                         LocalDateTime.now(ZoneId.systemDefault()),
                         SYSTEM
                 )
@@ -271,7 +271,7 @@ public class ParallelGatewayHandler implements NodeHandler {
         return ctx.nodeRepo().updateNodeStatus(
                         nodeInstance.getId(),
                         COMPLETED,
-                        null,
+                        "",
                         LocalDateTime.now(ZoneId.systemDefault()),
                         SYSTEM
                 )

@@ -15,6 +15,7 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.format.DateTimeFormatter;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,6 +27,7 @@ import java.util.UUID;
  *   <li>待办表（flow_task）只存在 PENDING / CLAIMED 两种活跃状态，任务终态物理删除</li>
  *   <li>终态快照（COMPLETED / TRANSFERRED / CANCELLED）统一归档到已办表（flow_task_done）</li>
  *   <li>所有写操作遵循"CAS 标记 → 归档 → 删除"三步，同一事务内完成</li>
+ *   <li>业务失败不抛异常：统一返回 ResultVO.fail(msg)</li>
  * </ul>
  */
 @Service
@@ -88,143 +90,141 @@ public class TaskServiceImpl implements ITaskService {
         return taskRepo.findByTaskNo(req.getTaskNo())
                 .map(this::toTaskRes)
                 .map(ResultVO::ok)
-                .defaultIfEmpty(ResultVO.fail(404, NO_TASK + ": " + req.getTaskNo()));
+                .defaultIfEmpty(ResultVO.fail(NO_TASK + ": " + req.getTaskNo()));
     }
 
     // ==================== 操作 ====================
 
     @Override
     public Mono<ResultVO<Void>> claim(ClaimTaskReq req) {
-        log.info("[TaskServiceImpl] 认领任务 taskNo={}, userId={}", req.getTaskNo(), req.getUserId());
-        Mono<Void> claimed = taskRepo.findByTaskNo(req.getTaskNo())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
+        var userId = Optional.of(req.getUserId())
+                .filter(u -> !u.isBlank())
+                .orElseGet(() -> Optional.of(req.getLoginUser())
+                        .map(LoginUser::getUserId)
+                        .orElse(null));
+        log.info("[TaskServiceImpl] 认领任务 taskNo={}, userId={}", req.getTaskNo(), userId);
+        if (userId.isBlank()) {
+            return Mono.just(ResultVO.<Void>fail("缺少认领人 userId"));
+        }
+        Mono<ResultVO<Void>> claimed = taskRepo.findByTaskNo(req.getTaskNo())
                 .flatMap(task -> {
                     if (!PENDING.equals(task.getStatus())) {
-                        return Mono.error(
-                                new IllegalStateException("任务状态不允许认领: " + task.getStatus()));
+                        return Mono.just(ResultVO.<Void>fail("任务状态不允许认领: " + task.getStatus()));
+                    }
+                    if (!Objects.equals(userId, task.getAssignee())) {
+                        return Mono.just(ResultVO.<Void>fail("不在认领名单内: assignee=" + task.getAssignee()));
                     }
                     // CAS 认领自己的行 → 清理同节点其他候选行（两步同事务）
-                    return taskRepo.claim(task.getId(), req.getUserId())
+                    return taskRepo.claim(task.getId(), userId)
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("认领失败：已被他人认领或权限不足")))
-                            .then(taskRepo.deleteOtherPending(
-                                    task.getNodeInstanceId(), task.getId()))
-                            .then();
+                            .flatMap(_ -> taskRepo.deleteOtherPending(
+                                            task.getNodeInstanceId(), task.getId())
+                                    .doOnNext(ignored -> log.info(
+                                            "[TaskServiceImpl] 认领成功 taskNo={}", req.getTaskNo()))
+                                    .thenReturn(ResultVO.<Void>ok()))
+                            .switchIfEmpty(Mono.just(ResultVO.fail("认领失败：已被他人认领")));
                 })
-                .as(txOperator::transactional)
-                .doOnSuccess(v -> log.info("[TaskServiceImpl] 认领成功 taskNo={}", req.getTaskNo()));
-        return claimed.thenReturn(ResultVO.ok());
+                .switchIfEmpty(Mono.just(ResultVO.fail(NO_TASK + ": " + req.getTaskNo())));
+        return claimed.as(txOperator::transactional);
     }
 
     @Override
     public Mono<ResultVO<FlowTaskRes>> complete(CompleteTaskReq req) {
         log.info("[TaskServiceImpl] 完成任务 taskNo={}, result={}, userId={}",
                 req.getTaskNo(), req.getResult(), req.getUserId());
-        // 1) 事务内：CAS 标记 COMPLETED → 归档已办表 → 物理删除待办行
-        Mono<FlowTask> completed = taskRepo.findByTaskNo(req.getTaskNo())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
+        return taskRepo.findByTaskNo(req.getTaskNo())
                 .flatMap(task -> {
                     if (!CLAIMED.equals(task.getStatus())) {
-                        return Mono.error(
-                                new IllegalStateException("任务状态不允许完成: " + task.getStatus()));
+                        return Mono.just(ResultVO.<FlowTaskRes>fail("任务状态不允许完成: " + task.getStatus()));
                     }
-                    if (!req.getUserId().equals(task.getAssignee())) {
-                        return Mono.error(
-                                new IllegalStateException("只有认领人才能完成任务"));
+                    if (!Objects.equals(req.getUserId(), task.getAssignee())) {
+                        return Mono.just(ResultVO.<FlowTaskRes>fail("只有认领人才能完成任务"));
                     }
-                    return taskRepo.completeTask(task.getId(), req.getUserId())
+                    // 1) 事务内：CAS 标记 COMPLETED → 归档已办表 → 物理删除待办行
+                    Mono<FlowTask> done = taskRepo.completeTask(task.getId(), req.getUserId())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("任务完成失败")))
-                            .then(taskDoneRepo.archiveById(
-                                    task.getId(), COMPLETED,
-                                    req.getResult(), req.getComment(), req.getUserId()))
-                            .then(taskRepo.deleteByIdAndStatus(task.getId(), COMPLETED))
-                            .thenReturn(task);
+                            .flatMap(_ -> taskDoneRepo.archiveById(
+                                            task.getId(), COMPLETED,
+                                            req.getResult(), req.getComment(), req.getUserId())
+                                    .then(taskRepo.deleteByIdAndStatus(task.getId(), COMPLETED))
+                                    .thenReturn(task));
+                    // 2) 事务提交后：发布事件，由引擎推进流程
+                    return done.as(txOperator::transactional)
+                            .map(t -> {
+                                var meta = FlowEventMetadata.of(
+                                        t.getInstanceId(), "", "TASK_COMPLETED");
+                                eventBus.publish(TaskCompletedEvent.of(
+                                        meta, t.getId(), t.getTaskNo(), t.getNodeInstanceId(),
+                                        req.getResult(), req.getComment(), req.getUserId()));
+                                return ResultVO.<FlowTaskRes>ok();
+                            })
+                            .switchIfEmpty(Mono.just(ResultVO.fail("任务完成失败")));
                 })
-                .as(txOperator::transactional);
-        // 2) 事务提交后：发布事件，由引擎推进流程
-        return completed.map(t -> {
-            var meta = FlowEventMetadata.of(t.getInstanceId(), "", "TASK_COMPLETED");
-            eventBus.publish(TaskCompletedEvent.of(
-                    meta, t.getId(), t.getTaskNo(), t.getNodeInstanceId(),
-                    req.getResult(), req.getComment(), req.getUserId()));
-            return ResultVO.<FlowTaskRes>ok();
-        });
+                .switchIfEmpty(Mono.just(ResultVO.fail(NO_TASK + ": " + req.getTaskNo())));
     }
 
     @Override
     public Mono<ResultVO<Void>> cancel(CancelTaskReq req) {
         log.info("[TaskServiceImpl] 取消任务 taskNo={}", req.getTaskNo());
-        Mono<Void> cancelled = taskRepo.findByTaskNo(req.getTaskNo())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
+        Mono<ResultVO<Void>> cancelled = taskRepo.findByTaskNo(req.getTaskNo())
                 .flatMap(task -> {
                     if (!PENDING.equals(task.getStatus()) && !CLAIMED.equals(task.getStatus())) {
-                        return Mono.error(
-                                new IllegalStateException("任务状态不允许取消: " + task.getStatus()));
+                        return Mono.just(ResultVO.<Void>fail("任务状态不允许取消: " + task.getStatus()));
                     }
                     return taskRepo.cancelTask(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("取消失败")))
-                            .then(taskDoneRepo.archiveById(
-                                    task.getId(), CANCELLED, null, null, req.getOperator()))
-                            .then(taskRepo.deleteByIdAndStatus(task.getId(), CANCELLED))
-                            .then();
+                            .flatMap(rows -> taskDoneRepo.archiveById(
+                                            task.getId(), CANCELLED, "", "", req.getOperator())
+                                    .then(taskRepo.deleteByIdAndStatus(task.getId(), CANCELLED))
+                                    .doOnNext(ignored -> log.info(
+                                            "[TaskServiceImpl] 任务已取消 taskNo={}", req.getTaskNo()))
+                                    .thenReturn(ResultVO.<Void>ok()))
+                            .switchIfEmpty(Mono.just(ResultVO.fail("取消失败")));
                 })
-                .as(txOperator::transactional)
-                .doOnSuccess(v -> log.info("[TaskServiceImpl] 任务已取消 taskNo={}", req.getTaskNo()));
-        return cancelled.thenReturn(ResultVO.ok());
+                .switchIfEmpty(Mono.just(ResultVO.fail(NO_TASK + ": " + req.getTaskNo())));
+        return cancelled.as(txOperator::transactional);
     }
 
     @Override
     public Mono<ResultVO<Void>> transfer(TransferTaskReq req) {
         log.info("[TaskServiceImpl] 转交任务 taskNo={}, targetUser={}", req.getTaskNo(), req.getTargetUser());
-        Mono<Void> transferred = taskRepo.findByTaskNo(req.getTaskNo())
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException(NO_TASK + ": " + req.getTaskNo())))
+        Mono<ResultVO<Void>> transferred = taskRepo.findByTaskNo(req.getTaskNo())
                 .flatMap(task -> {
                     if (!CLAIMED.equals(task.getStatus())) {
-                        return Mono.error(
-                                new IllegalStateException("只能转交已认领的任务"));
+                        return Mono.just(ResultVO.<Void>fail("只能转交已认领的任务"));
                     }
-                    if (!req.getOperator().equals(task.getAssignee())) {
-                        return Mono.error(
-                                new IllegalStateException("只有认领人才能转交任务"));
+                    if (!Objects.equals(req.getOperator(), task.getAssignee())) {
+                        return Mono.just(ResultVO.<Void>fail("只有认领人才能转交任务"));
                     }
                     // 旧任务：CAS 置 TRANSFERRED → 归档已办表 → 物理删除
+                    // 新任务：目标人 PENDING 待办行，prev_task_id 指向已办表原任务
                     return taskRepo.transferOut(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
-                            .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("转交失败")))
-                            .then(taskDoneRepo.archiveById(
-                                    task.getId(), TRANSFERRED, null, null, req.getOperator()))
-                            .then(taskRepo.deleteByIdAndStatus(task.getId(), TRANSFERRED))
-                            // 新任务：目标人 PENDING 待办行，prev_task_id 指向已办表原任务
-                            .then(Mono.defer(() -> {
-                                var newTask = FlowTask.builder()
-                                        .instanceId(task.getInstanceId())
-                                        .nodeInstanceId(task.getNodeInstanceId())
-                                        .taskNo("T-" + UUID.randomUUID().toString()
-                                                .replace("-", "").substring(0, 16))
-                                        .taskName(task.getTaskName())
-                                        .status(PENDING)
-                                        .assignee(req.getTargetUser())
-                                        .priority(task.getPriority())
-                                        .prevTaskId(task.getId())
-                                        .createUser(req.getOperator())
-                                        .updateUser(req.getOperator())
-                                        .build();
-                                return taskRepo.save(newTask);
-                            }))
-                            .then();
+                            .flatMap(_ -> taskDoneRepo.archiveById(
+                                            task.getId(), TRANSFERRED, "", "",
+                                            req.getOperator())
+                                    .then(taskRepo.deleteByIdAndStatus(task.getId(), TRANSFERRED))
+                                    .then(Mono.defer(() -> {
+                                        var newTask = FlowTask.builder()
+                                                .instanceId(task.getInstanceId())
+                                                .nodeInstanceId(task.getNodeInstanceId())
+                                                .taskNo("T-" + UUID.randomUUID().toString()
+                                                        .replace("-", "").substring(0, 16))
+                                                .taskName(task.getTaskName())
+                                                .status(PENDING)
+                                                .assignee(req.getTargetUser())
+                                                .priority(task.getPriority())
+                                                .prevTaskId(task.getId())
+                                                .createUser(req.getOperator())
+                                                .updateUser(req.getOperator())
+                                                .build();
+                                        return taskRepo.save(newTask);
+                                    }))
+                                    .thenReturn(ResultVO.<Void>ok()))
+                            .switchIfEmpty(Mono.just(ResultVO.fail("转交失败")));
                 })
-                .as(txOperator::transactional);
-        return transferred.thenReturn(ResultVO.ok());
+                .switchIfEmpty(Mono.just(ResultVO.fail(NO_TASK + ": " + req.getTaskNo())));
+        return transferred.as(txOperator::transactional);
     }
 
     // ==================== 辅助 ====================
