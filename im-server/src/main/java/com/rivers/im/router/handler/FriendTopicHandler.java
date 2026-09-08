@@ -19,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 
 @Component
@@ -294,7 +295,7 @@ public class FriendTopicHandler implements TopicHandler {
         msg.setMessageType(MSG_TYPE_NOTIFY);
         msg.setContent(content.toString());
         msg.setReadStatus((byte) 0);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         msg.setSentTime(now);
         msg.setCreateTime(now);
         msg.setCreateUser(fromUserId);

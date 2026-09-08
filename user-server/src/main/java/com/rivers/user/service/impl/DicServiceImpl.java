@@ -2,6 +2,8 @@ package com.rivers.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.rivers.core.exception.BusinessException;
 import com.rivers.core.tree.TreeFactory;
 import com.rivers.core.vo.ResultVO;
@@ -21,6 +23,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.SequencedCollection;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author xx
@@ -31,7 +34,18 @@ public class DicServiceImpl implements IDicService {
 
     public static final String CHECK_DIC_FAIL = "查询字典数据失败";
     public static final String DIC_KEY_EMPTY = "字典key不能为空";
+    private static final String DIC_TREE_CACHE_KEY = "all";
+
     private final TimerDicMapper timerDicMapper;
+
+    /**
+     * 字典树扁平列表缓存：字典数据读多写少，全表查询 3.8s 只发生在首次；
+     * 写操作（保存/更新/删除）后整体失效，保证数据一致性。
+     */
+    private final Cache<String, List<DicTreeVO>> dicTreeCache = Caffeine.newBuilder()
+            .maximumSize(1)
+            .expireAfterWrite(30, TimeUnit.MINUTES)
+            .build();
 
     public DicServiceImpl(TimerDicMapper timerDicMapper) {
         this.timerDicMapper = timerDicMapper;
@@ -71,6 +85,7 @@ public class DicServiceImpl implements IDicService {
                     timerDic.setCreateUser(userId);
                     timerDic.setUpdateUser(userId);
                     timerDic.insert(); // 阻塞操
+                    dicTreeCache.invalidateAll();
                     return ResultVO.<Void>ok();
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -113,6 +128,7 @@ public class DicServiceImpl implements IDicService {
                     dic.setParentId(parentId);
                     dic.setSort(sort);
                     dic.updateById(); // 阻塞
+                    dicTreeCache.invalidateAll();
                     return ResultVO.<Void>ok();
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -127,26 +143,11 @@ public class DicServiceImpl implements IDicService {
     @Override
     public Mono<ResultVO<SequencedCollection<DicTreeVO>>> getDicTree() {
         return Mono.fromCallable(() -> {
-                    long startTime = System.currentTimeMillis();
-                    LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
-                    dicWrapper.orderByAsc(TimerDic::getSort)
-                            .select(TimerDic::getId, TimerDic::getDicKey, TimerDic::getParentId,
-                                    TimerDic::getDicValue, TimerDic::getSort);
-                    List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
-                    log.info("查询字典树耗时: {} ms", System.currentTimeMillis() - startTime);
-                    List<DicTreeVO> dicTrees = timerDictionaries.stream()
-                            .map(i -> {
-                                DicTreeVO vo = new DicTreeVO();
-                                vo.setId(i.getId());
-                                vo.setDicKey(i.getDicKey());
-                                vo.setDicValue(i.getDicValue());
-                                vo.setSort(i.getSort());
-                                vo.setParentId(i.getParentId());
-                                return vo;
-                            })
-                            .toList();
+                    // Caffeine get 原子加载：并发请求只有一个触发 DB 查询，防止缓存击穿
+                    List<DicTreeVO> flatList = dicTreeCache.get(
+                            DIC_TREE_CACHE_KEY, k -> loadDicFlatList());
                     TreeFactory<Long, DicTreeVO> treeFactory = new TreeFactory<>();
-                    SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(dicTrees);
+                    SequencedCollection<DicTreeVO> tree = treeFactory.buildTreeOrdered(flatList);
                     return ResultVO.ok(tree);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -154,6 +155,30 @@ public class DicServiceImpl implements IDicService {
                     log.error("构建字典树失败", e);
                     return Mono.just(ResultVO.fail("加载字典失败"));
                 });
+    }
+
+    /**
+     * 查询字典全量数据并映射为扁平 VO（仅缓存穿透时执行）。
+     */
+    private List<DicTreeVO> loadDicFlatList() {
+        long startTime = System.currentTimeMillis();
+        LambdaQueryWrapper<TimerDic> dicWrapper = Wrappers.lambdaQuery();
+        dicWrapper.orderByAsc(TimerDic::getSort)
+                .select(TimerDic::getId, TimerDic::getDicKey, TimerDic::getParentId,
+                        TimerDic::getDicValue, TimerDic::getSort);
+        List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
+        log.info("查询字典树耗时: {} ms", System.currentTimeMillis() - startTime);
+        return timerDictionaries.stream()
+                .map(i -> {
+                    DicTreeVO vo = new DicTreeVO();
+                    vo.setId(i.getId());
+                    vo.setDicKey(i.getDicKey());
+                    vo.setDicValue(i.getDicValue());
+                    vo.setSort(i.getSort());
+                    vo.setParentId(i.getParentId());
+                    return vo;
+                })
+                .toList();
     }
 
     @Override
@@ -176,7 +201,7 @@ public class DicServiceImpl implements IDicService {
                     dicWrapper.eq(TimerDic::getParentId, timerDic.getId())
                             .orderByAsc(TimerDic::getSort)
                             .select(TimerDic::getId, TimerDic::getParentId,
-                                    TimerDic::getDicKey, TimerDic::getDicValue,TimerDic::getDicDesc, TimerDic::getSort);
+                                    TimerDic::getDicKey, TimerDic::getDicValue, TimerDic::getDicDesc, TimerDic::getSort);
                     List<TimerDic> timerDictionaries = timerDicMapper.selectList(dicWrapper);
                     List<Dic> dicList = timerDictionaries.stream()
                             .map(i -> Dic.newBuilder()
@@ -250,6 +275,7 @@ public class DicServiceImpl implements IDicService {
                 throw new BusinessException("字典不存在");
             }
             timerDic.deleteById();
+            dicTreeCache.invalidateAll();
             return ResultVO.<Void>ok();
         }).onErrorResume(Exception.class, e -> {
             log.error("删除字典失败", e);

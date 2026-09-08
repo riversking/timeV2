@@ -666,6 +666,9 @@ const onlineUsers = ref<Friend[]>([]);
 const friendList = ref<Friend[]>([]);
 const selectedUser = ref<Friend | null>(null);
 const activeTab = ref("chat");
+// ✅ 列表加载标志：刷新后消息可能先于列表到达，未加载完成时不丢弃消息
+const friendListLoaded = ref(false);
+const groupListLoaded = ref(false);
 
 const showRobotDialog = ref(false);
 const userMessage = ref("");
@@ -797,7 +800,6 @@ const chatHistoryList = computed(() => {
       const user =
         onlineUsers.value.find((u) => u.friendId === id) ||
         friendList.value.find((f) => f.friendId === id);
-      console.log("Hahahahahahaha", user);
       return {
         userId: id,
         username: user?.friendName || "未知用户",
@@ -1058,6 +1060,7 @@ const loadFriendList = async () => {
       const list =
         response.data?.friendList || response.data?.list || response.data || [];
       friendList.value = Array.isArray(list) ? list : [];
+      friendListLoaded.value = true;
     }
   } catch {
     /* silent */
@@ -1068,8 +1071,10 @@ const loadFriendList = async () => {
 const loadMyGroups = async () => {
   try {
     const res = await getMyGroups({});
-    if (res.code === 200)
+    if (res.code === 200) {
       groupList.value = Array.isArray(res.data.groups) ? res.data.groups : [];
+      groupListLoaded.value = true;
+    }
   } catch {
     /* silent */
   }
@@ -1361,22 +1366,30 @@ const handleChatMessage = (payload: any) => {
   const isGroupMsg = payload.chatType === "group";
 
   // ✅ 防御层2：只接受来自已知好友或已知群组的消息
-  //    未知来源的消息直接丢弃，不加入 messageCache 和 chatHistoryUserIds
+  //    列表未加载完成时不拦截（服务端已校验好友关系），避免刷新后误丢首条消息
   if (isGroupMsg) {
     const knownGroup = groupList.value.find(
       (g) => g.groupId === payload.groupId,
     );
     if (!knownGroup) {
-      console.warn("⚠️ 收到未知群组的消息，已丢弃: groupId=", payload.groupId);
-      return;
+      if (!groupListLoaded.value) {
+        loadMyGroups(); // 列表尚未就位：接受消息并补拉群组列表
+      } else {
+        console.warn("⚠️ 收到未知群组的消息，已丢弃: groupId=", payload.groupId);
+        return;
+      }
     }
   } else {
     const knownUser =
       friendList.value.find((f) => f.friendId === payload.from) ||
       onlineUsers.value.find((u) => u.friendId === payload.from);
     if (!knownUser) {
-      console.warn("⚠️ 收到非好友的消息，已丢弃: from=", payload.from);
-      return;
+      if (!friendListLoaded.value) {
+        loadFriendList(); // 列表尚未就位：接受消息并补拉好友列表
+      } else {
+        console.warn("⚠️ 收到非好友的消息，已丢弃: from=", payload.from);
+        return;
+      }
     }
   }
 
@@ -1592,6 +1605,9 @@ onMounted(() => {
       robotPosition.value = JSON.parse(savedPosition);
     } catch {}
   }
+  // ✅ 刷新后立即预加载好友/群组列表，避免首条消息因列表为空被丢弃
+  loadFriendList();
+  loadMyGroups();
   connectWs();
   cleanUpTimer = setInterval(() => {
     const now = Date.now();

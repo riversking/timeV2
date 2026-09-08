@@ -19,6 +19,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * group topic handler
@@ -185,7 +186,7 @@ public class GroupTopicHandler implements TopicHandler {
                             .flatMap(memberIds ->
                                     deleteAndSoftDelete(groupId, userId)
                                             .then(pushToUserIds(Flux.fromIterable(memberIds),
-                                                    "group_dismissed", notifyData))
+                                                    notifyData))
                                             .then(sendResult(userId, GROUP_DISMISS, true, "群组已解散")));
                 })
                 .onErrorResume(e -> {
@@ -317,7 +318,7 @@ public class GroupTopicHandler implements TopicHandler {
                         return sendResult(userId, GROUP_ANNOUNCE, false, "无权限发布公告");
                     }
                     return timerGroupMapper.updateAnnouncement(groupId, announcement, userId)
-                            .then(pushToGroup(groupId, GROUP_ANNOUNCE,
+                            .then(pushToGroup(groupId,
                                     objectMapper.createObjectNode()
                                             .put(GROUP_ID, groupId)
                                             .put("announcement", announcement)))
@@ -353,8 +354,8 @@ public class GroupTopicHandler implements TopicHandler {
                 });
     }
 
-    private Mono<Void> pushToGroup(long groupId, String action, ObjectNode data) {
-        data.put(ACTION, action).put("ts", System.currentTimeMillis());
+    private Mono<Void> pushToGroup(long groupId, ObjectNode data) {
+        data.put(ACTION, GROUP_ANNOUNCE).put("ts", System.currentTimeMillis());
         return timerGroupMemberMapper.selectByGroupId(groupId)
                 .flatMap(member ->
                         webSocketPushService.pushToUser(member.getUserId(), GROUP_NOTIFY, data)
@@ -365,8 +366,8 @@ public class GroupTopicHandler implements TopicHandler {
     /**
      * 按用户列表逐个推送（解散场景：成员已删，无法再按 groupId 查询）
      */
-    private Mono<Void> pushToUserIds(Flux<String> userIds, String action, ObjectNode data) {
-        data.put(ACTION, action).put("ts", System.currentTimeMillis());
+    private Mono<Void> pushToUserIds(Flux<String> userIds, ObjectNode data) {
+        data.put(ACTION, "group_dismissed").put("ts", System.currentTimeMillis());
         return userIds.flatMap(uid ->
                         webSocketPushService.pushToUser(uid, GROUP_NOTIFY, data)
                                 .onErrorResume(e -> Mono.empty()))
@@ -379,7 +380,7 @@ public class GroupTopicHandler implements TopicHandler {
 
     private TimerGroupMember newMember(long groupId, String userId,
                                        int role, String operator) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
         TimerGroupMember member = new TimerGroupMember();
         member.setGroupId(groupId);
         member.setUserId(userId);
