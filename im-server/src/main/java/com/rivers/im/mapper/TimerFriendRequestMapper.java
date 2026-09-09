@@ -73,21 +73,16 @@ public interface TimerFriendRequestMapper extends ReactiveCrudRepository<TimerFr
      * 幂等写入好友请求记录：(user_id, opponent_id) 唯一约束 + upsert。
      * 并发重复请求只会刷新 update_time，不会产生重复记录；
      * 重复时不覆盖 status/direction（保留已处理状态）。
+     * <p>
+     * 通过 SpEL（:#{#req.xxx}）从实体参数取字段，避免 8 参数方法（Sonar S107）。
      */
     @Query("""
             INSERT INTO timer_friend_request
                 (user_id, opponent_id, direction, status, message, relation_id,
                  create_user, update_user)
-            VALUES (:userId, :opponentId, :direction, :status, :message, :relationId,
-                    :createUser, :updateUser)
-            ON DUPLICATE KEY UPDATE update_user = :updateUser
+            VALUES (:#{#req.userId}, :#{#req.opponentId}, :#{#req.direction}, :#{#req.status},
+                    :#{#req.message}, :#{#req.relationId}, :#{#req.createUser}, :#{#req.updateUser})
+            ON DUPLICATE KEY UPDATE update_user = :#{#req.updateUser}
             """)
-    Mono<Integer> upsertRequest(@Param("userId") String userId,
-                                @Param("opponentId") String opponentId,
-                                @Param("direction") Integer direction,
-                                @Param("status") Integer status,
-                                @Param("message") String message,
-                                @Param("relationId") Long relationId,
-                                @Param("createUser") String createUser,
-                                @Param("updateUser") String updateUser);
+    Mono<Integer> upsertRequest(@Param("req") TimerFriendRequest req);
 }

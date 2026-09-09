@@ -613,7 +613,6 @@ const userStore = useUserStore();
 const emojiReady = ref(false);
 init({ data });
 
-
 const {
   messages: wsMessages,
   isConnected,
@@ -786,6 +785,7 @@ const chatHistoryList = computed(() => {
       const msgs = messageCache.value.get(id);
       if (!msgs || msgs.length === 0) return null;
       const lastMsg = msgs[msgs.length - 1];
+      console.log("id",id);
       if (id.startsWith("group:")) {
         const gid = Number(id.slice(6));
         const g = groupList.value.find((x) => x.groupId === gid);
@@ -919,6 +919,8 @@ const updateUserStatus = (userId: string, isActive: string) => {
 
 const subscribeUserStatus = () => {
   if (!isConnected.value || isSubscribed.value) return;
+  console.log("onlineUsers",onlineUsers.value);
+  console.log("friendList",friendList.value);
   const targetUserIds = [
     ...onlineUsers.value.map((u) => u.friendId),
     ...friendList.value.map((f) => f.friendId),
@@ -1375,7 +1377,10 @@ const handleChatMessage = (payload: any) => {
       if (!groupListLoaded.value) {
         loadMyGroups(); // 列表尚未就位：接受消息并补拉群组列表
       } else {
-        console.warn("⚠️ 收到未知群组的消息，已丢弃: groupId=", payload.groupId);
+        console.warn(
+          "⚠️ 收到未知群组的消息，已丢弃: groupId=",
+          payload.groupId,
+        );
         return;
       }
     }

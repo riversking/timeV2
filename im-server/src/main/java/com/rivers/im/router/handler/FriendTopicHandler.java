@@ -113,16 +113,8 @@ public class FriendTopicHandler implements TopicHandler {
                     TimerFriendRequest receiverRecord = buildRequest(targetUserId, userId,
                             TimerFriendRequest.Direction.RECEIVED.getCode(), msg, relationId);
                     // 双向记录同事务 upsert；重复请求只刷新 update_time
-                    return timerFriendRequestMapper.upsertRequest(
-                                    senderRecord.getUserId(), senderRecord.getOpponentId(),
-                                    senderRecord.getDirection(), senderRecord.getStatus(),
-                                    senderRecord.getMessage(), senderRecord.getRelationId(),
-                                    senderRecord.getCreateUser(), senderRecord.getUpdateUser())
-                            .then(timerFriendRequestMapper.upsertRequest(
-                                    receiverRecord.getUserId(), receiverRecord.getOpponentId(),
-                                    receiverRecord.getDirection(), receiverRecord.getStatus(),
-                                    receiverRecord.getMessage(), receiverRecord.getRelationId(),
-                                    receiverRecord.getCreateUser(), receiverRecord.getUpdateUser()))
+                    return timerFriendRequestMapper.upsertRequest(senderRecord)
+                            .then(timerFriendRequestMapper.upsertRequest(receiverRecord))
                             .as(txOperator::transactional)
                             // 按 (user, opponent) 唯一行重读接收方记录：
                             // 并发场景下 relationId 可能被并发请求覆盖，以实际落库行取 id
