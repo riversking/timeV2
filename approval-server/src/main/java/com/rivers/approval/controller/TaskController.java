@@ -11,6 +11,13 @@ import reactor.core.publisher.Mono;
 
 /**
  * 任务控制器 — 任务池全生命周期操作。
+ * <p>
+ * 办理动作拆分为三个语义化接口，result 由服务端固定：
+ * <ul>
+ *   <li>approve — 审批通过（APPROVED），继续推进后续节点</li>
+ *   <li>reject  — 拒绝（REJECTED），实例直接 COMPLETED</li>
+ *   <li>return  — 退回（RETURNED），实例直接 COMPLETED</li>
+ * </ul>
  */
 @RestController
 @RequestMapping("task")
@@ -42,9 +49,19 @@ public class TaskController {
         return taskService.claim(claimTaskReq);
     }
 
-    @PostMapping("complete")
-    public Mono<ResultVO<FlowTaskRes>> complete(@RequestBody CompleteTaskReq completeTaskReq) {
-        return taskService.complete(completeTaskReq);
+    @PostMapping("approve")
+    public Mono<ResultVO<FlowTaskRes>> approve(@RequestBody TaskActionReq taskActionReq) {
+        return taskService.approve(taskActionReq);
+    }
+
+    @PostMapping("reject")
+    public Mono<ResultVO<FlowTaskRes>> reject(@RequestBody TaskActionReq taskActionReq) {
+        return taskService.reject(taskActionReq);
+    }
+
+    @PostMapping("return")
+    public Mono<ResultVO<FlowTaskRes>> returnTask(@RequestBody TaskActionReq taskActionReq) {
+        return taskService.returnTask(taskActionReq);
     }
 
     @PostMapping("cancel")

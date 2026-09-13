@@ -30,9 +30,19 @@ public interface ITaskService {
     Mono<ResultVO<Void>> claim(ClaimTaskReq req);
 
     /**
-     * 完成（审批）
+     * 审批通过
      */
-    Mono<ResultVO<FlowTaskRes>> complete(CompleteTaskReq req);
+    Mono<ResultVO<FlowTaskRes>> approve(TaskActionReq req);
+
+    /**
+     * 拒绝
+     */
+    Mono<ResultVO<FlowTaskRes>> reject(TaskActionReq req);
+
+    /**
+     * 退回
+     */
+    Mono<ResultVO<FlowTaskRes>> returnTask(TaskActionReq req);
 
     /**
      * 取消

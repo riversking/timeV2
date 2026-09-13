@@ -1,10 +1,7 @@
 package com.rivers.approval.service;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.HistoryListRes;
-import com.rivers.proto.InstanceIdReq;
-import com.rivers.proto.OperatorHistoryReq;
-import com.rivers.proto.TaskIdReq;
+import com.rivers.proto.*;
 import reactor.core.publisher.Mono;
 
 /**
@@ -26,4 +23,6 @@ public interface IFlowHistoryService {
      * 某人的操作记录（分页）
      */
     Mono<ResultVO<HistoryListRes>> listByOperator(OperatorHistoryReq req);
+
+    Mono<ResultVO<FlowTrackRes>> trackByInstance(InstanceIdReq req);
 }

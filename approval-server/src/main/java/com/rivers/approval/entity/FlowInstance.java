@@ -76,6 +76,25 @@ public class FlowInstance {
     private String status;
 
     /**
+     * 审批结果（结构化，替代塞 variables JSON）
+     * APPROVED 通过 / REJECTED 拒绝 / RETURNED 退回
+     */
+    @Column("approval_result")
+    private String approvalResult;
+
+    /**
+     * 最终审批意见
+     */
+    @Column("approval_comment")
+    private String approvalComment;
+
+    /**
+     * 最后办理人
+     */
+    @Column("approved_by")
+    private String approvedBy;
+
+    /**
      * 流程变量（全局上下文，JSON字符串）
      */
     private String variables;

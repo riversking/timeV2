@@ -105,6 +105,9 @@ message FlowInstanceRes {
     string currentNodeIds = 12;
     string startTime = 13;
     string endTime = 14;
+    string approvalResult = 15;
+    string approvalComment = 16;
+    string approvedBy = 17;
 }
 
 // ==================== 任务 ====================
@@ -231,4 +234,27 @@ message ListInstanceByStatusReq {
 // 实例列表响应
 message InstanceListRes {
     repeated FlowInstanceRes instances = 1; // 实例列表
+}
+
+message TaskActionReq {
+    string taskNo = 1;
+    string comment = 2;
+    string instanceId = 3;
+    string userId = 4;
+    LoginUser loginUser = 5;
+}
+
+// 流程跟踪链视图：从发起到最后审批人的简化聚合
+message FlowTrackItem {
+    string nodeName = 1;       // 审批环节（发起申请/节点名称/流程结束）
+    string assignee = 2;       // 审批人（发起人/实际办理人）
+    string taskTime = 3;       // 任务时间（任务创建时间/发起时间）
+    string approveTime = 4;    // 审批时间（未审批为空）
+    string nextAssignee = 5;   // 下一处理人
+    string status = 6;         // 审批状态：STARTED/PENDING/TRANSFERRED/APPROVED/REJECTED/RETURNED
+    string opinion = 7;        // 审批意见（转交行为为转交原因）
+}
+
+message FlowTrackRes {
+    repeated FlowTrackItem tracks = 1;
 }

@@ -139,4 +139,23 @@ public interface FlowInstanceRepository extends ReactiveCrudRepository<FlowInsta
             @Param("id") Long id,
             @Param("endTime") java.time.LocalDateTime endTime,
             @Param("operator") String operator);
+
+    /**
+     * 更新结构化审批结果列（每次任务完成时写入，最后办理者覆盖）
+     */
+    @Modifying
+    @Query("""
+            UPDATE flow_instance
+            SET approval_result = :result,
+                approval_comment = :comment,
+                approved_by = :operator,
+                update_user = :operator
+            WHERE id = :id
+              AND is_deleted = 0
+            """)
+    Mono<Integer> updateApprovalResult(
+            @Param("id") Long id,
+            @Param("result") String result,
+            @Param("comment") String comment,
+            @Param("operator") String operator);
 }

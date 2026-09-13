@@ -79,6 +79,7 @@ public class FlowInstanceServiceImpl implements IFlowInstanceService {
      * Entity → FlowInstanceRes 转换
      */
     private FlowInstanceRes toInstanceRes(FlowInstance i) {
+        log.info("toInstanceRes: {}", i.getInstanceNo());
         return FlowInstanceRes.newBuilder()
                 .setId(i.getId())
                 .setInstanceNo(i.getInstanceNo())
@@ -94,7 +95,14 @@ public class FlowInstanceServiceImpl implements IFlowInstanceService {
                 .setCurrentNodeIds(i.getCurrentNodeIds())
                 .setStartTime(formatTime(i.getStartTime()))
                 .setEndTime(formatTime(i.getEndTime()))
+                .setApprovalResult(nvl(i.getApprovalResult()))
+                .setApprovalComment(nvl(i.getApprovalComment()))
+                .setApprovedBy(nvl(i.getApprovedBy()))
                 .build();
+    }
+
+    private String nvl(String s) {
+        return s == null ? "" : s;
     }
 
     private String formatTime(java.time.LocalDateTime time) {

@@ -2,10 +2,7 @@ package com.rivers.approval.controller;
 
 import com.rivers.approval.service.IFlowHistoryService;
 import com.rivers.core.vo.ResultVO;
-import com.rivers.proto.HistoryListRes;
-import com.rivers.proto.InstanceIdReq;
-import com.rivers.proto.OperatorHistoryReq;
-import com.rivers.proto.TaskIdReq;
+import com.rivers.proto.*;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,5 +35,10 @@ public class FlowHistoryController {
     @PostMapping("listByOperator")
     public Mono<ResultVO<HistoryListRes>> listByOperator(@RequestBody OperatorHistoryReq operatorHistoryReq) {
         return historyService.listByOperator(operatorHistoryReq);
+    }
+
+    @PostMapping("trackByInstance")
+    public Mono<ResultVO<FlowTrackRes>> trackByInstance(@RequestBody InstanceIdReq instanceIdReq) {
+        return historyService.trackByInstance(instanceIdReq);
     }
 }

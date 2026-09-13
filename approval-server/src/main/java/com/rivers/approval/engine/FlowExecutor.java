@@ -206,6 +206,9 @@ public class FlowExecutor {
     /**
      * 用户任务完成后：标记对应 node_instance 完成 → 合并审批结果到实例变量 → 发布 NodeCompletedEvent。
      * NodeCompletedEvent 经 RabbitMQ 回到 onNodeCompleted 入口，形成闭环。
+     * <p>
+     * 审批结果结构化落库（flow_instance.approval_result/comment/approved_by）；
+     * REJECTED / RETURNED 为终态结果：实例直接 COMPLETED，不再推进后续节点。
      */
     private Mono<Void> resolveTaskCompletion(TaskCompletedEvent event) {
         log.info("[FlowExecutor] → TaskCompleted taskId={}, nodeInstanceId={}, result={}",
@@ -216,54 +219,136 @@ public class FlowExecutor {
             return Mono.empty();
         }
         return loadInstanceById(event.instanceId())
-                .flatMap(instance -> {
-                    // 终止/完成的实例不再推进，防止 terminate 后继续流转
-                    if (!"RUNNING".equals(instance.getStatus())) {
-                        log.warn("[FlowExecutor] 实例非运行中，忽略任务完成事件 instanceId={}, status={}",
-                                instance.getId(), instance.getStatus());
-                        return Mono.empty();
-                    }
-                    var outputVars = getOutPut(event);
-                    var mergedVars = mergeVariables(parseVariables(instance.getVariables()), outputVars);
-                    return nodeRepo.findById(event.nodeInstanceId())
-                            .switchIfEmpty(Mono.error(
-                                    new IllegalStateException("节点实例不存在: " + event.nodeInstanceId())))
-                            .flatMap(nodeInstance -> nodeRepo.updateNodeStatus(
-                                            nodeInstance.getId(),
-                                            "COMPLETED",
-                                            toJson(outputVars),
-                                            LocalDateTime.now(ZoneId.systemDefault()),
-                                            event.completedBy())
-                                    .flatMap(rows -> {
-                                        if (rows <= 0) {
-                                            log.warn("[FlowExecutor] 节点实例已非 ACTIVE，跳过重复完成 nodeInstanceId={}",
-                                                    nodeInstance.getId());
-                                            return Mono.<FlowNodeInstance>empty();
-                                        }
-                                        // 审批结果合并进实例变量并落库
-                                        return instanceRepo.updateVariables(
-                                                        instance.getId(),
-                                                        toJson(mergedVars),
-                                                        event.completedBy() != null ? event.completedBy() : SYSTEM)
-                                                .thenReturn(nodeInstance);
-                                    }))
-                            .flatMap(nodeInstance -> {
-                                log.info("[FlowExecutor] 节点实例已标记完成 nodeInstanceId={}",
+                .flatMap(instance -> processTaskCompletion(instance, event));
+    }
+
+    /**
+     * 任务完成主流程：校验实例 → 标记节点完成 → 落库审批结果 → 终止或推进。
+     */
+    private Mono<Void> processTaskCompletion(FlowInstance instance, TaskCompletedEvent event) {
+        // 终止/完成的实例不再推进，防止 terminate 后继续流转
+        if (!"RUNNING".equals(instance.getStatus())) {
+            log.warn("[FlowExecutor] 实例非运行中，忽略任务完成事件 instanceId={}, status={}",
+                    instance.getId(), instance.getStatus());
+            return Mono.empty();
+        }
+        var outputVars = getOutPut(event);
+        var mergedVars = mergeVariables(parseVariables(instance.getVariables()), outputVars);
+        var operator = event.completedBy() != null ? event.completedBy() : SYSTEM;
+        return markNodeCompleted(instance, event, outputVars, mergedVars, operator)
+                .flatMap(nodeInstance -> persistApprovalResult(instance, event, operator)
+                        .thenReturn(nodeInstance))
+                .flatMap(nodeInstance -> finalizeCompletion(
+                        new CompletionContext(instance, nodeInstance, outputVars, operator), event));
+    }
+
+    /**
+     * 一次任务完成处理的中间数据（避免多方法间重复计算）。
+     */
+    private record CompletionContext(FlowInstance instance,
+                                     FlowNodeInstance nodeInstance,
+                                     Map<String, Object> outputVars,
+                                     String operator) {
+    }
+
+    /**
+     * 标记节点实例完成（CAS），并将合并后的审批变量落库。
+     */
+    private Mono<FlowNodeInstance> markNodeCompleted(FlowInstance instance,
+                                                     TaskCompletedEvent event,
+                                                     Map<String, Object> outputVars,
+                                                     Map<String, Object> mergedVars,
+                                                     String operator) {
+        return nodeRepo.findById(event.nodeInstanceId())
+                .switchIfEmpty(Mono.error(
+                        new IllegalStateException("节点实例不存在: " + event.nodeInstanceId())))
+                .flatMap(nodeInstance -> nodeRepo.updateNodeStatus(
+                                nodeInstance.getId(),
+                                "COMPLETED",
+                                toJson(outputVars),
+                                LocalDateTime.now(ZoneId.systemDefault()),
+                                operator)
+                        .flatMap(rows -> {
+                            if (rows <= 0) {
+                                log.warn("[FlowExecutor] 节点实例已非 ACTIVE，跳过重复完成 nodeInstanceId={}",
                                         nodeInstance.getId());
-                                var meta = FlowEventMetadata.of(
-                                        event.instanceId(), event.instanceNo(),
-                                        "NODE_COMPLETED");
-                                eventBus.publish(NodeCompletedEvent.of(
-                                        meta,
-                                        nodeInstance.getId(),
-                                        nodeInstance.getNodeId(),
-                                        nodeInstance.getNodeName(),
-                                        nodeInstance.getNodeType(),
-                                        outputVars,
-                                        null));
-                                return Mono.<Void>empty();
-                            });
+                                return Mono.<FlowNodeInstance>empty();
+                            }
+                            return instanceRepo.updateVariables(
+                                            instance.getId(), toJson(mergedVars), operator)
+                                    .thenReturn(nodeInstance);
+                        }));
+    }
+
+    /**
+     * 审批结果结构化落库（最后办理者覆盖）。
+     */
+    private Mono<Integer> persistApprovalResult(FlowInstance instance,
+                                                TaskCompletedEvent event,
+                                                String operator) {
+        return instanceRepo.updateApprovalResult(
+                instance.getId(), event.result(), event.comment(), operator);
+    }
+
+    /**
+     * 终局判定：拒绝/退回直接终止实例，否则发布 NodeCompletedEvent 继续推进。
+     */
+    private Mono<Void> finalizeCompletion(CompletionContext ctx, TaskCompletedEvent event) {
+        log.info("[FlowExecutor] 节点实例已标记完成 nodeInstanceId={}",
+                ctx.nodeInstance().getId());
+        if (isFinalNegative(event.result())) {
+            return terminateInstance(ctx, event);
+        }
+        publishNodeCompleted(ctx, event);
+        return Mono.empty();
+    }
+
+    /**
+     * 拒绝/退回：实例直接 COMPLETED（仅 RUNNING 可置），发布 INSTANCE_COMPLETED 事件。
+     */
+    private Mono<Void> terminateInstance(CompletionContext ctx, TaskCompletedEvent event) {
+        log.info("[FlowExecutor] 审批结果为 {}，流程直接终止 instanceId={}",
+                event.result(), ctx.instance().getId());
+        return instanceRepo.completeIfRunning(
+                        ctx.instance().getId(),
+                        LocalDateTime.now(ZoneId.systemDefault()),
+                        ctx.operator())
+                .flatMap(rows -> {
+                    if (rows <= 0) {
+                        return Mono.<Void>empty();
+                    }
+                    var meta = FlowEventMetadata.of(
+                                    event.instanceId(), event.instanceNo(),
+                                    "INSTANCE_COMPLETED")
+                            .withOperator(ctx.operator(), "");
+                    eventBus.publish(InstanceCompletedEvent.of(meta, event.result()));
+                    return Mono.<Void>empty();
                 });
+    }
+
+    /**
+     * 审批通过：发布 NodeCompletedEvent 继续推进后续节点。
+     */
+    private void publishNodeCompleted(CompletionContext ctx, TaskCompletedEvent event) {
+        var meta = FlowEventMetadata.of(
+                        event.instanceId(), event.instanceNo(),
+                        "NODE_COMPLETED")
+                .withOperator(ctx.operator(), "");
+        eventBus.publish(NodeCompletedEvent.of(
+                meta,
+                ctx.nodeInstance().getId(),
+                ctx.nodeInstance().getNodeId(),
+                ctx.nodeInstance().getNodeName(),
+                ctx.nodeInstance().getNodeType(),
+                ctx.outputVars(),
+                null));
+    }
+
+    /**
+     * 拒绝 / 退回为终态结果：流程不再推进，实例直接 COMPLETED。
+     */
+    private static boolean isFinalNegative(String result) {
+        return "REJECTED".equals(result) || "RETURNED".equals(result);
     }
 
     private static @NonNull Map<String, Object> getOutPut(TaskCompletedEvent event) {

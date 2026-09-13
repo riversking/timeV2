@@ -785,7 +785,6 @@ const chatHistoryList = computed(() => {
       const msgs = messageCache.value.get(id);
       if (!msgs || msgs.length === 0) return null;
       const lastMsg = msgs[msgs.length - 1];
-      console.log("id",id);
       if (id.startsWith("group:")) {
         const gid = Number(id.slice(6));
         const g = groupList.value.find((x) => x.groupId === gid);
@@ -919,8 +918,6 @@ const updateUserStatus = (userId: string, isActive: string) => {
 
 const subscribeUserStatus = () => {
   if (!isConnected.value || isSubscribed.value) return;
-  console.log("onlineUsers",onlineUsers.value);
-  console.log("friendList",friendList.value);
   const targetUserIds = [
     ...onlineUsers.value.map((u) => u.friendId),
     ...friendList.value.map((f) => f.friendId),
