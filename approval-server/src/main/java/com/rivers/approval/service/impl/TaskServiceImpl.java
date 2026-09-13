@@ -1,11 +1,13 @@
 package com.rivers.approval.service.impl;
 
 import com.rivers.approval.entity.FlowTask;
+import com.rivers.approval.entity.FlowTrack;
 import com.rivers.approval.event.FlowEventBus;
 import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.TaskCompletedEvent;
 import com.rivers.approval.repository.FlowTaskDoneRepository;
 import com.rivers.approval.repository.FlowTaskRepository;
+import com.rivers.approval.repository.FlowTrackRepository;
 import com.rivers.approval.service.ITaskService;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
@@ -14,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 import java.util.Optional;
@@ -34,6 +38,7 @@ import java.util.UUID;
  *   <li>办理动作拆分为三个接口：approve（审批）/ reject（拒绝）/ return（退回），
  *       result 由服务端固定，前端不再传</li>
  *   <li>转交：目标人新任务直接 CLAIMED（已接单），无需再次认领</li>
+ *   <li>跟踪链：领单/转交在事务内直接写 flow_track（入库即展示）</li>
  * </ul>
  */
 @Service
@@ -54,13 +59,16 @@ public class TaskServiceImpl implements ITaskService {
 
     private final FlowTaskRepository taskRepo;
     private final FlowTaskDoneRepository taskDoneRepo;
+    private final FlowTrackRepository trackRepo;
     private final FlowEventBus eventBus;
     private final TransactionalOperator txOperator;
 
     public TaskServiceImpl(FlowTaskRepository taskRepo, FlowTaskDoneRepository taskDoneRepo,
+                           FlowTrackRepository trackRepo,
                            FlowEventBus eventBus, TransactionalOperator txOperator) {
         this.taskRepo = taskRepo;
         this.taskDoneRepo = taskDoneRepo;
+        this.trackRepo = trackRepo;
         this.eventBus = eventBus;
         this.txOperator = txOperator;
     }
@@ -128,11 +136,23 @@ public class TaskServiceImpl implements ITaskService {
                     if (!Objects.equals(userId, task.getAssignee())) {
                         return Mono.just(ResultVO.<Void>fail("不在认领名单内: assignee=" + task.getAssignee()));
                     }
-                    // CAS 认领自己的行 → 清理同节点其他候选行（两步同事务）
+                    // CAS 认领自己的行 → 写跟踪行 → 清理同节点其他候选行（同事务）
                     return taskRepo.claim(task.getId(), userId)
                             .filter(rows -> rows > 0)
-                            .flatMap(_ -> taskRepo.deleteOtherPending(
-                                            task.getNodeInstanceId(), task.getId())
+                            .flatMap(_ -> trackRepo.save(FlowTrack.builder()
+                                            .instanceId(task.getInstanceId())
+                                            .nodeInstanceId(task.getNodeInstanceId())
+                                            .trackType(CLAIMED)
+                                            .nodeName(task.getTaskName())
+                                            .assignee(userId)
+                                            .nextAssignee(userId)
+                                            .taskTime(task.getCreateTime())
+                                            .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
+                                            .createUser(userId)
+                                            .updateUser(userId)
+                                            .build())
+                                    .then(taskRepo.deleteOtherPending(
+                                            task.getNodeInstanceId(), task.getId()))
                                     .doOnNext(ignored -> log.info(
                                             "[TaskServiceImpl] 认领成功 taskNo={}", req.getTaskNo()))
                                     .thenReturn(ResultVO.<Void>ok()))
@@ -246,6 +266,7 @@ public class TaskServiceImpl implements ITaskService {
         var meta = FlowEventMetadata.of(task.getInstanceId(), "", "TASK_COMPLETED")
                 .withOperator(userId, userId);
         eventBus.publish(TaskCompletedEvent.of(
+
                 meta, task.getId(), task.getTaskNo(), task.getNodeInstanceId(),
                 task.getTaskName(), result, comment, userId, advance));
         if (!advance) {
@@ -288,6 +309,7 @@ public class TaskServiceImpl implements ITaskService {
                     }
                     // 旧任务：CAS 置 TRANSFERRED → 归档已办表 → 物理删除
                     // 新任务：目标人直接 CLAIMED（已接单），无需再次认领，出现在其待办列表
+                    // 跟踪行：转交行为写 flow_track（next=目标人）
                     return taskRepo.transferOut(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
                             .flatMap(_ -> taskDoneRepo.archiveById(
@@ -310,7 +332,19 @@ public class TaskServiceImpl implements ITaskService {
                                                 .createUser(req.getOperator())
                                                 .updateUser(req.getOperator())
                                                 .build();
-                                        return taskRepo.save(newTask);
+                                        return taskRepo.save(newTask)
+                                                .then(trackRepo.save(FlowTrack.builder()
+                                                        .instanceId(task.getInstanceId())
+                                                        .nodeInstanceId(task.getNodeInstanceId())
+                                                        .trackType(TRANSFERRED)
+                                                        .nodeName(task.getTaskName())
+                                                        .assignee(req.getOperator())
+                                                        .nextAssignee(req.getTargetUser())
+                                                        .taskTime(task.getCreateTime())
+                                                        .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
+                                                        .createUser(req.getOperator())
+                                                        .updateUser(req.getOperator())
+                                                        .build()));
                                     }))
                                     .thenReturn(ResultVO.<Void>ok()))
                             .switchIfEmpty(Mono.just(ResultVO.fail("转交失败")));

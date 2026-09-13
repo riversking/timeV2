@@ -1,37 +1,39 @@
 package com.rivers.approval.audit;
 
 import com.rivers.approval.entity.FlowHistory;
-import com.rivers.approval.event.FlowEvent;
-import com.rivers.approval.event.InstanceCompletedEvent;
-import com.rivers.approval.event.InstanceStartedEvent;
-import com.rivers.approval.event.NodeCompletedEvent;
-import com.rivers.approval.event.NodeStartedEvent;
-import com.rivers.approval.event.TaskCompletedEvent;
-import com.rivers.approval.event.TaskCreatedEvent;
+import com.rivers.approval.entity.FlowTrack;
+import com.rivers.approval.event.*;
 import com.rivers.approval.mq.FlowRabbitConfig;
 import com.rivers.approval.repository.FlowHistoryRepository;
+import com.rivers.approval.repository.FlowTrackRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+
 /**
- * 审计记录器：消费 audit 队列的全量事件，写入 flow_history。
- *
- * <p>独立于 FlowExecutor 的推进链路 —— 记录失败只影响审计，不影响流程推进。
+ * 审计记录器：消费 audit 队列的全量事件。
+ * <ul>
+ *   <li>flow_history —— 审计流水（6 类事件全量落库）</li>
+ *   <li>flow_track —— 跟踪链展示表（行为发生时插行/原地更新，查询零聚合）</li>
+ * </ul>
+ * <p>独立于 FlowExecutor 的推进链路 —— 记录失败只影响审计/展示，不影响流程推进。
  * 写入失败时降级为仅记错误日志（审计尽力而为，避免阻塞队列）。
- *
- * <p>flow_history 结构化拆分：事件按类型映射到节点/任务/办理人/结果/意见/状态变更列，
- * 人读摘要放入 remark，不再使用 JSON detail。
  */
 @Component
 @Slf4j
 public class FlowHistoryRecorder {
 
     private final FlowHistoryRepository historyRepo;
+    private final FlowTrackRepository trackRepo;
 
-    public FlowHistoryRecorder(FlowHistoryRepository historyRepo) {
+    public FlowHistoryRecorder(FlowHistoryRepository historyRepo,
+                               FlowTrackRepository trackRepo) {
         this.historyRepo = historyRepo;
+        this.trackRepo = trackRepo;
     }
 
     /**
@@ -44,6 +46,7 @@ public class FlowHistoryRecorder {
 
     private Mono<Void> saveRecord(FlowEvent event) {
         return historyRepo.save(mapToHistory(event))
+                .then(writeTrack(event))
                 .doOnError(err -> log.error(
                         "[FlowHistoryRecorder] 历史写入失败 instanceId={}, type={}",
                         event.instanceId(), event.eventType(), err))
@@ -107,6 +110,81 @@ public class FlowHistoryRecorder {
                             + (isBlank(e.comment()) ? "" : " 意见:" + e.comment()));
         }
         return builder.build();
+    }
+
+    // ==================== 跟踪链落库（入库即展示） ====================
+
+    /**
+     * 行为发生即写 flow_track 一行：
+     * INSTANCE_STARTED → 发起行；TASK_CREATED → 环节 PENDING 行 + 回填上一行下一处理人；
+     * TASK_COMPLETED → PENDING 行原地变终态；其余事件不产生跟踪行。
+     */
+    private Mono<Void> writeTrack(FlowEvent event) {
+        return switch (event) {
+            case InstanceStartedEvent e -> writeStartedTrack(e);
+            case TaskCreatedEvent e -> writeCreatedTrack(e);
+            case TaskCompletedEvent e -> writeCompletedTrack(e);
+            default -> Mono.empty();
+        };
+    }
+
+    private Mono<Void> writeStartedTrack(InstanceStartedEvent e) {
+        return trackRepo.save(FlowTrack.builder()
+                        .instanceId(e.instanceId())
+                        .instanceNo(nvl(e.instanceNo()))
+                        .nodeInstanceId(0L)
+                        .trackType("STARTED")
+                        .nodeName("发起申请")
+                        .assignee(nvl(e.initiator()))
+                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
+                        .createUser(e.operatorId())
+                        .updateUser(e.operatorId())
+                        .build())
+                .then();
+    }
+
+    private Mono<Void> writeCreatedTrack(TaskCreatedEvent e) {
+        // 1) 环节首候选人 → 插 PENDING 行；后续候选人 → 追加 assignee
+        // 2) 回填上一行行为的 next_assignee
+        return trackRepo.findPendingRow(e.instanceId(), e.nodeInstanceId())
+                .flatMap(row -> trackRepo.appendAssignee(
+                        row.getId(), e.assignee(), e.operatorId()))
+                .switchIfEmpty(Mono.defer(() -> trackRepo.save(FlowTrack.builder()
+                        .instanceId(e.instanceId())
+                        .instanceNo(nvl(e.instanceNo()))
+                        .nodeInstanceId(e.nodeInstanceId())
+                        .trackType("PENDING")
+                        .nodeName(e.taskName())
+                        .assignee(nvl(e.assignee()))
+                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
+                        .createUser(e.operatorId())
+                        .updateUser(e.operatorId())
+                        .build()).thenReturn(0)))
+                .then(trackRepo.findPendingRow(e.instanceId(), e.nodeInstanceId()))
+                .flatMap(row -> trackRepo.backfillNextAssignee(
+                        e.instanceId(), row.getAssignee()))
+                .then();
+    }
+
+    private Mono<Void> writeCompletedTrack(TaskCompletedEvent e) {
+        // PENDING 行原地变终态（保留任务时间）；兜底：无 PENDING 行时直接插终态行
+        return trackRepo.completePendingRow(e.instanceId(), e.nodeInstanceId(),
+                        e.result(), e.completedBy(), e.comment(), e.operatorId())
+                .filter(rows -> rows > 0)
+                .switchIfEmpty(Mono.defer(() -> trackRepo.save(FlowTrack.builder()
+                        .instanceId(e.instanceId())
+                        .instanceNo(nvl(e.instanceNo()))
+                        .nodeInstanceId(e.nodeInstanceId())
+                        .trackType(e.result())
+                        .nodeName(e.taskName())
+                        .assignee(e.completedBy())
+                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
+                        .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
+                        .opinion(e.comment())
+                        .createUser(e.operatorId())
+                        .updateUser(e.operatorId())
+                        .build()).thenReturn(0)))
+                .then();
     }
 
     private static String nvl(String s) {
