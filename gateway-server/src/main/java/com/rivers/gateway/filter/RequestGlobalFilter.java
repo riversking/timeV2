@@ -42,10 +42,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * session:family:{familyId}      TTL=30d → 当前有效 sid（家族指针，只由墓碑赢家写入）
  * rotated:{oldSid}               TTL=30d → 墓碑，旧 sid 重放检测
  * session:last:{sid}             TTL=2d  → 活跃窗口，每请求续期；未命中视为不活跃登出
- * session:grace:{sid}:{oldSid}   TTL=2d  → 宽限额度，SETNX 消费一次
+ * session:grace:{sid}:{oldSid}   TTL=2d  → 宽限计数窗口，首次计数设置 TTL，窗口内限次补发
  * <p>
  * 轮换：每 12h（rotateAt 到期）以"墓碑 SETNX"抢占轮换权，赢家才推进家族指针并删旧键，
- * 新 sid 通过响应头 X-New-Session 下发；旧 sid 重放 → 回滚自愈 / 宽限一次 / 整族吊销（终局）。
+ * 新 sid 通过响应头 X-New-Session 下发；旧 sid 重放 → 回滚自愈 / 宽限限次补发 / 整族吊销（终局）。
  * <p>
  * Body 重写安全：JSON 预检 + Content-Length 预检透传 + 有上限 join（超限 413）+ 读超时（408）。
  *
@@ -68,6 +68,10 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     private static final Duration ACTIVE_TTL = Duration.ofDays(2);
     private static final Duration SESSION_TTL = Duration.ofDays(30);
     private static final long ROTATE_INTERVAL_MILLIS = Duration.ofHours(12).toMillis();
+    /**
+     * 宽限窗口内允许的补发次数上限（容忍轮换瞬间的并发 / 多标签页突发）
+     */
+    private static final long GRACE_MAX_GRANTS = 10L;
     private static final String ATTR_LOGIN_USER = "gateway.loginUser";
     public static final String LOGIN_USER = "loginUser";
     private static final int MAX_BODY_BUFFER_SIZE = 1024 * 1024;
@@ -93,7 +97,8 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         var request = exchange.getRequest();
         var path = request.getPath().value();
-        if (filterIgnorePropertiesConfig.getUrls().stream()
+        var ignoreUrls = filterIgnorePropertiesConfig.getUrls();
+        if (ignoreUrls != null && ignoreUrls.stream()
                 .anyMatch(pattern -> pathMatcher.match(pattern, path))) {
             return chain.filter(exchange);
         }
@@ -102,10 +107,14 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
             return clearSessionAnd401(exchange, null);
         }
         return loadValidUser(exchange, sessionId)
-                .switchIfEmpty(Mono.defer(() -> reject401(exchange, sessionId)))
+                .switchIfEmpty(Mono.defer(() -> handleMissedRotation(exchange, sessionId)))
                 .flatMap(user -> forwardWithIdentity(exchange, chain, user))
                 .onErrorResume(ReplayRejectedException.class,
-                        _ -> clearSessionAnd401(exchange, sessionId).then());
+                        _ -> clearSessionAnd401(exchange, sessionId).then())
+                        .onErrorResume(e -> {
+                    log.error("❌ 网关鉴权异常，fail-closed 返回 401: path={}", path, e);
+                    return clearSessionAnd401(exchange, sessionId);
+                });
     }
 
     private @Nullable String extractSessionId(ServerHttpRequest request) {
@@ -120,7 +129,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
 
     // ═══════════════════════════════════════════════════════════════
     //  异步语义层1：墓碑检测 → 活跃窗口 → session → 到期轮换
-    //  正常路径失败返回 Mono.empty()，由调用方 switchIfEmpty 统一兜底 401；
+    //  正常路径失败返回 Mono.empty()，由调用方先复查墓碑再统一兜底 401；
     //  墓碑路径拒绝抛 ReplayRejectedException，由顶层 onErrorResume 统一写 401
     // ═══════════════════════════════════════════════════════════════
     private Mono<LoginUser> loadValidUser(ServerWebExchange exchange, String sessionId) {
@@ -132,60 +141,118 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     /**
+     * 失败兜底前的墓碑复查：正常路径返回 empty 有两种可能——
+     * 1) 会话确实无效（无墓碑）→ 401；
+     * 2) 本请求在"读墓碑（未命中）"与"读活跃窗口（已被轮换赢家删除）"之间
+     * 恰好撞上轮换完成 → 复查墓碑命中则改走重放路径自愈。
+     * 轮换赢家保证"先写墓碑、再删旧键"，因此该窗口内墓碑必然已存在。
+     */
+    private Mono<LoginUser> handleMissedRotation(ServerWebExchange exchange, String sessionId) {
+        return redisTemplate.opsForValue().get(ROTATED_PREFIX + sessionId)
+                .filter(StringUtils::hasText)
+                .flatMap(familyId -> handleReplay(exchange, sessionId, familyId))
+                .switchIfEmpty(Mono.defer(() -> reject401(exchange, sessionId)));
+    }
+
+    /**
      * 旧 sid 重放判定（无 Lua）。墓碑存在时本方法必须给出终局结果：
      * 放行（LoginUser）或拒绝（ReplayRejectedException），绝不返回 empty——
      * 否则外层 switchIfEmpty 会把"拒绝"当作"无墓碑"回退到正常路径，吊销被绕过。
      * <p>
-     * 宽限与回滚自愈均受 2 天活跃窗口约束：目标 sid 的 session:last 键必须存活
-     * （否则视为休眠超 2 天，整族吊销），防止消失多日的旧 sid 借宽限复活。
+     * 活跃窗口检查（refreshActiveWindow）返回布尔值并以 flatMap 串联；
+     * 切勿改写为 then()——Reactor 的 then 不拦截空流，会静默绕过闸门（历史缺陷）。
      * <p>
      * 三种终局：
      * 1) 家族指针 == oldSid：轮换在"墓碑 → 家族指针"之间崩溃，指针未推进，
-     *    oldSid 仍是事实上的当前会话 → 活跃窗口存活则回滚墓碑自愈；
-     * 2) prevSid == oldSid：轮换已完成但客户端未收到新 sid → 活跃窗口存活
-     *    且 SETNX 消费宽限成功则补发当前 sid；
-     * 3) 其余（活跃窗口失效 / prevSid 不匹配 / 宽限已耗尽 / 指针缺失 / 会话缺失）：
-     *    盗用或休眠 → 整族吊销 + 拒绝。
+     * 活跃窗口存活则回滚墓碑自愈，否则整族吊销；
+     * 2) prevSid == oldSid：轮换已完成但客户端未收到新 sid，活跃窗口存活则
+     * 宽限补发当前 sid（窗口内计数限次，容忍并发突发），超限整族吊销；
+     * 3) 其余（指针缺失 / prevSid 不匹配 / 会话缺失 / 休眠失效）：整族吊销 + 拒绝。
      */
     private Mono<LoginUser> handleReplay(ServerWebExchange exchange, String oldSid, String familyId) {
         return redisTemplate.opsForValue().get(FAMILY_PREFIX + familyId)
                 .filter(StringUtils::hasText)
                 .flatMap(currentSid -> {
                     if (currentSid.equals(oldSid)) {
-                        // 轮换中断自愈：回滚墓碑前同样受 2 天活跃窗口约束
-                        log.warn("轮换中断自愈，回滚墓碑: oldSid={}", oldSid);
-                        return requireActiveWindow(oldSid)
-                                .then(redisTemplate.delete(ROTATED_PREFIX + oldSid))
-                                .then(loadSessionInfo(oldSid))
-                                .flatMap(info -> Mono.just(info.loginUser()))
-                                .switchIfEmpty(Mono.defer(
-                                        () -> killFamily(familyId, oldSid).then(reject())));
+                        return rollbackTombstone(familyId, oldSid);
                     }
-                    // 宽限补发：currentSid 的活跃窗口必须存活，且 prevSid 匹配、宽限未耗尽
-                    return requireActiveWindow(currentSid)
-                            .then(loadSessionInfo(currentSid))
-                            .flatMap(info -> {
-                                if (!oldSid.equals(info.prevSid())) {
-                                    return killFamily(familyId, currentSid).then(reject());
-                                }
-                                var graceKey = GRACE_PREFIX + currentSid + ":" + oldSid;
-                                return redisTemplate.opsForValue()
-                                        .setIfAbsent(graceKey, "1", ACTIVE_TTL)
-                                        .flatMap(granted -> {
-                                            if (!Boolean.TRUE.equals(granted)) {
-                                                return killFamily(familyId, currentSid).then(reject());
-                                            }
-                                            exchange.getResponse().getHeaders()
-                                                    .set(NEW_SESSION_HEADER, currentSid);
-                                            log.warn("旧会话宽限补发: oldSid={} -> currentSid={}",
-                                                    oldSid, currentSid);
-                                            return Mono.just(info.loginUser());
-                                        });
-                            })
-                            .switchIfEmpty(Mono.defer(
-                                    () -> killFamily(familyId, currentSid).then(reject())));
+                    return graceReissue(exchange, familyId, oldSid, currentSid);
                 })
                 .switchIfEmpty(Mono.defer(() -> killFamily(familyId, null).then(reject())));
+    }
+
+    /**
+     * 终局1：轮换在"墓碑 → 家族指针"之间崩溃 → 活跃窗口存活则回滚墓碑自愈。
+     * 活跃窗口失效（休眠超 2 天）或会话缺失 → 整族吊销 + 拒绝。
+     */
+    private Mono<LoginUser> rollbackTombstone(String familyId, String oldSid) {
+        return refreshActiveWindow(oldSid)
+                .flatMap(active -> {
+                    if (!Boolean.TRUE.equals(active)) {
+                        log.warn("休眠旧会话触发回滚，整族吊销: familyId={}", familyId);
+                        return killFamily(familyId, oldSid).then(reject());
+                    }
+                    log.warn("轮换中断自愈，回滚墓碑: oldSid={}", oldSid);
+                    return redisTemplate.delete(ROTATED_PREFIX + oldSid)
+                            .then(loadSessionInfo(oldSid))
+                            .map(SessionInfo::loginUser);
+                })
+                .switchIfEmpty(Mono.defer(() -> killFamily(familyId, oldSid).then(reject())));
+    }
+
+    /**
+     * 终局2：轮换已完成（prevSid 匹配）→ 宽限补发。
+     * 当前 sid 活跃窗口必须存活；prevSid 不匹配或会话缺失 → 整族吊销 + 拒绝。
+     */
+    private Mono<LoginUser> graceReissue(ServerWebExchange exchange, String familyId,
+                                         String oldSid, String currentSid) {
+        return refreshActiveWindow(currentSid)
+                .flatMap(active -> {
+                    if (!Boolean.TRUE.equals(active)) {
+                        log.warn("休眠会话重放，整族吊销: familyId={}", familyId);
+                        return killFamily(familyId, currentSid).then(reject());
+                    }
+                    return loadSessionInfo(currentSid)
+                            .flatMap(info -> {
+                                if (!oldSid.equals(info.prevSid())) {
+                                    log.warn("prevSid 不匹配，整族吊销: oldSid={}", oldSid);
+                                    return killFamily(familyId, currentSid).then(reject());
+                                }
+                                return grantGrace(exchange, familyId, oldSid, currentSid, info);
+                            });
+                })
+                .switchIfEmpty(Mono.defer(() -> killFamily(familyId, currentSid).then(reject())));
+    }
+
+    /**
+     * 宽限计数（无 Lua）：INCR 原子计数，窗口内最多 {@link #GRACE_MAX_GRANTS} 次补发。
+     * <p>
+     * 一次性 SETNX 策略对"轮换瞬间的并发 / 多标签页突发"过于激进：第 2 个滞后请求
+     * 就会触发整族吊销，连带删除刚下发的新 sid。计数窗口容忍突发；持续超限视为盗用。
+     * 首次计数时设置窗口 TTL（后续不续期，避免滑动窗口被持续利用）。
+     */
+    private Mono<LoginUser> grantGrace(ServerWebExchange exchange, String familyId,
+                                       String oldSid, String currentSid, SessionInfo info) {
+        var graceKey = GRACE_PREFIX + currentSid + ":" + oldSid;
+        return redisTemplate.opsForValue().increment(graceKey)
+                .switchIfEmpty(Mono.defer(() -> killFamily(familyId, currentSid).then(reject())))
+                .flatMap(count -> {
+                    if (count == 1L) {
+                        return redisTemplate.expire(graceKey, ACTIVE_TTL).thenReturn(count);
+                    }
+                    return Mono.just(count);
+                })
+                .flatMap(count -> {
+                    if (count > GRACE_MAX_GRANTS) {
+                        log.warn("宽限次数超限({}/{}), 判定为持续重放: oldSid={}",
+                                count, GRACE_MAX_GRANTS, oldSid);
+                        return killFamily(familyId, currentSid).then(reject());
+                    }
+                    exchange.getResponse().getHeaders().set(NEW_SESSION_HEADER, currentSid);
+                    log.warn("旧会话宽限补发({}/{}): oldSid={} -> currentSid={}",
+                            count, GRACE_MAX_GRANTS, oldSid, currentSid);
+                    return Mono.just(info.loginUser());
+                });
     }
 
     /**
@@ -204,27 +271,26 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     /**
-     * 活跃窗口检查 + 续期：session:last:{sid} 不存在则返回 empty（休眠超 2 天）。
-     * 存在则续期。重放宽限/回滚路径复用，与正常路径 loadActiveSession 同一套规则。
+     * 活跃窗口检查 + 续期：session:last:{sid} 不存在 → false（休眠超 2 天），
+     * 存在则续期并返回 true。统一以布尔判定供调用方 flatMap 控制后续分支——
+     * 切勿改用 then() 串联（Reactor 的 then 对空信号不拦截，会绕过闸门）。
      */
-    private Mono<Void> requireActiveWindow(String sid) {
+    private Mono<Boolean> refreshActiveWindow(String sid) {
         return redisTemplate.opsForValue().get(ACTIVE_PREFIX + sid)
                 .filter(StringUtils::hasText)
-                .flatMap(active -> redisTemplate.opsForValue()
-                        .set(ACTIVE_PREFIX + sid, ACTIVE_VALUE, ACTIVE_TTL)
-                        .then());
+                .flatMap(_ -> redisTemplate.opsForValue()
+                        .set(ACTIVE_PREFIX + sid, ACTIVE_VALUE, ACTIVE_TTL))
+                .defaultIfEmpty(false);
     }
 
     /**
      * 正常路径：活跃窗口（2 天不活跃即失效）→ 读取 session → rotateAt 到期则轮换
      */
     private Mono<LoginUser> loadActiveSession(ServerWebExchange exchange, String sessionId) {
-        return redisTemplate.opsForValue().get(ACTIVE_PREFIX + sessionId)
-                .filter(StringUtils::hasText)
-                .flatMap(_ -> redisTemplate.opsForValue()
-                        .set(ACTIVE_PREFIX + sessionId, ACTIVE_VALUE, ACTIVE_TTL)
-                        .then(loadSessionInfo(sessionId)))
-                .flatMap(info -> maybeRotate(exchange, sessionId, info));
+        return refreshActiveWindow(sessionId)
+                .flatMap(active -> Boolean.TRUE.equals(active)
+                        ? loadSessionInfo(sessionId).flatMap(info -> maybeRotate(exchange, sessionId, info))
+                        : Mono.empty());
     }
 
     private Mono<SessionInfo> loadSessionInfo(String sessionId) {
@@ -316,7 +382,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         response.getHeaders().setCacheControl(CacheControl.noStore().getHeaderValue());
         var buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
         var cleanup = StringUtils.hasText(sessionId)
-                ? redisTemplate.delete(SESSION_PREFIX + sessionId, ACTIVE_PREFIX + sessionId).then()
+                ? redisTemplate.delete(SESSION_PREFIX + sessionId, ACTIVE_PREFIX + sessionId)
+                .onErrorResume(e -> {
+                            log.warn("⚠️ 鉴权失败清理会话键失败（Redis 不可用）: sid={}", sessionId, e);
+                            return Mono.empty();
+                        })
+                .then()
                 : Mono.empty();
         return cleanup.then(response.writeWith(Mono.just(buffer)));
     }
@@ -353,7 +424,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
 
     /**
      * 会话信息：直接存 Redis，JWT 不参与认证。
-     * 宽限额度不在 JSON 中，由独立 key（session:grace:...）SETNX 消费
+     * 宽限额度不在 JSON 中，由独立计数键（session:grace:...）维护
      */
     private record SessionInfo(String userId, String username, String familyId,
                                long createdAt, long rotateAt, String prevSid) {
@@ -418,7 +489,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
             // 带 Content-Length 的超大 body 已在 getBody 预检处透传，根本不会走到这里
             return DataBufferUtils.join(super.getBody(), MAX_BODY_BUFFER_SIZE)
                     .timeout(BODY_READ_TIMEOUT)
-                    .map(this::drainBuffer)
+                    .map(BodyRewriteDecorator::drainBuffer)
                     .flatMap(bytes -> Mono.fromCallable(() -> injectLoginUser(bytes, loginUser))
                             .subscribeOn(Schedulers.boundedElastic())
                             .onErrorReturn(bytes))
@@ -437,7 +508,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                                     "请求体读取超时", e));
         }
 
-        private byte[] drainBuffer(DataBuffer dataBuffer) {
+        private static byte[] drainBuffer(DataBuffer dataBuffer) {
             byte[] bytes = new byte[dataBuffer.readableByteCount()];
             dataBuffer.read(bytes);
             DataBufferUtils.release(dataBuffer);
@@ -456,8 +527,11 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         public HttpHeaders getHeaders() {
             var headers = new HttpHeaders();
             headers.putAll(super.getHeaders());
-            if (isJsonContentType(super.getHeaders().getContentType())) {
-                // Body 被重写后长度必然变化，必须移除旧 Content-Length
+            // 仅当 body 确实会被重写（JSON 且未超限透传）时才必须移除旧 Content-Length；
+            // 透传分支保留原始长度头，避免无谓地退化为 chunked
+            var contentType = super.getHeaders().getContentType();
+            if (isJsonContentType(contentType)
+                    && super.getHeaders().getContentLength() <= MAX_BODY_BUFFER_SIZE) {
                 headers.remove(HttpHeaders.CONTENT_LENGTH);
             }
             return headers;

@@ -19,6 +19,8 @@ public class LogoutController {
     private static final String SESSION_PREFIX = "session:";
     private static final String ACTIVE_PREFIX = "session:last:";
     private static final String FAMILY_PREFIX = "session:family:";
+    private static final String ROTATED_PREFIX = "rotated:";
+    private static final String FAMILY_ID_FIELD = "familyId";
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final ReactiveStringRedisTemplate redisTemplate;
@@ -46,23 +48,39 @@ public class LogoutController {
 
     /**
      * 登出 = 整族吊销：删当前 session、活跃窗口、家族指针。
-     * 家族内其他 sid 因家族指针失效，无法再通过轮换/宽限路径续命。
+     * familyId 解析优先取会话本体；若持有的是已被轮换的旧 sid（会话键已删），
+     * 回退读墓碑 rotated:{sid}（其值即 familyId），确保"多标签页 / 漏读
+     * X-New-Session"场景下登出依然彻底。
      */
     private Mono<Void> destroySession(String sessionId) {
-        return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
-                .filter(StringUtils::isNotBlank)
-                .flatMap(json -> Mono.fromCallable(() ->
-                                JSONUtil.parseObj(json).getStr("familyId"))
-                        .subscribeOn(Schedulers.boundedElastic()))
-                .filter(StringUtils::isNotBlank)
-                .flatMap(familyId -> redisTemplate.opsForValue().get(FAMILY_PREFIX + familyId)
-                        .filter(StringUtils::isNotBlank)
-                        .flatMap(currentSid -> redisTemplate.delete(
-                                SESSION_PREFIX + currentSid,
-                                ACTIVE_PREFIX + currentSid,
-                                FAMILY_PREFIX + familyId).then()))
+        return resolveFamilyId(sessionId)
+                .flatMap(this::revokeFamily)
                 .then(redisTemplate.delete(SESSION_PREFIX + sessionId, ACTIVE_PREFIX + sessionId))
                 .then()
                 .doOnSuccess(v -> log.info("用户登出: sessionId={}", sessionId));
+    }
+
+    private Mono<String> resolveFamilyId(String sessionId) {
+        return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
+                .filter(StringUtils::isNotBlank)
+                .flatMap(json -> Mono.fromCallable(
+                                () -> JSONUtil.parseObj(json).getStr(FAMILY_ID_FIELD))
+                        .subscribeOn(Schedulers.boundedElastic()))
+                .filter(StringUtils::isNotBlank)
+                .switchIfEmpty(redisTemplate.opsForValue().get(ROTATED_PREFIX + sessionId)
+                        .filter(StringUtils::isNotBlank));
+    }
+
+    /**
+     * 吊销家族：删除家族指针指向的当前 sid（session + 活跃窗口），并清空指针
+     */
+    private Mono<Void> revokeFamily(String familyId) {
+        return redisTemplate.opsForValue().get(FAMILY_PREFIX + familyId)
+                .filter(StringUtils::isNotBlank)
+                .flatMap(currentSid -> redisTemplate.delete(
+                        SESSION_PREFIX + currentSid,
+                        ACTIVE_PREFIX + currentSid).then())
+                .then(redisTemplate.delete(FAMILY_PREFIX + familyId))
+                .then();
     }
 }
