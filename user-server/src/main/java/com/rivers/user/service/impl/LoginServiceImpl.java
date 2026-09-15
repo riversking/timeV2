@@ -3,7 +3,9 @@ package com.rivers.user.service.impl;
 import cn.hutool.core.text.CharSequenceUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.rivers.core.constant.SessionConstant;
 import com.rivers.core.entity.LoginUser;
+import com.rivers.core.entity.SessionInfo;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.config.QrCodeWebSocketHandler;
@@ -14,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -33,34 +36,30 @@ public class LoginServiceImpl implements ILoginService {
     private static final String QR_STATUS_PREFIX = "qr:status:";
     private static final String QR_USER_PREFIX = "qr:user:";
     private static final String QR_SESSION_PREFIX = "qr:session:";
-    private static final String SESSION_PREFIX = "session:";
-    private static final String FAMILY_PREFIX = "session:family:";
-    private static final String ACTIVE_PREFIX = "session:last:";
     private static final String BASIC_AUTH_PREFIX = "Basic ";
     private static final long QR_CODE_EXPIRE_SECONDS = 300L;
-    private static final long SESSION_EXPIRE_DAYS = 30L;
     private static final long FAIL_LIMIT = 5L;
     private static final long FAIL_WINDOW_HOURS = 1L;
     private static final String NO_USER = "用户不存在";
     private static final String BAD_CREDENTIALS = "用户名或密码错误";
     private static final String SCANNED = "SCANNED";
-    private static final Duration SESSION_TTL = Duration.ofDays(SESSION_EXPIRE_DAYS);
     private static final Duration QR_TTL = Duration.ofSeconds(QR_CODE_EXPIRE_SECONDS);
-    private static final Duration ACTIVE_TTL = Duration.ofDays(2);
-    private static final Duration ROTATE_INTERVAL = Duration.ofHours(12);
     private static final String USER_ID = "userId";
     private static final String USERNAME = "username";
 
     private final TimerUserMapper timerUserMapper;
     private final QrCodeWebSocketHandler qrCodeWebSocketHandler;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
 
     public LoginServiceImpl(TimerUserMapper timerUserMapper,
                             QrCodeWebSocketHandler qrCodeWebSocketHandler,
-                            StringRedisTemplate stringRedisTemplate) {
+                            StringRedisTemplate stringRedisTemplate,
+                            ObjectMapper objectMapper) {
         this.timerUserMapper = timerUserMapper;
         this.qrCodeWebSocketHandler = qrCodeWebSocketHandler;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -220,22 +219,20 @@ public class LoginServiceImpl implements ILoginService {
      * session JSON 直接存用户信息（无 JWT）。
      * 配套写家族指针（session:family:{familyId}）与活跃窗口（session:last:{sid}），
      * 轮换/宽限/盗用吊销由网关基于这三个键完成。
+     * 键名/结构契约见 {@link SessionConstant} / {@link SessionInfo}（rivers-core 统一定义）。
      */
     private String buildSession(LoginUser loginUser) {
         var sessionId = UUID.randomUUID().toString();
         var familyId = UUID.randomUUID().toString();
-        var now = System.currentTimeMillis();
-        var session = Map.of(
-                USER_ID, loginUser.getUserId(),
-                USERNAME, loginUser.getUsername(),
-                "familyId", familyId,
-                "createdAt", now,
-                "rotateAt", now + ROTATE_INTERVAL.toMillis(),
-                "prevSid", "");
-        var json = JSONUtil.toJsonStr(session);
-        stringRedisTemplate.opsForValue().set(SESSION_PREFIX + sessionId, json, SESSION_TTL);
-        stringRedisTemplate.opsForValue().set(FAMILY_PREFIX + familyId, sessionId, SESSION_TTL);
-        stringRedisTemplate.opsForValue().set(ACTIVE_PREFIX + sessionId, "1", ACTIVE_TTL);
+        var session = SessionInfo.create(loginUser.getUserId(), loginUser.getUsername(), familyId);
+        var json = objectMapper.writeValueAsString(session);
+        stringRedisTemplate.opsForValue()
+                .set(SessionConstant.session(sessionId), json, SessionConstant.SESSION_TTL);
+        stringRedisTemplate.opsForValue()
+                .set(SessionConstant.family(familyId), sessionId, SessionConstant.SESSION_TTL);
+        stringRedisTemplate.opsForValue()
+                .set(SessionConstant.active(sessionId), SessionConstant.ACTIVE_VALUE,
+                        SessionConstant.ACTIVE_TTL);
         return sessionId;
     }
 

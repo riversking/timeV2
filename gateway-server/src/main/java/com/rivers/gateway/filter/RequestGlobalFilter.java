@@ -1,7 +1,9 @@
 package com.rivers.gateway.filter;
 
 import com.rivers.core.config.FilterIgnorePropertiesConfig;
+import com.rivers.core.constant.SessionConstant;
 import com.rivers.core.entity.LoginUser;
+import com.rivers.core.entity.SessionInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
@@ -31,8 +33,6 @@ import tools.jackson.databind.node.ObjectNode;
 import java.io.Serial;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -40,11 +40,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * 网关统一鉴权 — 纯 Session Bearer 模式（无 JWT / 无 Lua）
  * <p>
- * session:{sid}                  TTL=30d → {userId, username, familyId, createdAt, rotateAt, prevSid}
- * session:family:{familyId}      TTL=30d → 当前有效 sid（家族指针，只由墓碑赢家写入）
- * rotated:{oldSid}               TTL=30d → 墓碑，旧 sid 重放检测
- * session:last:{sid}             TTL=2d  → 活跃窗口，每请求续期；未命中视为不活跃登出
- * session:grace:{sid}:{oldSid}   TTL=2d  → 宽限计数窗口，首次计数设置 TTL，窗口内限次补发
+ * 会话键名 / TTL / 轮换周期契约见 {@link SessionConstant}，会话 JSON 结构见 {@link SessionInfo}
+ * （由 rivers-core 统一定义，user-server 创建，网关轮换 / 宽限 / 吊销）。
  * <p>
  * 轮换：每 12h（rotateAt 到期）以"墓碑 SETNX"抢占轮换权，赢家才推进家族指针并删旧键，
  * 新 sid 通过响应头 X-New-Session 下发；旧 sid 重放 → 回滚自愈 / 宽限限次补发 / 整族吊销（终局）。
@@ -59,17 +56,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class RequestGlobalFilter implements WebFilter, Ordered {
 
     private static final String CODE_401 = "{\"code\":401,\"message\":\"鉴权失败\"}";
-    private static final String SESSION_PREFIX = "session:";
-    private static final String ACTIVE_PREFIX = "session:last:";
-    private static final String FAMILY_PREFIX = "session:family:";
-    private static final String ROTATED_PREFIX = "rotated:";
-    private static final String GRACE_PREFIX = "session:grace:";
-    private static final String BEARER_PREFIX = "Bearer ";
-    private static final String ACTIVE_VALUE = "1";
-    private static final String NEW_SESSION_HEADER = "X-New-Session";
-    private static final Duration ACTIVE_TTL = Duration.ofDays(2);
-    private static final Duration SESSION_TTL = Duration.ofDays(30);
-    private static final long ROTATE_INTERVAL_MILLIS = Duration.ofHours(12).toMillis();
     /**
      * 宽限窗口内允许的补发次数上限（容忍轮换瞬间的并发 / 多标签页突发）
      */
@@ -78,12 +64,6 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     public static final String LOGIN_USER = "loginUser";
     private static final int MAX_BODY_BUFFER_SIZE = 1024 * 1024;
     private static final Duration BODY_READ_TIMEOUT = Duration.ofSeconds(30);
-    /**
-     * 重发窗口：落后不超过 REISSUE_WINDOW 代的陈旧 sid 可经宽限补发自愈；
-     * 超出窗口只拒绝、不整族吊销。窗口同时也是被盗旧令牌的"升级上限"，
-     * 追求更严防盗用可调小（1 代 = 旧行为），追求多端自愈可保持 3。
-     */
-    private static final int REISSUE_WINDOW = 3;
 
     private final FilterIgnorePropertiesConfig filterIgnorePropertiesConfig;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -144,11 +124,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
 
     private @Nullable String extractSessionId(ServerHttpRequest request) {
         var auth = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        if (auth == null || auth.length() <= BEARER_PREFIX.length()
-                || !auth.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
+        if (auth == null || auth.length() <= SessionConstant.BEARER_PREFIX.length()
+                || !auth.regionMatches(true, 0, SessionConstant.BEARER_PREFIX, 0,
+                SessionConstant.BEARER_PREFIX.length())) {
             return null;
         }
-        var sessionId = auth.substring(BEARER_PREFIX.length());
+        var sessionId = auth.substring(SessionConstant.BEARER_PREFIX.length());
         return StringUtils.hasText(sessionId) ? sessionId : null;
     }
 
@@ -159,7 +140,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     // ═══════════════════════════════════════════════════════════════
     private Mono<LoginUser> loadValidUser(ServerWebExchange exchange, String sessionId) {
         // 第一步：墓碑检测。无墓碑 → empty → 走正常路径；有墓碑 → handleReplay 终局
-        return redisTemplate.opsForValue().get(ROTATED_PREFIX + sessionId)
+        return redisTemplate.opsForValue().get(SessionConstant.rotated(sessionId))
                 .filter(StringUtils::hasText)
                 .flatMap(familyId -> handleReplay(exchange, sessionId, familyId))
                 .switchIfEmpty(Mono.defer(() -> loadActiveSession(exchange, sessionId)));
@@ -173,7 +154,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
      * 轮换赢家保证"先写墓碑、再删旧键"，因此该窗口内墓碑必然已存在。
      */
     private Mono<LoginUser> handleMissedRotation(ServerWebExchange exchange, String sessionId) {
-        return redisTemplate.opsForValue().get(ROTATED_PREFIX + sessionId)
+        return redisTemplate.opsForValue().get(SessionConstant.rotated(sessionId))
                 .filter(StringUtils::hasText)
                 .flatMap(familyId -> handleReplay(exchange, sessionId, familyId))
                 .switchIfEmpty(Mono.defer(() -> reject401(exchange, sessionId)));
@@ -195,7 +176,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
      * 3) 其余（指针缺失 / prevSid 不匹配 / 会话缺失 / 休眠失效）：整族吊销 + 拒绝。
      */
     private Mono<LoginUser> handleReplay(ServerWebExchange exchange, String oldSid, String familyId) {
-        return redisTemplate.opsForValue().get(FAMILY_PREFIX + familyId)
+        return redisTemplate.opsForValue().get(SessionConstant.family(familyId))
                 .filter(StringUtils::hasText)
                 .flatMap(currentSid -> {
                     if (currentSid.equals(oldSid)) {
@@ -218,7 +199,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                         return killFamily(familyId, oldSid).then(reject());
                     }
                     log.warn("轮换中断自愈，回滚墓碑: oldSid={}", oldSid);
-                    return redisTemplate.delete(ROTATED_PREFIX + oldSid)
+                    return redisTemplate.delete(SessionConstant.rotated(oldSid))
                             .then(loadSessionInfo(oldSid))
                             .map(SessionInfo::loginUser);
                 })
@@ -243,7 +224,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                                     // 超出重发窗口：只拒绝这个陈旧 sid，不整族吊销。
                                     // 陈旧令牌对攻击者价值最低，株连当前合法持有者得不偿失
                                     log.warn("旧 sid 超出重发窗口({}代)，仅拒绝: oldSid={}",
-                                            REISSUE_WINDOW, oldSid);
+                                            SessionConstant.REISSUE_WINDOW, oldSid);
                                     return reject();
                                 }
                                 return grantGrace(exchange, familyId, oldSid, currentSid, info);
@@ -261,12 +242,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
      */
     private Mono<LoginUser> grantGrace(ServerWebExchange exchange, String familyId,
                                        String oldSid, String currentSid, SessionInfo info) {
-        var graceKey = GRACE_PREFIX + currentSid + ":" + oldSid;
+        var graceKey = SessionConstant.grace(currentSid, oldSid);
         return redisTemplate.opsForValue().increment(graceKey)
                 .switchIfEmpty(Mono.defer(() -> killFamily(familyId, currentSid).then(reject())))
                 .flatMap(count -> {
                     if (count == 1L) {
-                        return redisTemplate.expire(graceKey, ACTIVE_TTL).thenReturn(count);
+                        return redisTemplate.expire(graceKey, SessionConstant.ACTIVE_TTL).thenReturn(count);
                     }
                     return Mono.just(count);
                 })
@@ -276,7 +257,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                                 count, GRACE_MAX_GRANTS, oldSid);
                         return killFamily(familyId, currentSid).then(reject());
                     }
-                    exchange.getResponse().getHeaders().set(NEW_SESSION_HEADER, currentSid);
+                    exchange.getResponse().getHeaders().set(SessionConstant.NEW_SESSION_HEADER, currentSid);
                     log.warn("旧会话宽限补发({}/{}): oldSid={} -> currentSid={}",
                             count, GRACE_MAX_GRANTS, oldSid, currentSid);
                     return Mono.just(info.loginUser());
@@ -292,10 +273,10 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         log.warn("检测到旧会话重放，整族吊销: familyId={}", familyId);
         return StringUtils.hasText(currentSid)
                 ? redisTemplate.delete(
-                SESSION_PREFIX + currentSid,
-                ACTIVE_PREFIX + currentSid,
-                FAMILY_PREFIX + familyId).then()
-                : redisTemplate.delete(FAMILY_PREFIX + familyId).then();
+                SessionConstant.session(currentSid),
+                SessionConstant.active(currentSid),
+                SessionConstant.family(familyId)).then()
+                : redisTemplate.delete(SessionConstant.family(familyId)).then();
     }
 
     /**
@@ -304,10 +285,11 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
      * 切勿改用 then() 串联（Reactor 的 then 对空信号不拦截，会绕过闸门）。
      */
     private Mono<Boolean> refreshActiveWindow(String sid) {
-        return redisTemplate.opsForValue().get(ACTIVE_PREFIX + sid)
+        return redisTemplate.opsForValue().get(SessionConstant.active(sid))
                 .filter(StringUtils::hasText)
                 .flatMap(_ -> redisTemplate.opsForValue()
-                        .set(ACTIVE_PREFIX + sid, ACTIVE_VALUE, ACTIVE_TTL))
+                        .set(SessionConstant.active(sid), SessionConstant.ACTIVE_VALUE,
+                                SessionConstant.ACTIVE_TTL))
                 .defaultIfEmpty(false);
     }
 
@@ -322,7 +304,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     }
 
     private Mono<SessionInfo> loadSessionInfo(String sessionId) {
-        return redisTemplate.opsForValue().get(SESSION_PREFIX + sessionId)
+        return redisTemplate.opsForValue().get(SessionConstant.session(sessionId))
                 .filter(StringUtils::hasText)
                 .flatMap(json -> Mono.fromCallable(
                                 () -> objectMapper.readValue(json, SessionInfo.class))
@@ -349,27 +331,31 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         return Mono.fromCallable(() -> objectMapper.writeValueAsString(next))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(json -> redisTemplate.opsForValue()
-                        .set(SESSION_PREFIX + newSid, json, SESSION_TTL)
+                        .set(SessionConstant.session(newSid), json, SessionConstant.SESSION_TTL)
                         .then(redisTemplate.opsForValue()
-                                .set(ACTIVE_PREFIX + newSid, ACTIVE_VALUE, ACTIVE_TTL))
+                                .set(SessionConstant.active(newSid), SessionConstant.ACTIVE_VALUE,
+                                        SessionConstant.ACTIVE_TTL))
                         .then(redisTemplate.opsForValue()
-                                .setIfAbsent(ROTATED_PREFIX + sessionId,
-                                        info.familyId(), SESSION_TTL))
+                                .setIfAbsent(SessionConstant.rotated(sessionId),
+                                        info.familyId(), SessionConstant.SESSION_TTL))
                         .flatMap(acquired -> {
                             if (!Boolean.TRUE.equals(acquired)) {
                                 // 并发已轮换：清理自己的孤儿新键后放行，不写 header，
                                 // 客户端仍持旧 sid，下次请求经宽限路径拿到赢家的新 sid
                                 return redisTemplate.delete(
-                                                SESSION_PREFIX + newSid, ACTIVE_PREFIX + newSid)
+                                                SessionConstant.session(newSid),
+                                                SessionConstant.active(newSid))
                                         .then(Mono.just(info.loginUser()));
                             }
                             // 赢家：先推进家族指针，再删旧键 —— 指针永不悬空
                             return redisTemplate.opsForValue()
-                                    .set(FAMILY_PREFIX + info.familyId(), newSid, SESSION_TTL)
+                                    .set(SessionConstant.family(info.familyId()), newSid,
+                                            SessionConstant.SESSION_TTL)
                                     .then(redisTemplate.delete(
-                                            SESSION_PREFIX + sessionId, ACTIVE_PREFIX + sessionId))
+                                            SessionConstant.session(sessionId),
+                                            SessionConstant.active(sessionId)))
                                     .then(Mono.fromRunnable(() -> exchange.getResponse()
-                                            .getHeaders().set(NEW_SESSION_HEADER, newSid)))
+                                            .getHeaders().set(SessionConstant.NEW_SESSION_HEADER, newSid)))
                                     .thenReturn(info.loginUser());
                         }));
     }
@@ -410,7 +396,8 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         response.getHeaders().setCacheControl(CacheControl.noStore().getHeaderValue());
         var buffer = response.bufferFactory().wrap(CODE_401.getBytes(StandardCharsets.UTF_8));
         var cleanup = StringUtils.hasText(sessionId)
-                ? redisTemplate.delete(SESSION_PREFIX + sessionId, ACTIVE_PREFIX + sessionId)
+                ? redisTemplate.delete(SessionConstant.session(sessionId),
+                        SessionConstant.active(sessionId))
                 .onErrorResume(e -> {
                     log.warn("⚠️ 鉴权失败清理会话键失败（Redis 不可用）: sid={}", sessionId, e);
                     return Mono.empty();
@@ -448,49 +435,6 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     @Override
     public int getOrder() {
         return -1000;
-    }
-
-    /**
-     * 会话信息：直接存 Redis，JWT 不参与认证。
-     * 宽限额度不在 JSON 中，由独立计数键（session:grace:...）维护
-     */
-    private record SessionInfo(String userId, String username, String familyId,
-                               long createdAt, long rotateAt, String prevSid,
-                               List<String> prevSids) {
-
-        LoginUser loginUser() {
-            var u = new LoginUser();
-            u.setUserId(userId);
-            u.setUsername(username);
-            return u;
-        }
-
-        /**
-         * 轮换生成下一代会话：把被轮换掉的 sid 滚入代际窗口头部，截断到 REISSUE_WINDOW。
-         * prevSids 为 null（旧格式会话首次轮换）时窗口退化为仅含该 sid。
-         */
-        SessionInfo rotate(String prevSid) {
-            var window = new ArrayList<String>(REISSUE_WINDOW);
-            window.add(prevSid);
-            for (var sid : prevSids) {
-                if (window.size() >= REISSUE_WINDOW) {
-                    break;
-                }
-                window.add(sid);
-            }
-            return new SessionInfo(userId, username, familyId, createdAt,
-                    System.currentTimeMillis() + ROTATE_INTERVAL_MILLIS,
-                    prevSid, List.copyOf(window));
-        }
-
-        /**
-         * 本会话能否为 oldSid 担保（即在重发窗口内）。
-         * prevSid 单独保留：一是兼容旧格式数据（prevSids 缺失时自动退化为旧行为），
-         * 二是"落后恰好一代"是最高频场景，判定最直接。
-         */
-        boolean vouchesFor(String oldSid) {
-            return oldSid.equals(prevSid) || prevSids.contains(oldSid);
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════
