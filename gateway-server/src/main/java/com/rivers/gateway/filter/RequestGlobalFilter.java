@@ -31,6 +31,8 @@ import tools.jackson.databind.node.ObjectNode;
 import java.io.Serial;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,7 +58,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @NullMarked
 public class RequestGlobalFilter implements WebFilter, Ordered {
 
-    private static final String CODE_401 = "{\"code\":401,\"msg\":\"鉴权失败\"}";
+    private static final String CODE_401 = "{\"code\":401,\"message\":\"鉴权失败\"}";
     private static final String SESSION_PREFIX = "session:";
     private static final String ACTIVE_PREFIX = "session:last:";
     private static final String FAMILY_PREFIX = "session:family:";
@@ -76,6 +78,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
     public static final String LOGIN_USER = "loginUser";
     private static final int MAX_BODY_BUFFER_SIZE = 1024 * 1024;
     private static final Duration BODY_READ_TIMEOUT = Duration.ofSeconds(30);
+    /**
+     * 重发窗口：落后不超过 REISSUE_WINDOW 代的陈旧 sid 可经宽限补发自愈；
+     * 超出窗口只拒绝、不整族吊销。窗口同时也是被盗旧令牌的"升级上限"，
+     * 追求更严防盗用可调小（1 代 = 旧行为），追求多端自愈可保持 3。
+     */
+    private static final int REISSUE_WINDOW = 3;
 
     private final FilterIgnorePropertiesConfig filterIgnorePropertiesConfig;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -106,14 +114,31 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         if (sessionId == null) {
             return clearSessionAnd401(exchange, null);
         }
+        // 阶段分离：鉴权阶段的失败在 authenticate 内部收敛为 401；
+        // 转发阶段的失败不再触碰会话键，仅记录日志后原样抛出，
+        // 交由 WebFlux 默认错误处理（未提交响应 → 500；已提交 → 框架丢弃并记日志）。
+        return authenticate(exchange, sessionId, path)
+                .flatMap(user -> forwardWithIdentity(exchange, chain, user))
+                .onErrorResume(e -> {
+                    log.error("网关转发异常（不影响会话）: path={}", path, e);
+                    return Mono.error(e);
+                });
+    }
+
+    /**
+     * 鉴权阶段：loadValidUser + 重放兜底，所有失败路径在本方法内完成 401 响应写入
+     * （fail-closed），返回 empty 表示 401 已写入、不再转发；异常绝不外溢到转发阶段。
+     */
+    private Mono<LoginUser> authenticate(ServerWebExchange exchange, String sessionId, String path) {
         return loadValidUser(exchange, sessionId)
                 .switchIfEmpty(Mono.defer(() -> handleMissedRotation(exchange, sessionId)))
-                .flatMap(user -> forwardWithIdentity(exchange, chain, user))
-                .onErrorResume(ReplayRejectedException.class,
-                        _ -> clearSessionAnd401(exchange, sessionId).then())
-                        .onErrorResume(e -> {
-                    log.error("❌ 网关鉴权异常，fail-closed 返回 401: path={}", path, e);
-                    return clearSessionAnd401(exchange, sessionId);
+                .onErrorResume(ReplayRejectedException.class, _ -> {
+                    log.warn("旧会话重放被拒，整族吊销: sessionId={}", sessionId);
+                    return clearSessionAnd401(exchange, sessionId).then(Mono.<LoginUser>empty());
+                })
+                .onErrorResume(e -> {
+                    log.error("网关鉴权异常，fail-closed 返回 401: path={}", path, e);
+                    return clearSessionAnd401(exchange, sessionId).then(Mono.<LoginUser>empty());
                 });
     }
 
@@ -214,9 +239,12 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
                     }
                     return loadSessionInfo(currentSid)
                             .flatMap(info -> {
-                                if (!oldSid.equals(info.prevSid())) {
-                                    log.warn("prevSid 不匹配，整族吊销: oldSid={}", oldSid);
-                                    return killFamily(familyId, currentSid).then(reject());
+                                if (!info.vouchesFor(oldSid)) {
+                                    // 超出重发窗口：只拒绝这个陈旧 sid，不整族吊销。
+                                    // 陈旧令牌对攻击者价值最低，株连当前合法持有者得不偿失
+                                    log.warn("旧 sid 超出重发窗口({}代)，仅拒绝: oldSid={}",
+                                            REISSUE_WINDOW, oldSid);
+                                    return reject();
                                 }
                                 return grantGrace(exchange, familyId, oldSid, currentSid, info);
                             });
@@ -384,9 +412,9 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         var cleanup = StringUtils.hasText(sessionId)
                 ? redisTemplate.delete(SESSION_PREFIX + sessionId, ACTIVE_PREFIX + sessionId)
                 .onErrorResume(e -> {
-                            log.warn("⚠️ 鉴权失败清理会话键失败（Redis 不可用）: sid={}", sessionId, e);
-                            return Mono.empty();
-                        })
+                    log.warn("⚠️ 鉴权失败清理会话键失败（Redis 不可用）: sid={}", sessionId, e);
+                    return Mono.empty();
+                })
                 .then()
                 : Mono.empty();
         return cleanup.then(response.writeWith(Mono.just(buffer)));
@@ -427,7 +455,9 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
      * 宽限额度不在 JSON 中，由独立计数键（session:grace:...）维护
      */
     private record SessionInfo(String userId, String username, String familyId,
-                               long createdAt, long rotateAt, String prevSid) {
+                               long createdAt, long rotateAt, String prevSid,
+                               List<String> prevSids) {
+
         LoginUser loginUser() {
             var u = new LoginUser();
             u.setUserId(userId);
@@ -435,9 +465,31 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
             return u;
         }
 
+        /**
+         * 轮换生成下一代会话：把被轮换掉的 sid 滚入代际窗口头部，截断到 REISSUE_WINDOW。
+         * prevSids 为 null（旧格式会话首次轮换）时窗口退化为仅含该 sid。
+         */
         SessionInfo rotate(String prevSid) {
+            var window = new ArrayList<String>(REISSUE_WINDOW);
+            window.add(prevSid);
+            for (var sid : prevSids) {
+                if (window.size() >= REISSUE_WINDOW) {
+                    break;
+                }
+                window.add(sid);
+            }
             return new SessionInfo(userId, username, familyId, createdAt,
-                    System.currentTimeMillis() + ROTATE_INTERVAL_MILLIS, prevSid);
+                    System.currentTimeMillis() + ROTATE_INTERVAL_MILLIS,
+                    prevSid, List.copyOf(window));
+        }
+
+        /**
+         * 本会话能否为 oldSid 担保（即在重发窗口内）。
+         * prevSid 单独保留：一是兼容旧格式数据（prevSids 缺失时自动退化为旧行为），
+         * 二是"落后恰好一代"是最高频场景，判定最直接。
+         */
+        boolean vouchesFor(String oldSid) {
+            return oldSid.equals(prevSid) || prevSids.contains(oldSid);
         }
     }
 
