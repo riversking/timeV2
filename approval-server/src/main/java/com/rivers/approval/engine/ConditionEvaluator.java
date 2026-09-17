@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.SimpleEvaluationContext;
-import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -15,18 +14,17 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * SpEL 条件评估器，用于排他网关的分支路由。
+ * SpEL 条件评估器：排他网关的规则链与 DSL 边条件共用同一只读求值语义。
  *
- * <p>输入：规则链（按优先级排序）+ 流程变量
- * <br>输出：第一个匹配的规则（含 targetNodeId / outputMapping）
- *
- * <p>规则链来源：flow_rule 表中 definition_id + node_id 对应的规则，
- * 按 priority DESC 排序后逐一评估。
+ * <p>消费方：
+ * <ul>
+ *   <li>{@code ExclusiveGatewayHandler} — 规则链（flow_rule，priority DESC）取首个命中 / 边条件逐个求值</li>
+ *   <li>{@code FlowRuleServiceImpl} — 规则写入时的语法校验（parse 不 eval）</li>
+ * </ul>
  */
 @Component
 @Slf4j
 public class ConditionEvaluator {
-
 
     private final ExpressionParser parser = new SpelExpressionParser();
     private final ObjectMapper objectMapper;
@@ -35,12 +33,10 @@ public class ConditionEvaluator {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 规则链求值：按 priority DESC 逐条、逐 config 求值，返回首个命中。
+     */
     public Optional<EvalResult> evaluate(List<FlowRule> rules, Map<String, Object> variables) {
-        // SimpleEvaluationContext.forReadOnlyDataBinding：
-        // 禁用 T(...) 类型引用、构造器与任意方法调用，仅允许属性访问，
-        // 防止恶意规则注入执行任意代码（如 T(java.lang.Runtime).getRuntime().exec(...)）
-        var ctx = SimpleEvaluationContext.forReadOnlyDataBinding().build();
-        variables.forEach(ctx::setVariable);
         for (var rule : rules) {
             var ruleConfig = parseRuleConfig(rule.getRuleConfig());
             for (var config : ruleConfig) {
@@ -48,17 +44,38 @@ public class ConditionEvaluator {
                 if (condition == null || condition.isBlank()) {
                     continue;
                 }
-                var expr = parser.parseExpression(condition);
-                var result = expr.getValue(ctx, Boolean.class);
-                if (Boolean.TRUE.equals(result)) {
+                if (matches(condition, variables)) {
                     log.info("[ConditionEvaluator] 规则命中 ruleCode={}, condition={}, targetNodeId={}",
                             rule.getRuleCode(), condition, config.targetNodeId());
                     return Optional.of(new EvalResult(config.targetNodeId(), config.outputMapping()));
                 }
             }
         }
-        log.warn("[ConditionEvaluator] 无规则命中，将走默认路径");
+        log.debug("[ConditionEvaluator] 规则链未命中");
         return Optional.empty();
+    }
+
+    /**
+     * 单表达式求值（规则链与 DSL 边条件共用）。
+     * SimpleEvaluationContext.forReadOnlyDataBinding：
+     * 禁用 T(...) 类型引用、构造器与任意方法调用，仅允许属性访问，
+     * 防止恶意规则注入执行任意代码（如 T(java.lang.Runtime).getRuntime().exec(...)）
+     */
+    public boolean matches(String condition, Map<String, Object> variables) {
+        var ctx = SimpleEvaluationContext.forReadOnlyDataBinding().build();
+        if (variables != null) {
+            variables.forEach(ctx::setVariable);
+        }
+        var result = parser.parseExpression(condition).getValue(ctx, Boolean.class);
+        return Boolean.TRUE.equals(result);
+    }
+
+    /**
+     * 仅做 SpEL 语法校验（规则写入时使用），不执行求值；
+     * 语法非法抛出 org.springframework.expression.ParseException。
+     */
+    public void validate(String condition) {
+        parser.parseExpression(condition);
     }
 
     private List<RuleConfigItem> parseRuleConfig(String json) {

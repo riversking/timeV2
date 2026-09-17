@@ -75,4 +75,64 @@ public interface FlowRuleRepository extends ReactiveCrudRepository<FlowRule, Lon
             @Param("id") Long id,
             @Param("enabled") Integer enabled,
             @Param("operator") String operator);
+
+    // ==================== 管理操作（新增） ====================
+
+    /**
+     * 按主键查询未删除规则（管理操作使用）
+     */
+    @Query("""
+            SELECT * FROM flow_rule
+            WHERE id = :id
+              AND is_deleted = 0
+            """)
+    Mono<FlowRule> findActiveById(Long id);
+
+    /**
+     * 按规则编码查询（不过滤 is_deleted：与 uk_rule_code 全表唯一约束行为一致，用于唯一性预检）
+     */
+    @Query("""
+            SELECT * FROM flow_rule
+            WHERE rule_code = :ruleCode
+            """)
+    Mono<FlowRule> findByCode(String ruleCode);
+
+    /**
+     * 分页查询某定义下的规则（管理视图：含禁用规则，priority DESC）
+     */
+    @Query("""
+            SELECT * FROM flow_rule
+            WHERE definition_id = :definitionId
+              AND is_deleted = 0
+            ORDER BY priority DESC, id ASC
+            LIMIT :size OFFSET :offset
+            """)
+    Flux<FlowRule> findByDefinitionIdWithPage(Long definitionId, int offset, int size);
+
+    /**
+     * 分页查询某定义下某节点的规则（管理视图：含禁用规则，priority DESC）
+     */
+    @Query("""
+            SELECT * FROM flow_rule
+            WHERE definition_id = :definitionId
+              AND node_id = :nodeId
+              AND is_deleted = 0
+            ORDER BY priority DESC, id ASC
+            LIMIT :size OFFSET :offset
+            """)
+    Flux<FlowRule> findByDefinitionIdAndNodeIdWithPage(Long definitionId, String nodeId, int offset, int size);
+
+    /**
+     * 软删除
+     */
+    @Modifying
+    @Query("""
+            UPDATE flow_rule
+            SET is_deleted = 1,
+                update_user = :operator
+            WHERE id = :id
+            """)
+    Mono<Integer> softDelete(
+            @Param("id") Long id,
+            @Param("operator") String operator);
 }

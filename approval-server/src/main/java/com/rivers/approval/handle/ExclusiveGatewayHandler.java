@@ -1,8 +1,10 @@
 package com.rivers.approval.handle;
 
 import com.rivers.approval.engine.ConditionEvaluator;
+import com.rivers.approval.entity.FlowRule;
 import com.rivers.approval.event.FlowEventMetadata;
 import com.rivers.approval.event.NodeCompletedEvent;
+import com.rivers.approval.model.EdgeDef;
 import com.rivers.approval.model.NodeContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -12,28 +14,27 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 排他网关（XOR Gateway）处理器。
  *
- * <p>逻辑：
+ * <p>路由策略：
  * <ol>
- *   <li>查询 flow_rule 表中该节点关联的规则链</li>
- *   <li>用 {@link ConditionEvaluator} 按优先级评估，找到第一个命中的规则</li>
- *   <li>发布 NodeCompletedEvent，携带 targetNodeId 和 outputMapping</li>
- *   <li>FlowExecutor 依据 targetNodeId 只推进到指定的那条边</li>
+ *   <li>单出边：不查规则、不求值，直接并入该边（"单线选择无规则直接走"）</li>
+ *   <li>多出边三级降级：规则链（flow_rule，priority DESC）→ 出边 conditionExpression 按序求值
+ *       → 默认边（无条件边）</li>
+ *   <li>目标守护：最终 target 必须存在于该网关出边目标集合，否则置实例 FAILED
+ *       （消灭"过滤后空边、仅 warn、流程静默卡死"）</li>
  * </ol>
  *
- * <p>如果所有规则都不命中：
- * <ul>
- *   <li>走不带 conditionExpression 的默认边（DSL 中排他网关通常有一条 else 边）</li>
- *   <li>如果没有默认边，抛出异常终止流程</li>
- * </ul>
+ * <p>发布 NodeCompletedEvent 携带 targetNodeId 与 outputMapping，
+ * FlowExecutor 依据 targetNodeId 只推进到指定的那条边。
  */
 @Component
 @Slf4j
 public class ExclusiveGatewayHandler implements NodeHandler {
-
 
     private static final String SYSTEM = "SYSTEM";
     private final ConditionEvaluator evaluator;
@@ -55,45 +56,82 @@ public class ExclusiveGatewayHandler implements NodeHandler {
         var nodeInstance = ctx.currentNode();
         var definition = ctx.definition();
         var variables = ctx.variables();
-        log.info("[ExclusiveGateway] 评估条件 instanceId={}, nodeId={}", instance.getId(), nodeInstance.getNodeId());
-        // 1. 查询该节点的规则链
+        var edges = definition.edgesFrom(nodeInstance.getNodeId());
+        // 0. 无出边：直接失败（消灭静默卡死）
+        if (edges.isEmpty()) {
+            return failInstance(ctx, new IllegalStateException(
+                    "排他网关无出边: " + nodeInstance.getNodeId()));
+        }
+        // 1. 单出边直通：不查规则、不求值
+        if (edges.size() == 1) {
+            var target = edges.get(0).target();
+            log.info("[ExclusiveGateway] 单出边直通 instanceId={}, nodeId={}, target={}",
+                    instance.getId(), nodeInstance.getNodeId(), target);
+            return completeGateway(ctx, target, Collections.emptyMap())
+                    .onErrorResume(err -> failInstance(ctx, err));
+        }
+        log.info("[ExclusiveGateway] 评估条件 instanceId={}, nodeId={}",
+                instance.getId(), nodeInstance.getNodeId());
+        // 2. 多出边：规则链 → 边条件 → 默认边（三级降级）
         return ctx.ruleRepo()
                 .findByDefAndNode(instance.getDefinitionId(), nodeInstance.getNodeId())
                 .collectList()
                 .flatMap(rules -> {
-                    // 2. SpEL 评估
-                    var result = evaluator.evaluate(rules, variables);
-                    // 3. 决定目标节点
-                    String targetNodeId;
-                    java.util.Map<String, Object> outputVars;
-
-                    if (result.isPresent()) {
-                        targetNodeId = result.get().targetNodeId();
-                        outputVars = result.get().outputVariables() != null
-                                ? result.get().outputVariables()
-                                : Collections.emptyMap();
-                    } else {
-                        // 无规则命中 → 走默认边（conditionExpression 为 null 或空的边）
-                        var defaultEdge = definition.edgesFrom(nodeInstance.getNodeId()).stream()
-                                .filter(e -> e.conditionExpression() == null
-                                        || e.conditionExpression().isBlank())
-                                .findFirst()
-                                .orElseThrow(() -> new IllegalStateException(
-                                        "排他网关无规则命中且无默认边: " + nodeInstance.getNodeId()));
-                        targetNodeId = defaultEdge.target();
-                        outputVars = Collections.emptyMap();
+                    var route = resolveRoute(rules, edges, nodeInstance.getNodeId(), variables);
+                    // 3. 目标守护：路由目标必须在该网关出边目标集合中
+                    if (edges.stream().noneMatch(e -> e.target().equals(route.targetNodeId()))) {
+                        throw new IllegalStateException(
+                                "排他网关路由目标不在出边集合中: nodeId=" + nodeInstance.getNodeId()
+                                        + ", target=" + route.targetNodeId());
                     }
                     log.info("[ExclusiveGateway] 路由结果 instanceId={}, targetNodeId={}",
-                            instance.getId(), targetNodeId);
-                    // 4. 完成网关节点
-                    return completeGateway(ctx, targetNodeId, outputVars);
+                            instance.getId(), route.targetNodeId());
+                    return completeGateway(ctx, route.targetNodeId(), route.outputVariables());
                 })
                 .onErrorResume(err -> failInstance(ctx, err));
     }
 
+    /**
+     * 多出边路由（三级降级）：规则链 → 边条件（按定义顺序，首个 true）→ 默认边。
+     */
+    private RouteResult resolveRoute(List<FlowRule> rules,
+                                     List<EdgeDef> edges,
+                                     String nodeId,
+                                     Map<String, Object> variables) {
+        // 1. 规则链（flow_rule）
+        var hit = evaluator.evaluate(rules, variables);
+        if (hit.isPresent()) {
+            var result = hit.get();
+            return new RouteResult(result.targetNodeId(),
+                    result.outputVariables() != null ? result.outputVariables() : Map.of());
+        }
+        // 2. DSL 边条件（按定义顺序，第一条 true 的边）
+        for (var edge : edges) {
+            var condition = edge.conditionExpression();
+            if (condition != null && !condition.isBlank() && evaluator.matches(condition, variables)) {
+                log.info("[ExclusiveGateway] 边条件命中 nodeId={}, condition={}, target={}",
+                        nodeId, condition, edge.target());
+                return new RouteResult(edge.target(), Map.of());
+            }
+        }
+        // 3. 默认边（首条无 conditionExpression 的出边）
+        var defaultEdge = edges.stream()
+                .filter(e -> e.conditionExpression() == null || e.conditionExpression().isBlank())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "排他网关无规则命中且无默认边: " + nodeId));
+        return new RouteResult(defaultEdge.target(), Map.of());
+    }
+
+    /**
+     * 路由结果：目标节点 + 输出变量（合并进流程变量）
+     */
+    private record RouteResult(String targetNodeId, Map<String, Object> outputVariables) {
+    }
+
     private Mono<Void> completeGateway(NodeContext ctx,
                                        String targetNodeId,
-                                       java.util.Map<String, Object> outputVars) {
+                                       Map<String, Object> outputVars) {
         var nodeInstance = ctx.currentNode();
         var instance = ctx.instance();
         var toJson = outputVars.isEmpty() ? "" : toJson(outputVars);

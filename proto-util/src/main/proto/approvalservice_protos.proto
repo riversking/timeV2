@@ -258,3 +258,71 @@ message FlowTrackItem {
 message FlowTrackRes {
     repeated FlowTrackItem tracks = 1;
 }
+
+// ==================== 规则管理（flow_rule 流转路由） ====================
+
+message CreateFlowRuleReq {
+    string ruleCode = 1;
+    string name = 2;
+    string description = 3;
+    int64 definitionId = 4;
+    string nodeId = 5;      // 排他网关节点ID
+    string ruleConfig = 6;  // JSON 数组: [{"condition":"#amount > 5000","targetNodeId":"nodeB","outputMapping":{...}}]
+    int32 priority = 7;
+    LoginUser loginUser = 8;
+}
+
+message UpdateFlowRuleReq {
+    int64 id = 1;
+    string name = 2;
+    string description = 3;
+    string nodeId = 4;      // ruleCode/definitionId 不可变
+    string ruleConfig = 5;
+    int32 priority = 6;
+    LoginUser loginUser = 7;
+}
+
+message DeleteFlowRuleReq {
+    int64 id = 1;
+    LoginUser loginUser = 2;
+}
+
+message ToggleFlowRuleReq {
+    int64 id = 1;
+    int32 enabled = 2;      // 0-禁用, 1-启用
+    LoginUser loginUser = 3;
+}
+
+message GetFlowRuleReq {
+    int64 id = 1;
+    LoginUser loginUser = 2;
+}
+
+message ListFlowRuleReq {
+    int64 definitionId = 1;
+    string nodeId = 2;      // 可选：按节点过滤
+    int32 currentPage = 3;
+    int32 pageSize = 4;
+    LoginUser loginUser = 5;
+}
+
+message FlowRuleRes {
+    int64 id = 1;
+    string ruleCode = 2;
+    string name = 3;
+    string description = 4;
+    string ruleType = 5;
+    int64 definitionId = 6;
+    string nodeId = 7;
+    string ruleConfig = 8;
+    int32 priority = 9;
+    int32 enabled = 10;
+    string createUser = 11;
+    string createTime = 12;
+    string updateUser = 13;
+    string updateTime = 14;
+}
+
+message FlowRuleListRes {
+    repeated FlowRuleRes rules = 1;
+}

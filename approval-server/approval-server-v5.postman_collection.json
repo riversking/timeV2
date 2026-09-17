@@ -1,0 +1,723 @@
+{
+  "info": {
+    "_postman_id": "9b6a1c7e-2d4f-4f5a-a3b1-0c5d8e7f6a9b",
+    "name": "approval-server v5 跟踪链验证",
+    "description": "三接口拆分(approve/reject/return) + flow_track 跟踪链(trackByInstance) + 结构化审批结果 + 转交直接单验证集合",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "instanceId", "value": "" },
+    { "key": "instanceNo", "value": "" },
+    { "key": "taskNoA", "value": "" },
+    { "key": "taskNoB", "value": "" },
+    { "key": "taskNoC", "value": "" },
+    { "key": "instanceIdRet", "value": "" },
+    { "key": "instanceNoRet", "value": "" },
+    { "key": "taskNoRetA", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "01 创建流程定义 leave_v3",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('创建定义成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"definitionKey\":\"leave_v3\",\"name\":\"请假流程 v3\",\"category\":\"test\",\"description\":\"跟踪链验证：部门审批(领单) CLAIM 双候选 + 经理审批(免领单) ANY_ONE\",\"definitionJson\":\"{\\\"key\\\":\\\"leave_v3\\\",\\\"name\\\":\\\"请假流程 v3\\\",\\\"nodes\\\":[{\\\"id\\\":\\\"start\\\",\\\"type\\\":\\\"START\\\",\\\"name\\\":\\\"开始\\\"},{\\\"id\\\":\\\"dept\\\",\\\"type\\\":\\\"USER_TASK\\\",\\\"name\\\":\\\"部门审批(领单)\\\",\\\"config\\\":{\\\"candidateUsers\\\":[\\\"userA\\\",\\\"userB\\\"],\\\"taskMode\\\":\\\"CLAIM\\\"}},{\\\"id\\\":\\\"mgr\\\",\\\"type\\\":\\\"USER_TASK\\\",\\\"name\\\":\\\"经理审批(免领单)\\\",\\\"config\\\":{\\\"candidateUsers\\\":[\\\"userC\\\"],\\\"taskMode\\\":\\\"ANY_ONE\\\"}},{\\\"id\\\":\\\"end\\\",\\\"type\\\":\\\"END\\\",\\\"name\\\":\\\"结束\\\"}],\\\"edges\\\":[{\\\"id\\\":\\\"e1\\\",\\\"source\\\":\\\"start\\\",\\\"target\\\":\\\"dept\\\"},{\\\"id\\\":\\\"e2\\\",\\\"source\\\":\\\"dept\\\",\\\"target\\\":\\\"mgr\\\"},{\\\"id\\\":\\\"e3\\\",\\\"source\\\":\\\"mgr\\\",\\\"target\\\":\\\"end\\\"}]}\",\"loginUser\":{\"userId\":\"admin\",\"username\":\"admin\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowDefinition/create", "host": [ "{{baseUrl}}" ], "path": [ "flowDefinition", "create" ] }
+      }
+    },
+    {
+      "name": "02 启动流程 userA 发起",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('启动成功', () => pm.expect(body.code).to.eql(200));",
+              "if (body.code === 200 && body.data) {",
+              "  pm.collectionVariables.set('instanceId', body.data.instanceId);",
+              "  pm.collectionVariables.set('instanceNo', body.data.instanceNo);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"definitionKey\":\"leave_v3\",\"title\":\"请假申请-跟踪链验证\",\"businessKey\":\"LEAVE-TRACK-{{$timestamp}}\",\"initiator\":\"userA\",\"initiatorName\":\"张三\",\"variables\":\"{\\\"days\\\":3,\\\"reason\\\":\\\"年假\\\"}\",\"loginUser\":{\"userId\":\"userA\",\"username\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowInstance/start", "host": [ "{{baseUrl}}" ], "path": [ "flowInstance", "start" ] }
+      }
+    },
+    {
+      "name": "03 跟踪链-发起后(含待办环节)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const tracks = (body.data || {}).tracks || [];",
+              "pm.test('有发起行', () => pm.expect(tracks.some(t => t.status === 'STARTED' && t.nodeName === '发起申请')).to.be.true);",
+              "pm.test('发起人userA', () => pm.expect(tracks.find(t => t.status === 'STARTED').assignee).to.include('userA'));",
+              "pm.test('部门审批环节待办', () => pm.expect(tracks.some(t => t.status === 'PENDING' && t.nodeName === '部门审批(领单)')).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceId}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/trackByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "trackByInstance" ] }
+      }
+    },
+    {
+      "name": "04 待办-userA 提取 taskNoA",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const inst = Number(pm.collectionVariables.get('instanceId'));",
+              "const tasks = (body.data || {}).tasks || [];",
+              "const mine = tasks.filter(t => t.assignee === 'userA' && Number(t.instanceId) === inst);",
+              "pm.test('userA有待办', () => pm.expect(mine.length).to.be.above(0));",
+              "if (mine.length > 0) pm.collectionVariables.set('taskNoA', mine[0].taskNo);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"currentPage\":1,\"pageSize\":20,\"loginUser\":{\"userId\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/listTodo", "host": [ "{{baseUrl}}" ], "path": [ "task", "listTodo" ] }
+      }
+    },
+    {
+      "name": "05 userA 认领",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('认领成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"taskNo\":\"{{taskNoA}}\",\"instanceId\":\"{{instanceId}}\",\"userId\":\"userA\",\"loginUser\":{\"userId\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/claim", "host": [ "{{baseUrl}}" ], "path": [ "task", "claim" ] }
+      }
+    },
+    {
+      "name": "06 跟踪链-领单后(CLAIMED行)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const tracks = (body.data || {}).tracks || [];",
+              "pm.test('有领单行', () => pm.expect(tracks.some(t => t.status === 'CLAIMED' && t.assignee === 'userA')).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceId}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/trackByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "trackByInstance" ] }
+      }
+    },
+    {
+      "name": "07 userA 转交 userB",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('转交成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"taskNo\":\"{{taskNoA}}\",\"targetUser\":\"userB\",\"operator\":\"userA\",\"instanceId\":\"{{instanceId}}\",\"loginUser\":{\"userId\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/transfer", "host": [ "{{baseUrl}}" ], "path": [ "task", "transfer" ] }
+      }
+    },
+    {
+      "name": "08 跟踪链-转交后(TRANSFERRED行)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const tracks = (body.data || {}).tracks || [];",
+              "pm.test('有转交行', () => pm.expect(tracks.some(t => t.status === 'TRANSFERRED' && t.assignee === 'userA' && t.nextAssignee === 'userB')).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceId}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/trackByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "trackByInstance" ] }
+      }
+    },
+    {
+      "name": "09 待办-userB 提取 taskNoB(直接接单)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const inst = Number(pm.collectionVariables.get('instanceId'));",
+              "const tasks = (body.data || {}).tasks || [];",
+              "const mine = tasks.filter(t => t.assignee === 'userB' && Number(t.instanceId) === inst);",
+              "pm.test('userB有待办(转交后直接接单)', () => pm.expect(mine.length).to.be.above(0));",
+              "pm.test('转交新任务无需认领(CLAIMED)', () => pm.expect(mine[0].status).to.eql('CLAIMED'));",
+              "if (mine.length > 0) pm.collectionVariables.set('taskNoB', mine[0].taskNo);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"currentPage\":1,\"pageSize\":20,\"loginUser\":{\"userId\":\"userB\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/listTodo", "host": [ "{{baseUrl}}" ], "path": [ "task", "listTodo" ] }
+      }
+    },
+    {
+      "name": "10 userB 审批同意(/task/approve)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('审批成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"taskNo\":\"{{taskNoB}}\",\"comment\":\"同意\",\"instanceId\":\"{{instanceId}}\",\"userId\":\"userB\",\"loginUser\":{\"userId\":\"userB\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/approve", "host": [ "{{baseUrl}}" ], "path": [ "task", "approve" ] }
+      }
+    },
+    {
+      "name": "11 跟踪链-审批后(APPROVED行+下一处理人)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const tracks = (body.data || {}).tracks || [];",
+              "pm.test('有审批行APPROVED', () => pm.expect(tracks.some(t => t.status === 'APPROVED' && t.assignee === 'userB' && t.opinion === '同意')).to.be.true);",
+              "pm.test('审批行下一处理人userC', () => {",
+              "  const row = tracks.find(t => t.status === 'APPROVED');",
+              "  pm.expect(row && row.nextAssignee).to.eql('userC');",
+              "});",
+              "pm.test('经理环节待办', () => pm.expect(tracks.some(t => t.status === 'PENDING' && t.nodeName === '经理审批(免领单)')).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceId}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/trackByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "trackByInstance" ] }
+      }
+    },
+    {
+      "name": "12 待办-userC 提取 taskNoC",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const inst = Number(pm.collectionVariables.get('instanceId'));",
+              "const tasks = (body.data || {}).tasks || [];",
+              "const mine = tasks.filter(t => t.assignee === 'userC' && Number(t.instanceId) === inst);",
+              "pm.test('userC有待办', () => pm.expect(mine.length).to.be.above(0));",
+              "if (mine.length > 0) pm.collectionVariables.set('taskNoC', mine[0].taskNo);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"currentPage\":1,\"pageSize\":20,\"loginUser\":{\"userId\":\"userC\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/listTodo", "host": [ "{{baseUrl}}" ], "path": [ "task", "listTodo" ] }
+      }
+    },
+    {
+      "name": "13 userC 拒绝(/task/reject)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('拒绝成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"taskNo\":\"{{taskNoC}}\",\"comment\":\"不同意\",\"instanceId\":\"{{instanceId}}\",\"userId\":\"userC\",\"loginUser\":{\"userId\":\"userC\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/reject", "host": [ "{{baseUrl}}" ], "path": [ "task", "reject" ] }
+      }
+    },
+    {
+      "name": "14 跟踪链-拒绝后(全链路顺序)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const tracks = (body.data || {}).tracks || [];",
+              "pm.test('有拒绝行REJECTED', () => pm.expect(tracks.some(t => t.status === 'REJECTED' && t.assignee === 'userC' && t.opinion === '不同意')).to.be.true);",
+              "pm.test('链路顺序完整: 发起->领单->转交->审批->拒绝', () => {",
+              "  const order = tracks.map(t => t.status);",
+              "  pm.expect(order.indexOf('STARTED')).to.be.below(order.indexOf('CLAIMED'));",
+              "  pm.expect(order.indexOf('CLAIMED')).to.be.below(order.indexOf('TRANSFERRED'));",
+              "  pm.expect(order.indexOf('TRANSFERRED')).to.be.below(order.indexOf('APPROVED'));",
+              "  pm.expect(order.indexOf('APPROVED')).to.be.below(order.indexOf('REJECTED'));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceId}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/trackByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "trackByInstance" ] }
+      }
+    },
+    {
+      "name": "15 实例-结构化审批结果(getByNo)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const data = body.data || {};",
+              "pm.test('实例已结束', () => pm.expect(data.status).to.eql('COMPLETED'));",
+              "pm.test('结构化结果REJECTED', () => pm.expect(data.approvalResult).to.eql('REJECTED'));",
+              "pm.test('审批人userC', () => pm.expect(data.approvedBy).to.eql('userC'));",
+              "pm.test('审批意见不一致', () => pm.expect(data.approvalComment).to.eql('不同意'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceNo\":\"{{instanceNo}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowInstance/getByNo", "host": [ "{{baseUrl}}" ], "path": [ "flowInstance", "getByNo" ] }
+      }
+    },
+    {
+      "name": "16 历史审计-办理事件operatorId非SYSTEM",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const histories = (body.data || {}).histories || [];",
+              "const done = histories.filter(h => h.eventType === 'TASK_COMPLETED');",
+              "pm.test('TASK_COMPLETED有记录', () => pm.expect(done.length).to.be.above(0));",
+              "pm.test('办理事件operatorId非SYSTEM', () => pm.expect(done.every(h => h.operatorId !== 'SYSTEM')).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceId}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/listByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "listByInstance" ] }
+      }
+    },
+    {
+      "name": "17 启动流程-退回场景",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('启动成功', () => pm.expect(body.code).to.eql(200));",
+              "if (body.code === 200 && body.data) {",
+              "  pm.collectionVariables.set('instanceIdRet', body.data.instanceId);",
+              "  pm.collectionVariables.set('instanceNoRet', body.data.instanceNo);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"definitionKey\":\"leave_v3\",\"title\":\"请假申请-退回场景\",\"businessKey\":\"LEAVE-RET-{{$timestamp}}\",\"initiator\":\"userA\",\"initiatorName\":\"张三\",\"variables\":\"{\\\"days\\\":1}\",\"loginUser\":{\"userId\":\"userA\",\"username\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowInstance/start", "host": [ "{{baseUrl}}" ], "path": [ "flowInstance", "start" ] }
+      }
+    },
+    {
+      "name": "18 待办-退回实例 userA 提取 taskNoRetA",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const inst = Number(pm.collectionVariables.get('instanceIdRet'));",
+              "const tasks = (body.data || {}).tasks || [];",
+              "const mine = tasks.filter(t => t.assignee === 'userA' && Number(t.instanceId) === inst);",
+              "pm.test('userA有待办', () => pm.expect(mine.length).to.be.above(0));",
+              "if (mine.length > 0) pm.collectionVariables.set('taskNoRetA', mine[0].taskNo);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"currentPage\":1,\"pageSize\":20,\"loginUser\":{\"userId\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/listTodo", "host": [ "{{baseUrl}}" ], "path": [ "task", "listTodo" ] }
+      }
+    },
+    {
+      "name": "19 退回实例 userA 认领",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('认领成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"taskNo\":\"{{taskNoRetA}}\",\"instanceId\":\"{{instanceIdRet}}\",\"userId\":\"userA\",\"loginUser\":{\"userId\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/claim", "host": [ "{{baseUrl}}" ], "path": [ "task", "claim" ] }
+      }
+    },
+    {
+      "name": "20 userA 退回(/task/return)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('退回成功', () => pm.expect(body.code).to.eql(200));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"taskNo\":\"{{taskNoRetA}}\",\"comment\":\"退回修改\",\"instanceId\":\"{{instanceIdRet}}\",\"userId\":\"userA\",\"loginUser\":{\"userId\":\"userA\"}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/task/return", "host": [ "{{baseUrl}}" ], "path": [ "task", "return" ] }
+      }
+    },
+    {
+      "name": "21 跟踪链-退回后(RETURNED行)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const end = Date.now() + 2000;",
+              "while (Date.now() < end) {}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const tracks = (body.data || {}).tracks || [];",
+              "pm.test('有退回行RETURNED', () => pm.expect(tracks.some(t => t.status === 'RETURNED' && t.assignee === 'userA' && t.opinion === '退回修改')).to.be.true);",
+              "pm.test('退回即终止-无经理审批环节', () => pm.expect(tracks.some(t => t.nodeName === '经理审批(免领单)')).to.be.false);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceIdRet}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/trackByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "trackByInstance" ] }
+      }
+    },
+    {
+      "name": "22 实例-退回结构化结果",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const data = body.data || {};",
+              "pm.test('退回实例COMPLETED', () => pm.expect(data.status).to.eql('COMPLETED'));",
+              "pm.test('结构化结果RETURNED', () => pm.expect(data.approvalResult).to.eql('RETURNED'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceNo\":\"{{instanceNoRet}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowInstance/getByNo", "host": [ "{{baseUrl}}" ], "path": [ "flowInstance", "getByNo" ] }
+      }
+    },
+    {
+      "name": "23 历史审计-退回无后续任务",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "const histories = (body.data || {}).histories || [];",
+              "const created = histories.filter(h => h.eventType === 'TASK_CREATED');",
+              "pm.test('无经理环节任务创建', () => pm.expect(created.every(h => h.taskName === '部门审批(领单)')).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"instanceId\":{{instanceIdRet}}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/flowHistory/listByInstance", "host": [ "{{baseUrl}}" ], "path": [ "flowHistory", "listByInstance" ] }
+      }
+    }
+  ]
+}
