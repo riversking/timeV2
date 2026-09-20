@@ -57,7 +57,6 @@ public class FlowExecutor {
     private final FlowDefinitionRepository defRepo;
     private final FlowTaskRepository taskRepo;
     private final FlowHistoryRepository historyRepo;
-    private final FlowRuleRepository ruleRepo;
     private final ObjectMapper objectMapper;
 
     public FlowExecutor(NodeHandlerRegistry handlerRegistry,
@@ -67,7 +66,6 @@ public class FlowExecutor {
                         FlowDefinitionRepository defRepo,
                         FlowTaskRepository taskRepo,
                         FlowHistoryRepository historyRepo,
-                        FlowRuleRepository ruleRepo,
                         ObjectMapper objectMapper) {
         this.handlerRegistry = handlerRegistry;
         this.eventBus = eventBus;
@@ -76,7 +74,6 @@ public class FlowExecutor {
         this.defRepo = defRepo;
         this.taskRepo = taskRepo;
         this.historyRepo = historyRepo;
-        this.ruleRepo = ruleRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -503,8 +500,7 @@ public class FlowExecutor {
                 instanceRepo,
                 nodeRepo,
                 taskRepo,
-                historyRepo,
-                ruleRepo);
+                historyRepo);
     }
 
     // ==================== JSON / Variables 解析 ====================

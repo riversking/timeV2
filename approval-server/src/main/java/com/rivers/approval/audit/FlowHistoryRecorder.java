@@ -39,9 +39,10 @@ public class FlowHistoryRecorder {
     /**
      * audit 队列监听：fanout 交换机会把全部 6 类事件路由到该队列。
      */
-    @RabbitListener(queues = FlowRabbitConfig.AUDIT_QUEUE)
-    public Mono<Void> onAuditEvent(FlowEvent event) {
-        return saveRecord(event);
+    @RabbitListener(queues = FlowRabbitConfig.AUDIT_QUEUE, concurrency = "1")
+    public void onAuditEvent(FlowEvent event) {
+        // 阻塞至落库链完成再取下一条：单消费者严格串行，避免多任务事件交叉写跟踪行
+        saveRecord(event).block();
     }
 
     private Mono<Void> saveRecord(FlowEvent event) {
@@ -116,8 +117,8 @@ public class FlowHistoryRecorder {
 
     /**
      * 行为发生即写 flow_track 一行：
-     * INSTANCE_STARTED → 发起行；TASK_CREATED → 环节 PENDING 行 + 回填上一行下一处理人；
-     * TASK_COMPLETED → PENDING 行原地变终态；其余事件不产生跟踪行。
+     * INSTANCE_STARTED → 发起行；TASK_CREATED → 每候选人一条 PENDING 行 + 回填上一行下一处理人；
+     * TASK_COMPLETED → 活跃行原地变终态；其余事件不产生跟踪行。
      */
     private Mono<Void> writeTrack(FlowEvent event) {
         return switch (event) {
@@ -143,33 +144,47 @@ public class FlowHistoryRecorder {
                 .then();
     }
 
+    /**
+     * 待领单行：每个候选人一条独立 PENDING 行（不合并）。
+     * 幂等：本人已有行则跳过插入；环节已认领/办结时，迟到的候选事件不再补插。
+     * 最后回填上一环节行 next_assignee = 本环节全部候选聚合（"下一处理人"）。
+     */
     private Mono<Void> writeCreatedTrack(TaskCreatedEvent e) {
-        // 1) 环节首候选人 → 插 PENDING 行；后续候选人 → 追加 assignee
-        // 2) 回填上一行行为的 next_assignee
-        return trackRepo.findPendingRow(e.instanceId(), e.nodeInstanceId())
-                .flatMap(row -> trackRepo.appendAssignee(
-                        row.getId(), e.assignee(), e.operatorId()))
-                .switchIfEmpty(Mono.defer(() -> trackRepo.save(FlowTrack.builder()
-                        .instanceId(e.instanceId())
-                        .instanceNo(nvl(e.instanceNo()))
-                        .nodeInstanceId(e.nodeInstanceId())
-                        .trackType("PENDING")
-                        .nodeName(e.taskName())
-                        .assignee(nvl(e.assignee()))
-                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
-                        .createUser(e.operatorId())
-                        .updateUser(e.operatorId())
-                        .build()).thenReturn(0)))
-                .then(trackRepo.findPendingRow(e.instanceId(), e.nodeInstanceId()))
-                .flatMap(row -> trackRepo.backfillNextAssignee(
-                        e.instanceId(), row.getAssignee()))
+        return trackRepo.findPendingRowByAssignee(e.instanceId(), e.nodeInstanceId(), e.assignee())
+                .map(row -> 0)
+                .switchIfEmpty(Mono.defer(() -> trackRepo.countSettledRowsOfNode(
+                                e.instanceId(), e.nodeInstanceId())
+                        .filter(count -> count == 0)
+                        .flatMap(_ -> trackRepo.save(FlowTrack.builder()
+                                        .instanceId(e.instanceId())
+                                        .instanceNo(nvl(e.instanceNo()))
+                                        .nodeInstanceId(e.nodeInstanceId())
+                                        .trackType("PENDING")
+                                        .nodeName(e.taskName())
+                                        .assignee(nvl(e.assignee()))
+                                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
+                                        .createUser(e.operatorId())
+                                        .updateUser(e.operatorId())
+                                        .build())
+                                .thenReturn(0))))
+                .flatMap(_ -> trackRepo.firstRowIdOfNode(e.instanceId(), e.nodeInstanceId())
+                        .flatMap(firstId -> trackRepo.pendingAssigneesOfNode(
+                                        e.instanceId(), e.nodeInstanceId())
+                                .defaultIfEmpty("")
+                                .flatMap(joined -> joined.isEmpty()
+                                        ? Mono.<Integer>empty()
+                                        : trackRepo.backfillNextAssignee(
+                                                e.instanceId(), firstId, joined))))
                 .then();
     }
 
+    /**
+     * 办理行（行为流水）：办理人的状态行（待领单 PENDING/待审批 CLAIMED）原地流转为终态（保留任务时间）；
+     * 无本人状态行时兑底插终态行——领单 CLAIM/转交 TRANSFERRED 历史行保留（如串签后续顺位、接单人场景）。
+     */
     private Mono<Void> writeCompletedTrack(TaskCompletedEvent e) {
-        // PENDING 行原地变终态（保留任务时间）；兜底：无 PENDING 行时直接插终态行
-        return trackRepo.completePendingRow(e.instanceId(), e.nodeInstanceId(),
-                        e.result(), e.completedBy(), e.comment(), e.operatorId())
+        return trackRepo.completeOwnActiveRow(e.instanceId(), e.nodeInstanceId(),
+                        e.completedBy(), e.result(), e.comment(), e.operatorId())
                 .filter(rows -> rows > 0)
                 .switchIfEmpty(Mono.defer(() -> trackRepo.save(FlowTrack.builder()
                         .instanceId(e.instanceId())

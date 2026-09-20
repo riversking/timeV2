@@ -1,5 +1,6 @@
 package com.rivers.approval.service.impl;
 
+import com.rivers.approval.engine.NextNodeProbe;
 import com.rivers.approval.entity.FlowTask;
 import com.rivers.approval.entity.FlowTrack;
 import com.rivers.approval.event.FlowEventBus;
@@ -38,7 +39,10 @@ import java.util.UUID;
  *   <li>办理动作拆分为三个接口：approve（审批）/ reject（拒绝）/ return（退回），
  *       result 由服务端固定，前端不再传</li>
  *   <li>转交：目标人新任务直接 CLAIMED（已接单），无需再次认领</li>
- *   <li>跟踪链：领单/转交在事务内直接写 flow_track（入库即展示）</li>
+ *   <li>跟踪链（行为流水）：待领单每人一行；认领=本人待领单行原地转 CLAIM（领单）+追加 CLAIMED（待审批）、
+ *       其他候选隐藏、发起行 next 收敛为认领人、领单行前瞻展示下一环节处理人；
+ *       转交=待审批行原地转 TRANSFERRED+追加目标人 PENDING（待处理）；
+ *       办理=本人状态行（PENDING/CLAIMED）原地转终态，无则追加终态行</li>
  * </ul>
  */
 @Service
@@ -62,15 +66,18 @@ public class TaskServiceImpl implements ITaskService {
     private final FlowTrackRepository trackRepo;
     private final FlowEventBus eventBus;
     private final TransactionalOperator txOperator;
+    private final NextNodeProbe nextNodeProbe;
 
     public TaskServiceImpl(FlowTaskRepository taskRepo, FlowTaskDoneRepository taskDoneRepo,
                            FlowTrackRepository trackRepo,
-                           FlowEventBus eventBus, TransactionalOperator txOperator) {
+                           FlowEventBus eventBus, TransactionalOperator txOperator,
+                           NextNodeProbe nextNodeProbe) {
         this.taskRepo = taskRepo;
         this.taskDoneRepo = taskDoneRepo;
         this.trackRepo = trackRepo;
         this.eventBus = eventBus;
         this.txOperator = txOperator;
+        this.nextNodeProbe = nextNodeProbe;
     }
 
     // ==================== 查询 ====================
@@ -136,30 +143,70 @@ public class TaskServiceImpl implements ITaskService {
                     if (!Objects.equals(userId, task.getAssignee())) {
                         return Mono.just(ResultVO.<Void>fail("不在认领名单内: assignee=" + task.getAssignee()));
                     }
-                    // CAS 认领自己的行 → 写跟踪行 → 清理同节点其他候选行（同事务）
+                    // CAS 认领自己的行 → 认领人的待领单行原地流转为 CLAIM（领单）
+                    // → 隐藏其他候选人的待领单行（A 领单完 B 不展示）
+                    // → 收敛发起行 next 为认领人 + 领单行前瞻展示下一环节处理人 + 追加 CLAIMED（待审批）
+                    // → 清理同节点其他候选任务行（同事务）；无待领单行时兜底插 CLAIM 行
                     return taskRepo.claim(task.getId(), userId)
                             .filter(rows -> rows > 0)
-                            .flatMap(_ -> trackRepo.save(FlowTrack.builder()
-                                            .instanceId(task.getInstanceId())
-                                            .nodeInstanceId(task.getNodeInstanceId())
-                                            .trackType(CLAIMED)
-                                            .nodeName(task.getTaskName())
-                                            .assignee(userId)
-                                            .nextAssignee(userId)
-                                            .taskTime(task.getCreateTime())
-                                            .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
-                                            .createUser(userId)
-                                            .updateUser(userId)
-                                            .build())
-                                    .then(taskRepo.deleteOtherPending(
-                                            task.getNodeInstanceId(), task.getId()))
-                                    .doOnNext(ignored -> log.info(
-                                            "[TaskServiceImpl] 认领成功 taskNo={}", req.getTaskNo()))
-                                    .thenReturn(ResultVO.<Void>ok()))
+                            .flatMap(_ -> trackRepo.claimPendingRow(task.getInstanceId(),
+                                            task.getNodeInstanceId(), userId, userId)
+                                    .filter(rows -> rows > 0)
+                                    .switchIfEmpty(Mono.defer(() -> trackRepo.save(FlowTrack.builder()
+                                                    .instanceId(task.getInstanceId())
+                                                    .nodeInstanceId(task.getNodeInstanceId())
+                                                    .trackType(CLAIM)
+                                                    .nodeName(task.getTaskName())
+                                                    .assignee(userId)
+                                                    .taskTime(task.getCreateTime())
+                                                    .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
+                                                    .createUser(userId)
+                                                    .updateUser(userId)
+                                                    .build())
+                                            .thenReturn(0)))
+                                    .then(trackRepo.hideOtherPendingRows(task.getInstanceId(),
+                                            task.getNodeInstanceId(), userId, userId))
+                                    .then(convergeAndProbe(task, userId)))
+                            .then(taskRepo.deleteOtherPending(
+                                    task.getNodeInstanceId(), task.getId()))
+                            .doOnNext(ignored -> log.info(
+                                    "[TaskServiceImpl] 认领成功 taskNo={}", req.getTaskNo()))
+                            .thenReturn(ResultVO.<Void>ok())
                             .switchIfEmpty(Mono.just(ResultVO.fail("认领失败：已被他人认领")));
                 })
                 .switchIfEmpty(Mono.just(ResultVO.fail(NO_TASK + ": " + req.getTaskNo())));
         return claimed.as(txOperator::transactional);
+    }
+
+    /**
+     * 认领后的跟踪链收敛（同事务）：
+     * 1) 上一环节行（发起行）next 收敛为认领人——其他候选已隐藏，不再聚合 "a,b"；
+     * 2) 领单行（CLAIM）next 前瞻展示下一环节处理人——网关分流不确定时留空；
+     *    注意须在追加待审批行之前执行，保证更新目标是最新有效行=领单行；
+     * 3) 追加待审批状态行（CLAIMED）——A 领单后展示"领单一条 + 待审批一条"。
+     */
+    private Mono<Integer> convergeAndProbe(FlowTask task, String userId) {
+        return Mono.defer(() -> trackRepo.firstRowIdOfNode(
+                        task.getInstanceId(), task.getNodeInstanceId())
+                .flatMap(firstId -> trackRepo.backfillNextAssignee(
+                        task.getInstanceId(), firstId, userId))
+                .then(nextNodeProbe.probeNextHandlers(
+                                task.getInstanceId(), task.getNodeInstanceId())
+                        .flatMap(joined -> joined.isEmpty()
+                                ? Mono.<Integer>empty()
+                                : trackRepo.setNextOfNode(task.getInstanceId(),
+                                        task.getNodeInstanceId(), joined, userId)))
+                .then(trackRepo.save(FlowTrack.builder()
+                        .instanceId(task.getInstanceId())
+                        .nodeInstanceId(task.getNodeInstanceId())
+                        .trackType(CLAIMED)
+                        .nodeName(task.getTaskName())
+                        .assignee(userId)
+                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
+                        .createUser(userId)
+                        .updateUser(userId)
+                        .build()))
+                .thenReturn(0));
     }
 
     @Override
@@ -309,7 +356,8 @@ public class TaskServiceImpl implements ITaskService {
                     }
                     // 旧任务：CAS 置 TRANSFERRED → 归档已办表 → 物理删除
                     // 新任务：目标人直接 CLAIMED（已接单），无需再次认领，出现在其待办列表
-                    // 跟踪行：转交行为写 flow_track（next=目标人）
+                    // 跟踪行（行为流水）：待审批行原地转 TRANSFERRED（assignee=转交人，next=目标人），
+                    // 领单历史保留；追加目标人 PENDING 行（B 待处理）
                     return taskRepo.transferOut(task.getId(), req.getOperator())
                             .filter(rows -> rows > 0)
                             .flatMap(_ -> taskDoneRepo.archiveById(
@@ -333,18 +381,37 @@ public class TaskServiceImpl implements ITaskService {
                                                 .updateUser(req.getOperator())
                                                 .build();
                                         return taskRepo.save(newTask)
+                                                .then(Mono.defer(() -> trackRepo.transferTrackRow(
+                                                                task.getInstanceId(),
+                                                                task.getNodeInstanceId(),
+                                                                req.getOperator(),
+                                                                req.getTargetUser())
+                                                        .filter(rows -> rows > 0)
+                                                        .switchIfEmpty(Mono.defer(() -> trackRepo.save(
+                                                                FlowTrack.builder()
+                                                                        .instanceId(task.getInstanceId())
+                                                                        .nodeInstanceId(task.getNodeInstanceId())
+                                                                        .trackType(TRANSFERRED)
+                                                                        .nodeName(task.getTaskName())
+                                                                        .assignee(req.getOperator())
+                                                                        .nextAssignee(req.getTargetUser())
+                                                                        .taskTime(task.getCreateTime())
+                                                                        .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
+                                                                        .createUser(req.getOperator())
+                                                                        .updateUser(req.getOperator())
+                                                                        .build())
+                                                                .thenReturn(0)))))
                                                 .then(trackRepo.save(FlowTrack.builder()
                                                         .instanceId(task.getInstanceId())
                                                         .nodeInstanceId(task.getNodeInstanceId())
-                                                        .trackType(TRANSFERRED)
+                                                        .trackType(PENDING)
                                                         .nodeName(task.getTaskName())
-                                                        .assignee(req.getOperator())
-                                                        .nextAssignee(req.getTargetUser())
-                                                        .taskTime(task.getCreateTime())
-                                                        .actionTime(LocalDateTime.now(ZoneId.systemDefault()))
+                                                        .assignee(req.getTargetUser())
+                                                        .taskTime(LocalDateTime.now(ZoneId.systemDefault()))
                                                         .createUser(req.getOperator())
                                                         .updateUser(req.getOperator())
-                                                        .build()));
+                                                        .build()))
+                                                .thenReturn(0);
                                     }))
                                     .thenReturn(ResultVO.<Void>ok()))
                             .switchIfEmpty(Mono.just(ResultVO.fail("转交失败")));

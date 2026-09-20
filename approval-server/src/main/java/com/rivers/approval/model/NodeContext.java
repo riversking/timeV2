@@ -21,7 +21,6 @@ public record NodeContext(
         FlowInstanceRepository instanceRepo,
         FlowNodeInstanceRepository nodeRepo,
         FlowTaskRepository taskRepo,
-        FlowHistoryRepository historyRepo,
-        FlowRuleRepository ruleRepo
+        FlowHistoryRepository historyRepo
 ) {
 }
