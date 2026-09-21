@@ -17,7 +17,7 @@ public interface LeaderProvider {
      * 解析发起人向上 level 级的上级链（L1=直接上级，L2=L1 的上级…）。
      *
      * @param startUser 链条起点（发起人）
-     * @param level     $leader token 个数
+     * @param level     $leader token 个数；Integer.MAX_VALUE 表示全链（$leaderMax，一直取到最大领导）
      * @param variables 流程变量
      * @return 已解析的上级 userId 列表（长度 ≤ level；不足即视为未解析，由解析器保留占位）
      */

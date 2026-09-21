@@ -8,3 +8,11 @@ spring:
         file-extension: yml
   config:
     import: nacos:approval-server.yml
+
+# 审批人表达式兜底：token 无变量匹配时查询 user-server 校验是否为真实用户
+# （存在→作为处理人；不存在/超时/服务不可用→保留字面原文）
+# 服务地址见 UserServiceClient 的 @HttpExchange（http://user-server，经 nacos 服务发现解析）
+# timeout 需覆盖首次调用的服务发现冷启动开销（实测约 1.5s）
+approval:
+  user-lookup:
+    timeout-ms: 3000

@@ -3,7 +3,7 @@
     "_postman_id": "3f9c7e1a-6d2b-4a8e-9c5f-7b1e3d4a2f9c",
     "name": "approval-server 全链路验证(v5 跟踪链 + v6 规则引擎)",
     "description": "合并集：Part A=v5 跟踪链验证 25 请求(flow_track/领单 CLAIM/转交/拒绝/退回/结构化审批结果)；Part B=v6 审批人表达式链 21 请求($startUser/${leader}/$leader$leader 自动串签/$customApprover 逗号多候选/$missingUser 占位保留认领)；Part C=v6 排他网关规则引擎 28 请求(flowRule 增查改启停删/反例校验/规则命中-默认边-边条件三态降级/outputMapping/terminateProcess)。前置：MySQL+RabbitMQ+approval-server(8080)；各 Part 可单独运行，整包运行共 74 请求；定义 key/ruleCode 带时间戳可重复运行；异步节点内置 2s 等待。",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "scema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {

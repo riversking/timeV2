@@ -23,9 +23,10 @@ import java.util.*;
  * 到达该节点时：
  * 1. 解析处理人：
  *    <ul>
- *      <li>candidateExpr 表达式占位（$startUser、$leader$leader 等，兼容 ${} 写法）— 由 {@link AssigneeResolver}
- *          解析（保序去重）；解析不出的 token 保留字面原文</li>
- *      <li>未配置表达式（或无 token）时走静态 candidateUsers + assignee（存量定义零影响）</li>
+ *      <li>candidateExpr 表达式占位（$startUser、$leader、$leaderMax 等内置规则，${} 写法兼容；其他名称取流程变量同名值）
+ *          — 由 {@link AssigneeResolver} 解析（保序去重）；变量无匹配时兜底查询用户信息（存在用该用户，否则保留字面原文）</li>
+ *      <li>candidateExpr 无 $token 时视为静态直写处理人（如 userF / userF,userG，直接配置审批人）</li>
+ *      <li>表达式为空时回退静态 candidateUsers + assignee（存量定义零影响）</li>
  *    </ul>
  * 2. 解析任务模式 taskMode：
  *    <ul>
