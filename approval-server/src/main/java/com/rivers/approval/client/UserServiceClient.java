@@ -13,6 +13,9 @@ import reactor.core.publisher.Mono;
  * <p>
  * url 直接使用服务名 http://user-server，由 rivers-core WebClientConfig 提供的
  * {@code @LoadBalanced} WebClient + nacos 服务发现解析实例（无需写 IP/端口）。
+ * <p>
+ * 请求/响应体直接使用 proto 类型（UserReq / UserDetailRes）；客户端编解码器由
+ * {@code HttpClientConfig} 挂载 ProtobufModule（rivers-core 客户端默认 codec 无 proto 支持）。
  */
 @HttpExchange(url = "http://user-server")
 public interface UserServiceClient {

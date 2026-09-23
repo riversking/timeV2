@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 public class AssigneeResolver {
 
     /** $name 与 ${name} 双语法：#1=${} 内名称，#2=裸名称 */
-    private static final Pattern TOKEN_PATTERN = Pattern.compile("\\$\\{([^}]+)}|\\$([A-Za-z0-9_]+)");
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("\\$\\{([^}]+)}|\\$(\\w+)");
     private static final String START_USER = "startUser";
     private static final String LEADER = "leader";
     /** $leaderMax — 全链逐级：从直接上级一直审批到最大领导（leaderChain 全量） */
@@ -76,42 +76,48 @@ public class AssigneeResolver {
                                              Map<String, Object> variables) {
         var slots = new ArrayList<Slot>();
         var pending = new LinkedHashSet<String>();
-        var leaderLevel = 0;
+        var cursor = new LeaderCursor(leaderChain);
         for (var token : tokens) {
-            List<String> resolved;
-            if (START_USER.equals(token.name())) {
-                resolved = initiator == null || initiator.isBlank()
-                        ? List.of() : List.of(initiator);
-            } else if (LEADER.equals(token.name())) {
-                var leader = leaderLevel < leaderChain.size() ? leaderChain.get(leaderLevel) : null;
-                leaderLevel++;
-                resolved = leader == null || leader.isBlank() ? List.of() : List.of(leader);
-            } else if (LEADER_MAX.equals(token.name())) {
-                // 全链：从当前级别起展开剩余全部领导（单独使用时即整条 leaderChain）
-                resolved = leaderLevel < leaderChain.size()
-                        ? new ArrayList<>(leaderChain.subList(leaderLevel, leaderChain.size()))
-                        : List.of();
-                leaderLevel = leaderChain.size();
-            } else {
-                resolved = fromVariable(variables, token.name());
-                if (resolved.isEmpty()) {
-                    // 变量无匹配 → 兜底通道：查询用户信息该名字是否为真实用户（存在用名字，否则保留字面）
-                    slots.add(new Slot(token, null));
-                    pending.add(token.name());
-                    continue;
-                }
-            }
+            var resolved = resolveToken(token.name(), cursor, initiator, variables);
             slots.add(new Slot(token, resolved));
+            if (resolved == null) {
+                pending.add(token.name());
+            }
         }
         if (pending.isEmpty()) {
             return Mono.just(assemble(slots, Map.of()));
         }
-        return Flux.fromIterable(pending)
+        return queryUserExists(pending).map(found -> assemble(slots, found));
+    }
+
+    /**
+     * 解析单个 token：返回 null 表示变量无匹配，待用户信息兜底确认。
+     */
+    private List<String> resolveToken(String name, LeaderCursor cursor, String initiator,
+                                      Map<String, Object> variables) {
+        if (START_USER.equals(name)) {
+            return initiator == null || initiator.isBlank() ? List.of() : List.of(initiator);
+        }
+        if (LEADER.equals(name)) {
+            return cursor.nextLevel();
+        }
+        if (LEADER_MAX.equals(name)) {
+            return cursor.restAll();
+        }
+        var resolved = fromVariable(variables, name);
+        // 变量无匹配 → 兜底通道：查询用户信息该名字是否为真实用户（存在用名字，否则保留字面）
+        return resolved.isEmpty() ? null : resolved;
+    }
+
+    /**
+     * 兜底查询：去重后的名字逐个串行查询（{@link UserLookupProvider}），保序。
+     */
+    private Mono<Map<String, Boolean>> queryUserExists(Collection<String> names) {
+        return Flux.fromIterable(names)
                 .concatMap(name -> userLookupProvider.exists(name)
                         .defaultIfEmpty(false)
                         .map(exists -> Map.entry(name, exists)))
-                .collectMap(Map.Entry::getKey, Map.Entry::getValue)
-                .map(found -> assemble(slots, found));
+                .collectMap(Map.Entry::getKey, Map.Entry::getValue);
     }
 
     /**
@@ -195,6 +201,35 @@ public class AssigneeResolver {
     private static void addUnique(List<String> target, String user) {
         if (!target.contains(user)) {
             target.add(user);
+        }
+    }
+
+    /**
+     * $leader / $leaderMax 共享的级别游标：按 token 出现顺序推进。
+     */
+    private static final class LeaderCursor {
+
+        private final List<String> chain;
+        private int level;
+
+        LeaderCursor(List<String> chain) {
+            this.chain = chain;
+        }
+
+        /** $leader：取当前级并推进；越界或空值 → 空列表（由 assemble 保留字面原文） */
+        List<String> nextLevel() {
+            var leader = level < chain.size() ? chain.get(level) : null;
+            level++;
+            return leader == null || leader.isBlank() ? List.of() : List.of(leader);
+        }
+
+        /** $leaderMax：从当前级起展开剩余全部领导并置尾（单独使用时即整条 leaderChain） */
+        List<String> restAll() {
+            var rest = level < chain.size()
+                    ? new ArrayList<>(chain.subList(level, chain.size()))
+                    : List.<String>of();
+            level = chain.size();
+            return rest;
         }
     }
 
