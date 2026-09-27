@@ -8,6 +8,7 @@ import com.rivers.approval.model.ProcessDefinition;
 import com.rivers.approval.repository.FlowDefinitionRepository;
 import com.rivers.approval.repository.FlowInstanceRepository;
 import com.rivers.approval.repository.FlowNodeInstanceRepository;
+import com.rivers.approval.rule.RuleEngineFacade;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -35,18 +36,18 @@ public class NextNodeProbe {
     private final FlowInstanceRepository instanceRepo;
     private final FlowDefinitionRepository defRepo;
     private final FlowNodeInstanceRepository nodeRepo;
-    private final AssigneeResolver assigneeResolver;
+    private final RuleEngineFacade ruleEngineFacade;
     private final ObjectMapper objectMapper;
 
     public NextNodeProbe(FlowInstanceRepository instanceRepo,
                          FlowDefinitionRepository defRepo,
                          FlowNodeInstanceRepository nodeRepo,
-                         AssigneeResolver assigneeResolver,
+                         RuleEngineFacade ruleEngineFacade,
                          ObjectMapper objectMapper) {
         this.instanceRepo = instanceRepo;
         this.defRepo = defRepo;
         this.nodeRepo = nodeRepo;
-        this.assigneeResolver = assigneeResolver;
+        this.ruleEngineFacade = ruleEngineFacade;
         this.objectMapper = objectMapper;
     }
 
@@ -75,15 +76,20 @@ public class NextNodeProbe {
 
     /**
      * 候选人解析：candidateExpr 优先，回退静态 candidateUsers + assignee
-     * （与 UserTaskHandler 的解析规则保持一致）。
+     * （与 UserTaskHandler 的解析规则保持一致）；remote 模式调用失败时软失败返回空串。
      */
     private Mono<String> resolveHandlers(String expr, Map<String, Object> config,
                                          FlowInstance instance) {
         var variables = parseVariables(instance.getVariables());
-        return assigneeResolver.resolve(expr, instance, variables)
+        return ruleEngineFacade.resolveAssignees(expr, instance.getInitiator(), variables)
                 .map(resolved -> {
                     var handlers = resolved.isEmpty() ? collectHandlers(config) : resolved;
                     return String.join(",", handlers);
+                })
+                // 软失败：remote 模式下规则服务不可用时前瞻留空，不阻断主流程
+                .onErrorResume(e -> {
+                    log.warn("[NextNodeProbe] 前瞻解析降级（规则引擎调用失败）", e);
+                    return Mono.just("");
                 });
     }
 

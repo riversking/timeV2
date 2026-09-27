@@ -1,23 +1,16 @@
 package com.rivers.approval.service.impl;
 
-import com.rivers.approval.engine.ConditionEvaluator;
 import com.rivers.approval.entity.FlowDefinition;
-import com.rivers.approval.model.EdgeDef;
-import com.rivers.approval.model.GatewayRule;
-import com.rivers.approval.model.ProcessDefinition;
 import com.rivers.approval.repository.FlowDefinitionRepository;
+import com.rivers.approval.rule.RuleEngineFacade;
 import com.rivers.approval.service.IFlowDefinitionService;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.expression.ParseException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
 
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -25,7 +18,8 @@ import java.util.Optional;
  * <p>
  * 业务失败不抛异常：统一返回 ResultVO.fail(msg)。
  * create 时校验内嵌规则（排他网关节点 config.rules）：DSL 可解析、condition 非空且 SpEL 语法合法、
- * targetNodeId 属于该网关出边目标集合——规则直接配置在流程中，无需入库。
+ * targetNodeId 属于该网关出边目标集合——校验经 {@link RuleEngineFacade} 执行
+ * （local 进程内 / remote 独立规则服务），规则直接配置在流程中，无需入库。
  */
 @Service
 @Slf4j
@@ -35,15 +29,12 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
     private static final String YYYY_MM_DD_HH_MM_SS = "yyyy-MM-dd HH:mm:ss";
 
     private final FlowDefinitionRepository defRepo;
-    private final ConditionEvaluator evaluator;
-    private final ObjectMapper objectMapper;
+    private final RuleEngineFacade ruleEngineFacade;
 
     public FlowDefinitionServiceImpl(FlowDefinitionRepository defRepo,
-                                     ConditionEvaluator evaluator,
-                                     ObjectMapper objectMapper) {
+                                     RuleEngineFacade ruleEngineFacade) {
         this.defRepo = defRepo;
-        this.evaluator = evaluator;
-        this.objectMapper = objectMapper;
+        this.ruleEngineFacade = ruleEngineFacade;
     }
 
     // ==================== 查询 ====================
@@ -110,11 +101,14 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
 
     @Override
     public Mono<ResultVO<Void>> create(CreateDefinitionReq req) {
-        // 定义级校验（内嵌规则直接配置在流程中，创建时校验一次长期有效）
-        var invalid = validateDefinition(req.getDefinitionJson());
-        if (invalid != null) {
-            return invalid;
-        }
+        // 定义级校验（内嵌规则直接配置在流程中，创建时校验一次长期有效；local 进程内 / remote 规则服务）
+        return ruleEngineFacade.validateDefinition(req.getDefinitionJson())
+                .flatMap(error -> error
+                        .map(msg -> Mono.just(ResultVO.<Void>fail(msg)))
+                        .orElseGet(() -> saveDefinition(req)));
+    }
+
+    private Mono<ResultVO<Void>> saveDefinition(CreateDefinitionReq req) {
         var loginUser = req.getLoginUser();
         var def = FlowDefinition.builder()
                 .definitionKey(req.getDefinitionKey())
@@ -131,61 +125,7 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
         return defRepo.save(def)
                 .doOnNext(d -> log.info("[FlowDefinitionServiceImpl] 定义已创建 definitionKey={}",
                         d.getDefinitionKey()))
-                .map(_ -> ResultVO.ok());
-    }
-
-    /**
-     * 定义级校验：definitionJson 可解析为 DSL；每个排他网关节点的内嵌规则（config.rules）
-     * 逐条校验 condition 非空且 SpEL 语法合法、targetNodeId 属于该网关出边目标集合。
-     * 校验通过返回 null，失败返回 ResultVO.fail(msg)。
-     */
-    private Mono<ResultVO<Void>> validateDefinition(String definitionJson) {
-        ProcessDefinition definition;
-        try {
-            definition = objectMapper.readValue(definitionJson, ProcessDefinition.class);
-        } catch (Exception err) {
-            log.warn("[FlowDefinitionServiceImpl] 定义 JSON 无法解析", err);
-            return Mono.just(ResultVO.fail("流程定义 JSON 无法解析: " + err.getMessage()));
-        }
-        for (var node : definition.nodes()) {
-            if (!"EXCLUSIVE_GATEWAY".equals(node.type())) {
-                continue;
-            }
-            var rawRules = node.config("rules");
-            if (rawRules == null) {
-                continue;
-            }
-            List<GatewayRule> rules;
-            try {
-                rules = objectMapper.convertValue(rawRules, new TypeReference<List<GatewayRule>>() {
-                });
-            } catch (IllegalArgumentException err) {
-                return Mono.just(ResultVO.fail("网关内嵌规则格式错误: nodeId=" + node.id()));
-            }
-            var edgeTargets = definition.edgesFrom(node.id()).stream()
-                    .map(EdgeDef::target)
-                    .toList();
-            for (var rule : rules) {
-                var condition = rule.condition();
-                if (condition == null || condition.isBlank()) {
-                    return Mono.just(ResultVO.fail("condition 不能为空: nodeId=" + node.id()));
-                }
-                try {
-                    evaluator.validate(condition);
-                } catch (ParseException err) {
-                    return Mono.just(ResultVO.fail("condition SpEL 语法错误: " + condition));
-                }
-                var target = rule.targetNodeId();
-                if (target == null || target.isBlank()) {
-                    return Mono.just(ResultVO.fail("targetNodeId 不能为空: nodeId=" + node.id()));
-                }
-                if (!edgeTargets.contains(target)) {
-                    return Mono.just(ResultVO.fail(
-                            "targetNodeId 不在该网关出边目标集合中: " + target));
-                }
-            }
-        }
-        return null;
+                .map(_ -> ResultVO.<Void>ok());
     }
 
     @Override

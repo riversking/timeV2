@@ -6,7 +6,7 @@ plugins {
 
 group = 'com.rivers'
 version = '0.0.1-SNAPSHOT'
-description = 'approval-server'
+description = 'rule-engine-server'
 
 java {
     toolchain {
@@ -27,22 +27,14 @@ ext {
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-amqp'
-    implementation 'org.springframework.cloud:spring-cloud-starter-bus-amqp'
-    implementation ('io.github.riversking:rivers-core:1.0.25')
+    implementation ('io.github.riversking:rivers-core:1.0.27')
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
-    implementation 'io.asyncer:r2dbc-mysql'
-    implementation 'io.r2dbc:r2dbc-proxy'
-    implementation files('../protos/approvalservice_protos.jar')
-    implementation files('../protos/userservice_protos.jar')
     implementation files('../protos/ruleengineservice_protos.jar')
+    implementation files('../protos/userservice_protos.jar')
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 }
-
 
 configurations {
     implementation.exclude module: 'spring-boot-starter-web'

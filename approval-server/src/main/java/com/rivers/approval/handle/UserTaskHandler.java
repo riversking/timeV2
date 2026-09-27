@@ -1,6 +1,5 @@
 package com.rivers.approval.handle;
 
-import com.rivers.approval.engine.AssigneeResolver;
 import com.rivers.approval.entity.FlowInstance;
 import com.rivers.approval.entity.FlowNodeInstance;
 import com.rivers.approval.entity.FlowTask;
@@ -9,6 +8,7 @@ import com.rivers.approval.event.TaskCreatedEvent;
 import com.rivers.approval.model.NodeContext;
 import com.rivers.approval.model.NodeDef;
 import com.rivers.approval.repository.FlowTaskRepository;
+import com.rivers.approval.rule.RuleEngineFacade;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -24,7 +24,7 @@ import java.util.*;
  * 1. 解析处理人：
  *    <ul>
  *      <li>candidateExpr 表达式占位（$startUser、$leader、$leaderMax 等内置规则，${} 写法兼容；其他名称取流程变量同名值）
- *          — 由 {@link AssigneeResolver} 解析（保序去重）；变量无匹配时兜底查询用户信息（存在用该用户，否则保留字面原文）</li>
+ *          — 由 {@link RuleEngineFacade}（local 进程内 / remote 规则服务）解析（保序去重）；变量无匹配时兜底查询用户信息（存在用该用户，否则保留字面原文）</li>
  *      <li>candidateExpr 无 $token 时视为静态直写处理人（如 userF / userF,userG，直接配置审批人）</li>
  *      <li>表达式为空时回退静态 candidateUsers + assignee（存量定义零影响）</li>
  *    </ul>
@@ -58,11 +58,11 @@ public class UserTaskHandler implements NodeHandler {
     private static final String WAITING = "WAITING";
 
     private final FlowTaskRepository taskRepo;
-    private final AssigneeResolver assigneeResolver;
+    private final RuleEngineFacade ruleEngineFacade;
 
-    public UserTaskHandler(FlowTaskRepository taskRepo, AssigneeResolver assigneeResolver) {
+    public UserTaskHandler(FlowTaskRepository taskRepo, RuleEngineFacade ruleEngineFacade) {
         this.taskRepo = taskRepo;
-        this.assigneeResolver = assigneeResolver;
+        this.ruleEngineFacade = ruleEngineFacade;
     }
 
     @Override
@@ -80,7 +80,7 @@ public class UserTaskHandler implements NodeHandler {
                 .orElse(Collections.emptyMap());
         // 1. 处理人解析：candidateExpr 优先；无表达式（或表达式无 token）时回退静态配置
         var expr = config.get(CANDIDATE_EXPR);
-        return assigneeResolver.resolve(expr instanceof String s ? s : "", instance, ctx.variables())
+        return ruleEngineFacade.resolveAssignees(expr instanceof String s ? s : "", instance.getInitiator(), ctx.variables())
                 .flatMap(resolved -> {
                     var plan = buildPlan(config, resolved);
                     var handlers = plan.handlers().isEmpty() ? List.of("") : plan.handlers();

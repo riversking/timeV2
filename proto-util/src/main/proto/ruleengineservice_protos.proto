@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package grpc;
+option java_package = "com.rivers.proto";
+option java_outer_classname = "RuleEngineProto";
+option java_multiple_files = true;
+
+// ==================== 审批人表达式解析 ====================
+
+message ResolveAssigneesReq {
+    // 节点 config.candidateExpr 原文（$leader / ${name} / 静态直写 双语法）
+    string expr = 1;
+    // 发起人（$startUser 数据源）
+    string initiator = 2;
+    // 流程变量 JSON（Map<String, Object> 序列化；leaderChain / 变量通道数据源）
+    string variablesJson = 3;
+}
+
+message ResolveAssigneesRes {
+    // 保序去重后的处理人列表（未解析 token 保留字面原文）
+    repeated string assignees = 1;
+}
+
+// ==================== 排他网关路由 ====================
+
+message GatewayRuleProto {
+    // SpEL 条件表达式，命中即路由
+    string condition = 1;
+    // 命中后的目标节点 id
+    string targetNodeId = 2;
+    // 优先级（数值越大越先求值）
+    int32 priority = 3;
+    // 命中后写入流程变量的输出映射 JSON（可为空）
+    string outputMappingJson = 4;
+}
+
+message RouteEdgeProto {
+    // 出边目标节点 id
+    string target = 1;
+    // 出边条件表达式（默认边为空）
+    string conditionExpression = 2;
+}
+
+message RouteGatewayReq {
+    // 网关节点 id（日志与错误消息用）
+    string nodeId = 1;
+    // 网关内嵌规则（config.rules，可为空 → 直接走边条件/默认边）
+    repeated GatewayRuleProto rules = 2;
+    // 网关出边（按定义顺序）
+    repeated RouteEdgeProto edges = 3;
+    // 流程变量 JSON
+    string variablesJson = 4;
+}
+
+message RouteGatewayRes {
+    // 路由目标节点 id
+    string targetNodeId = 1;
+    // 命中后输出变量 JSON（无则空串）
+    string outputVariablesJson = 2;
+    // 命中来源：EMBEDDED_RULE / EDGE_CONDITION / DEFAULT_EDGE
+    string hitSource = 3;
+}
+
+// ==================== 定义规则校验 ====================
+
+message ValidateDefinitionReq {
+    // 流程定义 definitionJson 原文
+    string definitionJson = 1;
+}
+
+message ValidateRuleError {
+    // 出错节点 id（JSON 整体无法解析时为 ""）
+    string nodeId = 1;
+    // 规则下标（非规则错误为 -1）
+    int32 ruleIndex = 2;
+    // 错误消息（与引擎创建校验语义一致）
+    string message = 3;
+}
+
+message ValidateDefinitionRes {
+    // 校验错误列表（首个错误即返回，列表语义预留扩展）
+    repeated ValidateRuleError errors = 1;
+}
