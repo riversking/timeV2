@@ -109,23 +109,29 @@ public class FlowDefinitionServiceImpl implements IFlowDefinitionService {
     }
 
     private Mono<ResultVO<Void>> saveDefinition(CreateDefinitionReq req) {
-        var loginUser = req.getLoginUser();
-        var def = FlowDefinition.builder()
-                .definitionKey(req.getDefinitionKey())
-                .name(req.getName())
-                .description(req.getDescription())
-                .category(req.getCategory())
-                .icon(req.getIcon())
-                .definitionJson(req.getDefinitionJson())
-                .version(1)
-                .status("DRAFT")
-                .createUser(loginUser.getUserId())
-                .updateUser(loginUser.getUserId())
-                .build();
-        return defRepo.save(def)
-                .doOnNext(d -> log.info("[FlowDefinitionServiceImpl] 定义已创建 definitionKey={}",
-                        d.getDefinitionKey()))
-                .map(_ -> ResultVO.<Void>ok());
+        // 同一 key 仅允许一个 v1 记录；已存在时返回友好失败，避免唯一键冲突导致 500
+        return defRepo.findByKeyAndVersion(req.getDefinitionKey(), 1)
+                .flatMap(exist -> Mono.just(ResultVO.<Void>fail(
+                        "流程定义已存在: " + req.getDefinitionKey() + " v1，请更换标识或使用现有草稿")))
+                .switchIfEmpty(Mono.defer(() -> {
+                    var loginUser = req.getLoginUser();
+                    var def = FlowDefinition.builder()
+                            .definitionKey(req.getDefinitionKey())
+                            .name(req.getName())
+                            .description(req.getDescription())
+                            .category(req.getCategory())
+                            .icon(req.getIcon())
+                            .definitionJson(req.getDefinitionJson())
+                            .version(1)
+                            .status("DRAFT")
+                            .createUser(loginUser.getUserId())
+                            .updateUser(loginUser.getUserId())
+                            .build();
+                    return defRepo.save(def)
+                            .doOnNext(d -> log.info("[FlowDefinitionServiceImpl] 定义已创建 definitionKey={}",
+                                    d.getDefinitionKey()))
+                            .map(_ -> ResultVO.<Void>ok());
+                }));
     }
 
     @Override

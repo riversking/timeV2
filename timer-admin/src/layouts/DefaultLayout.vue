@@ -443,9 +443,12 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
+/* 注意：hover 不能用 transform 位移
+   transform 会让 .el-main 成为 fixed 元素的 containing block，
+   页内未 teleport 的 el-dialog overlay 会改为以 .el-main 为参照定位；
+   鼠标进出触发 hover 切换时，弹窗会在"局部/全屏"之间跳变 */
 .el-main:hover {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
 }
 
 /* 科技感光效 - 主内容区域 */
