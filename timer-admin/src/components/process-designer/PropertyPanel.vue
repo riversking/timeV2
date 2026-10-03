@@ -69,6 +69,49 @@
             </el-select>
             <div class="pp-tip">不设置时：表达式解析出多人自动串签；否则默认 CLAIM 领单。</div>
           </el-form-item>
+          <el-divider content-position="left">结果与退回</el-divider>
+          <el-form-item label="结果变量 resultVar">
+            <el-input
+              v-model="nodeConfig.resultVar"
+              placeholder="如 deptA_result（并行分支隔离，可选）"
+              style="font-family: monospace"
+            />
+            <div class="pp-tip">
+              办理结果（APPROVED/RETURNED 等）写入该流程变量；并行分支各用不同变量名，
+              便于汇聚网关读取判断。
+            </div>
+          </el-form-item>
+          <el-form-item label="退回模式 returnMode">
+            <el-select
+              v-model="returnMode"
+              clearable
+              placeholder="TERMINATE（缺省：退回即终止）"
+              style="width: 100%"
+            >
+              <el-option label="TERMINATE · 退回即终止流程（缺省）" value="TERMINATE" />
+              <el-option label="REWORK · 打回重审，按出边继续流转" value="REWORK" />
+            </el-select>
+            <div class="pp-tip">
+              REWORK：退回不终止实例，由该节点出边继续流转（通常指向"修改重提"节点，
+              再回边到本节点重审）。
+            </div>
+          </el-form-item>
+          <el-form-item label="输出映射 outputMapping">
+            <el-input
+              v-model="nodeConfig.outputMappingJson"
+              type="textarea"
+              :rows="2"
+              placeholder='JSON 对象，如 {"deptA_result": "PENDING"}'
+              style="font-family: monospace"
+            />
+            <div v-if="outputMappingInvalid" class="pp-tip" style="color: #f56c6c">
+              JSON 格式不合法，应用时将被忽略
+            </div>
+            <div v-else class="pp-tip">
+              节点完成时合并写入流程变量（如修改节点重提时重置结果为 PENDING，
+              避免重审中被他方网关误判为退回态）。
+            </div>
+          </el-form-item>
           <el-divider content-position="left">静态兜底（表达式为空时生效）</el-divider>
           <el-form-item label="候选用户 candidateUsers">
             <el-select
@@ -192,7 +235,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { nodeTypeMeta } from "@/utils/flowDsl";
+import { nodeTypeMeta, parseOutputMapping } from "@/utils/flowDsl";
 
 const props = defineProps<{
   selected: { kind: "node" | "edge"; element: any } | null;
@@ -257,6 +300,22 @@ const taskMode = computed({
       delete nodeConfig.value.taskMode;
     }
   },
+});
+
+const returnMode = computed({
+  get: () => nodeConfig.value.returnMode || "",
+  set: (val: string) => {
+    if (val) {
+      nodeConfig.value.returnMode = val;
+    } else {
+      delete nodeConfig.value.returnMode;
+    }
+  },
+});
+
+const outputMappingInvalid = computed(() => {
+  const raw = nodeConfig.value.outputMappingJson;
+  return typeof raw === "string" && raw.trim() !== "" && !parseOutputMapping(raw);
 });
 
 const candidateUsers = computed<string[]>({

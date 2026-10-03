@@ -291,14 +291,8 @@ const showUserCenter = () => {
   router.push('/users/userCenter');
 };
 const logout = async () => {
-  try {
-    localStorage.removeItem("token");
-    userStore.setToken("");
-    userStore.setMenuRoutes([]);
-    await router.replace("/login");
-  } catch (error) {
-    console.error(error);
-  }
+  // 走 store 登出：销毁服务端会话（logoutApi）+ 清理本地 session 并跳转登录
+  await userStore.logout();
 };
 
 const fetchCurrenntUser = async () => {

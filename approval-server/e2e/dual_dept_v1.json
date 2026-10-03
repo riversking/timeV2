@@ -1,0 +1,139 @@
+{
+  "key": "dual_dept_rework_v1",
+  "name": "金额条件双部门并行审批（打回重审）",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "START",
+      "name": "开始"
+    },
+    {
+      "id": "gw_amount",
+      "type": "EXCLUSIVE_GATEWAY",
+      "name": "金额判断",
+      "config": {
+        "rules": [
+          {"condition": "#amount != null and #amount > 5000000", "targetNodeId": "gw_fork", "priority": 10},
+          {"condition": "#amount != null and #amount <= 5000000", "targetNodeId": "deptA_approval", "priority": 5}
+        ]
+      }
+    },
+    {
+      "id": "deptA_approval",
+      "type": "USER_TASK",
+      "name": "A部门领导审批",
+      "config": {
+        "candidateExpr": "${leaderChainA}",
+        "resultVar": "deptA_result",
+        "returnMode": "REWORK"
+      }
+    },
+    {
+      "id": "gw_deptA_result",
+      "type": "EXCLUSIVE_GATEWAY",
+      "name": "A部门结果判定",
+      "config": {
+        "rules": [
+          {"condition": "#deptA_result == 'APPROVED' and #amount != null and #amount <= 5000000", "targetNodeId": "admin_approval", "priority": 30},
+          {"condition": "#deptA_result == 'APPROVED' and #amount != null and #amount > 5000000", "targetNodeId": "gw_join", "priority": 20},
+          {"condition": "#deptA_result == 'RETURNED' and #deptB_result == 'RETURNED'", "targetNodeId": "end", "priority": 10}
+        ]
+      }
+    },
+    {
+      "id": "deptA_rework",
+      "type": "USER_TASK",
+      "name": "A部门修改重提",
+      "config": {
+        "candidateExpr": "$startUser",
+        "taskMode": "ANY_ONE",
+        "outputMapping": {"deptA_result": "PENDING"}
+      }
+    },
+    {
+      "id": "gw_fork",
+      "type": "PARALLEL_GATEWAY",
+      "name": "并行分叉"
+    },
+    {
+      "id": "deptB_approval",
+      "type": "USER_TASK",
+      "name": "B部门领导审批",
+      "config": {
+        "candidateExpr": "${leaderChainB}",
+        "resultVar": "deptB_result",
+        "returnMode": "REWORK"
+      }
+    },
+    {
+      "id": "gw_deptB_result",
+      "type": "EXCLUSIVE_GATEWAY",
+      "name": "B部门结果判定",
+      "config": {
+        "rules": [
+          {"condition": "#deptB_result == 'APPROVED'", "targetNodeId": "gw_join", "priority": 20},
+          {"condition": "#deptB_result == 'RETURNED' and #deptA_result == 'RETURNED'", "targetNodeId": "end", "priority": 10}
+        ]
+      }
+    },
+    {
+      "id": "deptB_rework",
+      "type": "USER_TASK",
+      "name": "B部门修改重提",
+      "config": {
+        "candidateExpr": "$startUser",
+        "taskMode": "ANY_ONE",
+        "outputMapping": {"deptB_result": "PENDING"}
+      }
+    },
+    {
+      "id": "gw_join",
+      "type": "PARALLEL_GATEWAY",
+      "name": "并行汇聚"
+    },
+    {
+      "id": "admin_approval",
+      "type": "USER_TASK",
+      "name": "管理员审批",
+      "config": {
+        "candidateExpr": "${adminUser}",
+        "taskMode": "ANY_ONE"
+      }
+    },
+    {
+      "id": "boss_approval",
+      "type": "USER_TASK",
+      "name": "老板审批",
+      "config": {
+        "candidateExpr": "${bossUser}",
+        "taskMode": "ANY_ONE"
+      }
+    },
+    {
+      "id": "end",
+      "type": "END",
+      "name": "结束"
+    }
+  ],
+  "edges": [
+    {"id": "e1", "source": "start", "target": "gw_amount"},
+    {"id": "e2", "source": "gw_amount", "target": "deptA_approval"},
+    {"id": "e3", "source": "gw_amount", "target": "gw_fork"},
+    {"id": "e4", "source": "deptA_approval", "target": "gw_deptA_result"},
+    {"id": "e5", "source": "gw_deptA_result", "target": "deptA_rework"},
+    {"id": "e6", "source": "gw_deptA_result", "target": "admin_approval"},
+    {"id": "e7", "source": "gw_deptA_result", "target": "gw_join"},
+    {"id": "e8", "source": "gw_deptA_result", "target": "end"},
+    {"id": "e9", "source": "deptA_rework", "target": "deptA_approval"},
+    {"id": "e10", "source": "gw_fork", "target": "deptA_approval"},
+    {"id": "e11", "source": "gw_fork", "target": "deptB_approval"},
+    {"id": "e12", "source": "deptB_approval", "target": "gw_deptB_result"},
+    {"id": "e13", "source": "gw_deptB_result", "target": "deptB_rework"},
+    {"id": "e14", "source": "gw_deptB_result", "target": "gw_join"},
+    {"id": "e15", "source": "gw_deptB_result", "target": "end"},
+    {"id": "e16", "source": "deptB_rework", "target": "deptB_approval"},
+    {"id": "e17", "source": "gw_join", "target": "admin_approval"},
+    {"id": "e18", "source": "admin_approval", "target": "boss_approval"},
+    {"id": "e19", "source": "boss_approval", "target": "end"}
+  ]
+}

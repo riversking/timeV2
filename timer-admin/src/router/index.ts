@@ -10,6 +10,38 @@ const router = createRouter({
       name: "Login",
       component: () => import("@/components/Login.vue"),
     },
+    // C 端门户：独立布局，无需登录即可访问（详情门控在页面内处理，登录态与后台管理隔离）
+    {
+      path: "/portal",
+      component: () => import("@/layouts/PortalLayout.vue"),
+      children: [
+        {
+          path: "",
+          name: "PortalHome",
+          component: () => import("@/views/portal/PortalHome.vue"),
+        },
+        {
+          path: "players",
+          name: "PortalPlayers",
+          component: () => import("@/views/portal/PortalPlayers.vue"),
+        },
+        {
+          path: "news",
+          name: "PortalNews",
+          component: () => import("@/views/portal/PortalNews.vue"),
+        },
+        {
+          path: "teams",
+          name: "PortalTeams",
+          component: () => import("@/views/portal/PortalTeams.vue"),
+        },
+        {
+          path: "schedule",
+          name: "PortalSchedule",
+          component: () => import("@/views/portal/PortalSchedule.vue"),
+        },
+      ],
+    },
     {
       path: "/home",
       name: "首页",
@@ -111,6 +143,12 @@ function convertToRoutes(menuList: MenuTreeVO[]): RouteRecordRaw[] {
 
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
+
+  // C 端门户：公开访问，不做后台登录拦截（列表/新闻/赛程免登录，详情由页面内门控）
+  if (to.path.startsWith("/portal")) {
+    next();
+    return;
+  }
 
   // 已登录 → 访问 /login 就跳首页
   if (userStore.isLoggedIn() && to.path === "/login") {

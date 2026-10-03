@@ -41,3 +41,300 @@ message GetPlayersRes {
     repeated Player players = 2;
 }
 
+message Stadium {
+    int32 stadiumId = 1;
+    bool active = 2;
+    string name = 3;
+    string address = 4;
+    string city = 5;
+    string state = 6;
+    string zip = 7;
+    string country = 8;
+    int32 capacity = 9;
+    double geoLat = 10;
+    double geoLong = 11;
+}
+
+//球馆分页查询请求
+message GetStadiumsReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string name = 3;
+}
+//球馆分页查询响应
+message GetStadiumsRes {
+    int64 total = 1;
+    repeated Stadium stadiums = 2;
+}
+
+//球队信息
+message TeamInfo {
+    int32 teamId = 1;
+    string key = 2;
+    bool active = 3;
+    string city = 4;
+    string name = 5;
+    int32 leagueId = 6;
+    int32 stadiumId = 7;
+    string conference = 8;
+    string division = 9;
+    string primaryColor = 10;
+    string secondaryColor = 11;
+    string tertiaryColor = 12;
+    string quaternaryColor = 13;
+    string wikipediaLogoUrl = 14;
+    int32 globalTeamId = 15;
+    int32 nbaDotComTeamId = 16;
+    string headCoach = 17;
+}
+//球队分页查询请求
+message GetTeamsReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string name = 3;
+}
+//球队分页查询响应
+message GetTeamsRes {
+    int64 total = 1;
+    repeated TeamInfo teams = 2;
+}
+
+//当前赛季信息
+message CurrentSeasonInfo {
+    int32 season = 1;
+    int32 startYear = 2;
+    int32 endYear = 3;
+    string description = 4;
+    string regularSeasonStartDate = 5;
+    string postSeasonStartDate = 6;
+    string seasonType = 7;
+    string apiSeason = 8;
+}
+//当前赛季查询响应
+message GetCurrentSeasonRes {
+    CurrentSeasonInfo currentSeason = 1;
+}
+
+//比赛信息
+message GameInfo {
+    int32 gameId = 1;
+    int32 season = 2;
+    int32 seasonType = 3;
+    string status = 4;
+    string day = 5;
+    string dateTime = 6;
+    string awayTeam = 7;
+    string homeTeam = 8;
+    int32 awayTeamId = 9;
+    int32 homeTeamId = 10;
+    int32 stadiumId = 11;
+    string channel = 12;
+    int32 attendance = 13;
+    int32 awayTeamScore = 14;
+    int32 homeTeamScore = 15;
+    string updated = 16;
+    bool isClosed = 17;
+    string gameEndDateTime = 18;
+    bool neutralVenue = 19;
+    string dateTimeUtc = 20;
+    bool inseasonTournament = 21;
+    int32 globalGameId = 22;
+}
+//按赛季同步比赛请求
+message SyncGamesBySeasonReq {
+    int32 season = 1;
+}
+//按日期同步比赛请求
+message SyncGamesByDateReq {
+    string date = 1;
+}
+//比赛分页查询请求
+message GetGamesReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    int32 season = 3;
+    string date = 4;
+    int32 teamId = 5;
+}
+//比赛分页查询响应
+message GetGamesRes {
+    int64 total = 1;
+    repeated GameInfo games = 2;
+}
+//比赛日历查询请求
+message GetGameCalendarReq {
+    int32 season = 1;
+    string month = 2;
+    int32 teamId = 3;
+}
+//比赛日历按日汇总
+message GameDayCount {
+    string day = 1;
+    int32 count = 2;
+}
+//比赛日历查询响应
+message GetGameCalendarRes {
+    repeated GameDayCount days = 1;
+}
+
+//球员简档信息
+message PlayerBasicInfo {
+    int64 playerId = 1;
+    string sportsDataId = 2;
+    string status = 3;
+    int32 teamId = 4;
+    string team = 5;
+    int32 jersey = 6;
+    string positionCategory = 7;
+    string position = 8;
+    string firstName = 9;
+    string lastName = 10;
+    int32 height = 11;
+    int32 weight = 12;
+    string birthDate = 13;
+    string birthCity = 14;
+    string birthState = 15;
+    string birthCountry = 16;
+    string college = 17;
+    int32 salary = 18;
+    string photoUrl = 19;
+    int32 experience = 20;
+    string draftKingsName = 21;
+    int32 globalTeamId = 22;
+    int32 source = 23;
+}
+//按球队同步球员简档请求
+message SyncPlayersByTeamReq {
+    string team = 1;
+}
+//球员简档分页查询请求
+message GetPlayerBasicsReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string name = 3;
+    int32 source = 4;
+}
+//球员简档分页查询响应
+message GetPlayerBasicsRes {
+    int64 total = 1;
+    repeated PlayerBasicInfo playerBasics = 2;
+}
+
+//阵容深度信息
+message DepthChartInfo {
+    int32 teamId = 1;
+    int64 playerId = 2;
+    string name = 3;
+    string positionCategory = 4;
+    string position = 5;
+    int32 depthOrder = 6;
+    int32 depthChartId = 7;
+    string updated = 8;
+}
+//阵容深度分页查询请求
+message GetDepthChartsReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    int32 teamId = 3;
+}
+//阵容深度分页查询响应
+message GetDepthChartsRes {
+    int64 total = 1;
+    repeated DepthChartInfo depthCharts = 2;
+}
+
+//裁判信息
+message RefereeInfo {
+    int64 refereeId = 1;
+    string name = 2;
+    int32 number = 3;
+    string position = 4;
+    string college = 5;
+    int32 experience = 6;
+}
+//裁判分页查询请求
+message GetRefereesReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string name = 3;
+}
+//裁判分页查询响应
+message GetRefereesRes {
+    int64 total = 1;
+    repeated RefereeInfo referees = 2;
+}
+
+//交易记录信息
+message TransactionInfo {
+    int64 playerId = 1;
+    string name = 2;
+    int32 formerTeamId = 3;
+    string formerTeam = 4;
+    int32 teamId = 5;
+    string team = 6;
+    string type = 7;
+    string date = 8;
+    string note = 9;
+    string created = 10;
+    string updated = 11;
+}
+//按日期同步交易请求
+message SyncTransactionsByDateReq {
+    string date = 1;
+}
+//交易分页查询请求
+message GetTransactionsReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string date = 3;
+}
+//交易分页查询响应
+message GetTransactionsRes {
+    int64 total = 1;
+    repeated TransactionInfo transactions = 2;
+}
+
+//球员详情查询请求
+message GetPlayerDetailReq {
+    int64 playerId = 1;
+}
+//球员详情查询响应
+message GetPlayerDetailRes {
+    Player player = 1;
+}
+
+//球馆详情查询请求
+message GetStadiumDetailReq {
+    int32 stadiumId = 1;
+}
+//球馆详情查询响应
+message GetStadiumDetailRes {
+    Stadium stadium = 1;
+}
+
+//球队详情查询请求
+message GetTeamDetailReq {
+    int32 teamId = 1;
+}
+//球队详情查询响应
+message GetTeamDetailRes {
+    TeamInfo team = 1;
+}
+
+//新闻资讯条目
+message NewsItem {
+    string title = 1;
+    string description = 2;
+    string published = 3;
+    string imageUrl = 4;
+    string link = 5;
+    string type = 6;
+}
+//新闻查询请求
+message GetNewsReq {
+    int32 limit = 1;
+}
+//新闻查询响应
+message GetNewsRes {
+    repeated NewsItem news = 1;
+}

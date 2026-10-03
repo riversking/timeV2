@@ -1,0 +1,48 @@
+{
+  "key": "legacy_dept_v1",
+  "name": "存量兼容单部门审批（无returnMode，退回即终止）",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "START",
+      "name": "开始"
+    },
+    {
+      "id": "deptA_approval",
+      "type": "USER_TASK",
+      "name": "A部门领导审批",
+      "config": {
+        "candidateExpr": "${leaderChainA}"
+      }
+    },
+    {
+      "id": "admin_approval",
+      "type": "USER_TASK",
+      "name": "管理员审批",
+      "config": {
+        "candidateExpr": "${adminUser}",
+        "taskMode": "ANY_ONE"
+      }
+    },
+    {
+      "id": "boss_approval",
+      "type": "USER_TASK",
+      "name": "老板审批",
+      "config": {
+        "candidateExpr": "${bossUser}",
+        "taskMode": "ANY_ONE"
+      }
+    },
+    {
+      "id": "end",
+      "type": "END",
+      "name": "结束"
+    }
+  ],
+  "edges": [
+    {"id": "l1", "source": "start", "target": "deptA_approval"},
+    {"id": "l2", "source": "deptA_approval", "target": "admin_approval"},
+    {"id": "l3", "source": "admin_approval", "target": "boss_approval"},
+    {"id": "l4", "source": "boss_approval", "target": "end"}
+  ]
+}

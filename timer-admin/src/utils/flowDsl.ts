@@ -278,6 +278,11 @@ export function toElements(def: DslDefinition): { nodes: any[]; edges: any[] } {
     if (Array.isArray(config.rules)) {
       config.rules = config.rules.map(toRuleUi);
     }
+    // 节点级 outputMapping 同样以 JSON 字符串编辑，导出时转回对象
+    if (config.outputMapping && typeof config.outputMapping === "object") {
+      config.outputMappingJson = JSON.stringify(config.outputMapping);
+      delete config.outputMapping;
+    }
     return {
       id: n.id,
       type: "process",
@@ -321,6 +326,13 @@ function cleanConfig(raw: Record<string, any>): Record<string, any> | undefined 
         });
       if (rules.length) {
         out.rules = rules;
+      }
+      continue;
+    }
+    if (k === "outputMappingJson") {
+      const mapping = parseOutputMapping(v);
+      if (mapping) {
+        out.outputMapping = mapping;
       }
       continue;
     }
@@ -470,6 +482,19 @@ export function validateDefinition(def: DslDefinition): ValidateResult {
       const hasAssignee = typeof config.assignee === "string" && config.assignee.trim();
       if (!hasExpr && !hasUsers && !hasAssignee) {
         warnings.push(`审批任务 ${label} 未配置审批人（表达式/候选/兜底均为空，将生成无办理人的任务）`);
+      }
+      const resultVar = typeof config.resultVar === "string" ? config.resultVar.trim() : "";
+      if (resultVar && !/^[A-Za-z][A-Za-z0-9_]*$/.test(resultVar)) {
+        errors.push(`审批任务 ${label}: resultVar "${config.resultVar}" 非法（需字母开头，仅字母/数字/下划线）`);
+      }
+      const returnMode =
+        typeof config.returnMode === "string" ? config.returnMode.trim().toUpperCase() : "";
+      if (returnMode && returnMode !== "TERMINATE" && returnMode !== "REWORK") {
+        errors.push(`审批任务 ${label}: returnMode "${config.returnMode}" 仅支持 TERMINATE / REWORK`);
+      }
+      const outputMappingRaw = config.outputMappingJson;
+      if (outputMappingRaw && String(outputMappingRaw).trim() && !parseOutputMapping(String(outputMappingRaw))) {
+        errors.push(`审批任务 ${label}: outputMapping 不是合法的 JSON 对象`);
       }
     }
     if (n.type === "EXCLUSIVE_GATEWAY") {

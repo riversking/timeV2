@@ -56,6 +56,7 @@ public class FlowExecutor {
     private final FlowNodeInstanceRepository nodeRepo;
     private final FlowDefinitionRepository defRepo;
     private final FlowTaskRepository taskRepo;
+    private final FlowTaskDoneRepository taskDoneRepo;
     private final FlowHistoryRepository historyRepo;
     private final ObjectMapper objectMapper;
 
@@ -65,6 +66,7 @@ public class FlowExecutor {
                         FlowNodeInstanceRepository nodeRepo,
                         FlowDefinitionRepository defRepo,
                         FlowTaskRepository taskRepo,
+                        FlowTaskDoneRepository taskDoneRepo,
                         FlowHistoryRepository historyRepo,
                         ObjectMapper objectMapper) {
         this.handlerRegistry = handlerRegistry;
@@ -73,6 +75,7 @@ public class FlowExecutor {
         this.nodeRepo = nodeRepo;
         this.defRepo = defRepo;
         this.taskRepo = taskRepo;
+        this.taskDoneRepo = taskDoneRepo;
         this.historyRepo = historyRepo;
         this.objectMapper = objectMapper;
     }
@@ -221,6 +224,9 @@ public class FlowExecutor {
 
     /**
      * 任务完成主流程：校验实例 → 标记节点完成 → 落库审批结果 → 终止或推进。
+     * 节点 config（resultVar / outputMapping / returnMode）在此读取：
+     * resultVar 把办理结果写入指定变量（并行分支隔离），outputMapping 合并静态输出，
+     * returnMode=REWORK 时退回不终止实例、转由 DSL 出边分流（打回重审）。
      */
     private Mono<Void> processTaskCompletion(FlowInstance instance, TaskCompletedEvent event) {
         // 终止/完成的实例不再推进，防止 terminate 后继续流转
@@ -229,14 +235,30 @@ public class FlowExecutor {
                     instance.getId(), instance.getStatus());
             return Mono.empty();
         }
-        var outputVars = getOutPut(event);
-        var mergedVars = mergeVariables(parseVariables(instance.getVariables()), outputVars);
-        var operator = event.completedBy() != null ? event.completedBy() : SYSTEM;
-        return markNodeCompleted(instance, event, outputVars, mergedVars, operator)
-                .flatMap(nodeInstance -> persistApprovalResult(instance, event, operator)
-                        .thenReturn(nodeInstance))
-                .flatMap(nodeInstance -> finalizeCompletion(
-                        new CompletionContext(instance, nodeInstance, outputVars, operator), event));
+        return defRepo.findById(instance.getDefinitionId())
+                .flatMap(def -> {
+                    var definition = parseDefinition(def.getDefinitionJson());
+                    return nodeRepo.findById(event.nodeInstanceId())
+                            .switchIfEmpty(Mono.error(new IllegalStateException(
+                                    "节点实例不存在: " + event.nodeInstanceId())))
+                            .flatMap(nodeInstance -> {
+                                var config = definition.nodeById(nodeInstance.getNodeId())
+                                        .map(NodeDef::config)
+                                        .orElse(Map.of());
+                                var outputVars = buildOutputVars(event, config);
+                                var mergedVars = mergeVariables(
+                                        parseVariables(instance.getVariables()), outputVars);
+                                var operator = event.completedBy() != null
+                                        ? event.completedBy() : SYSTEM;
+                                return markNodeCompleted(instance, nodeInstance,
+                                                outputVars, mergedVars, operator)
+                                        .flatMap(ni -> persistApprovalResult(
+                                                instance, event, operator).thenReturn(ni))
+                                        .flatMap(ni -> finalizeCompletion(
+                                                new CompletionContext(instance, ni,
+                                                        outputVars, operator, config), event));
+                            });
+                });
     }
 
     /**
@@ -245,36 +267,34 @@ public class FlowExecutor {
     private record CompletionContext(FlowInstance instance,
                                      FlowNodeInstance nodeInstance,
                                      Map<String, Object> outputVars,
-                                     String operator) {
+                                     String operator,
+                                     Map<String, Object> nodeConfig) {
     }
 
     /**
      * 标记节点实例完成（CAS），并将合并后的审批变量落库。
      */
     private Mono<FlowNodeInstance> markNodeCompleted(FlowInstance instance,
-                                                     TaskCompletedEvent event,
+                                                     FlowNodeInstance nodeInstance,
                                                      Map<String, Object> outputVars,
                                                      Map<String, Object> mergedVars,
                                                      String operator) {
-        return nodeRepo.findById(event.nodeInstanceId())
-                .switchIfEmpty(Mono.error(
-                        new IllegalStateException("节点实例不存在: " + event.nodeInstanceId())))
-                .flatMap(nodeInstance -> nodeRepo.updateNodeStatus(
-                                nodeInstance.getId(),
-                                "COMPLETED",
-                                toJson(outputVars),
-                                LocalDateTime.now(ZoneId.systemDefault()),
-                                operator)
-                        .flatMap(rows -> {
-                            if (rows <= 0) {
-                                log.warn("[FlowExecutor] 节点实例已非 ACTIVE，跳过重复完成 nodeInstanceId={}",
-                                        nodeInstance.getId());
-                                return Mono.<FlowNodeInstance>empty();
-                            }
-                            return instanceRepo.updateVariables(
-                                            instance.getId(), toJson(mergedVars), operator)
-                                    .thenReturn(nodeInstance);
-                        }));
+        return nodeRepo.updateNodeStatus(
+                        nodeInstance.getId(),
+                        "COMPLETED",
+                        toJson(outputVars),
+                        LocalDateTime.now(ZoneId.systemDefault()),
+                        operator)
+                .flatMap(rows -> {
+                    if (rows <= 0) {
+                        log.warn("[FlowExecutor] 节点实例已非 ACTIVE，跳过重复完成 nodeInstanceId={}",
+                                nodeInstance.getId());
+                        return Mono.<FlowNodeInstance>empty();
+                    }
+                    return instanceRepo.updateVariables(
+                                    instance.getId(), toJson(mergedVars), operator)
+                            .thenReturn(nodeInstance);
+                });
     }
 
     /**
@@ -288,12 +308,23 @@ public class FlowExecutor {
     }
 
     /**
-     * 终局判定：拒绝/退回直接终止实例，否则发布 NodeCompletedEvent 继续推进。
+     * 终局判定：
+     * <ul>
+     *   <li>returnMode=REWORK 的退回——不终止实例，按 DSL 出边继续流转（判定网关按结果变量分流）</li>
+     *   <li>拒绝 / 缺省退回——直接终止实例</li>
+     *   <li>通过——发布 NodeCompletedEvent 继续推进</li>
+     * </ul>
      */
     private Mono<Void> finalizeCompletion(CompletionContext ctx, TaskCompletedEvent event) {
         log.info("[FlowExecutor] 节点实例已标记完成 nodeInstanceId={}",
                 ctx.nodeInstance().getId());
         if (isFinalNegative(event.result())) {
+            if (isReworkReturn(ctx.nodeConfig(), event)) {
+                log.info("[FlowExecutor] 退回重审模式，节点完成并继续流转 instanceId={}, nodeId={}",
+                        ctx.instance().getId(), ctx.nodeInstance().getNodeId());
+                publishNodeCompleted(ctx, event);
+                return Mono.empty();
+            }
             return terminateInstance(ctx, event);
         }
         publishNodeCompleted(ctx, event);
@@ -301,7 +332,19 @@ public class FlowExecutor {
     }
 
     /**
+     * 退回重审模式判定：节点 config.returnMode=REWORK 且本次结果为 RETURNED。
+     * REJECTED 始终终止实例（一票否决不参与重审）。
+     */
+    private boolean isReworkReturn(Map<String, Object> config, TaskCompletedEvent event) {
+        return "RETURNED".equals(event.result())
+                && "REWORK".equalsIgnoreCase(String.valueOf(
+                        config.getOrDefault("returnMode", "TERMINATE")));
+    }
+
+    /**
      * 拒绝/退回：实例直接 COMPLETED（仅 RUNNING 可置），发布 INSTANCE_COMPLETED 事件。
+     * 同时级联清理其余分支的活跃任务（冻结 → 归档已办 → 物理删除），
+     * 避免残留任务在待办列表悬空（幂等：无活跃任务时为空操作）。
      */
     private Mono<Void> terminateInstance(CompletionContext ctx, TaskCompletedEvent event) {
         log.info("[FlowExecutor] 审批结果为 {}，流程直接终止 instanceId={}",
@@ -311,16 +354,45 @@ public class FlowExecutor {
                         LocalDateTime.now(ZoneId.systemDefault()),
                         ctx.operator())
                 .flatMap(rows -> {
+                    var cleanup = taskRepo.cancelActiveByInstanceId(
+                                    ctx.instance().getId(), ctx.operator())
+                            .then(taskDoneRepo.archiveCancelledByInstanceId(
+                                    ctx.instance().getId(), ctx.operator()))
+                            .then(taskRepo.deleteCancelledByInstanceId(ctx.instance().getId()));
                     if (rows <= 0) {
-                        return Mono.<Void>empty();
+                        // CAS 未命中（重复消费/已被终止）：仍补一次清理，但不重复发事件
+                        return cleanup.then();
                     }
-                    var meta = FlowEventMetadata.of(
-                                    event.instanceId(), event.instanceNo(),
-                                    "INSTANCE_COMPLETED")
-                            .withOperator(ctx.operator(), "");
-                    eventBus.publish(InstanceCompletedEvent.of(meta, event.result()));
-                    return Mono.<Void>empty();
+                    return cleanup.then(Mono.fromRunnable(() -> {
+                        var meta = FlowEventMetadata.of(
+                                        event.instanceId(), event.instanceNo(),
+                                        "INSTANCE_COMPLETED")
+                                .withOperator(ctx.operator(), "");
+                        eventBus.publish(InstanceCompletedEvent.of(meta, event.result()));
+                    }));
                 });
+    }
+
+    /**
+     * 输出变量组装：审批结果基础变量 + resultVar 结果变量 + outputMapping 静态映射。
+     * resultVar 用于并行分支隔离（如 deptA_result / deptB_result），
+     * outputMapping 用于节点完成后重置变量（如修改节点重提时置回 PENDING）。
+     */
+    private Map<String, Object> buildOutputVars(TaskCompletedEvent event,
+                                                Map<String, Object> config) {
+        var out = new LinkedHashMap<String, Object>(getOutPut(event));
+        var resultVar = config.get("resultVar");
+        if (resultVar instanceof String name && !name.isBlank() && event.result() != null) {
+            out.put(name, event.result());
+        }
+        if (config.get("outputMapping") instanceof Map<?, ?> mapping) {
+            mapping.forEach((k, v) -> {
+                if (k != null) {
+                    out.put(String.valueOf(k), v);
+                }
+            });
+        }
+        return out;
     }
 
     /**

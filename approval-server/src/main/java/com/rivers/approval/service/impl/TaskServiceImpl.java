@@ -279,7 +279,7 @@ public class TaskServiceImpl implements ITaskService {
                 .flatMap(_ -> taskDoneRepo.archiveById(task.getId(), COMPLETED,
                                 result, comment, userId)
                         .then(taskRepo.deleteByIdAndStatus(task.getId(), COMPLETED))
-                        .then(modeCleanup(task, mode)));
+                        .then(modeCleanup(task, mode, result)));
         // 2) 事务提交后：当前读统计剩余活跃行，0 才推进节点；事件恒发布（审计每次办理）
         return done.as(txOperator::transactional)
                 .then(taskRepo.countActiveByNodeInstanceId(task.getNodeInstanceId()))
@@ -293,11 +293,18 @@ public class TaskServiceImpl implements ITaskService {
 
     /**
      * 模式专属收尾（事务内执行）：
+     * 退回/拒绝  — 不激活下一顺位，作废本节点全部剩余任务（WAITING/PENDING/CLAIMED）；
+     *              重审模式下节点将整体重跑，终止模式由引擎实例级清理兜底
      * ANY_ONE    — 作废同节点其他候选行
      * SEQUENTIAL — 激活下一顺位（WAITING → PENDING）
      * 其余模式无收尾动作。
      */
-    private Mono<Void> modeCleanup(FlowTask task, String mode) {
+    private Mono<Void> modeCleanup(FlowTask task, String mode, String result) {
+        // 非通过结果（退回/拒绝）：串签不得继续推进（修复“退回反而激活下一级领导”缺陷），
+        // 本节点剩余行全部作废——完成后活跃行数为 0，事件带 advance=true 促使节点级推进/分流
+        if (!"APPROVED".equals(result)) {
+            return taskRepo.deleteActiveByNodeInstanceId(task.getNodeInstanceId()).then();
+        }
         return switch (mode) {
             case ANY_ONE -> taskRepo.deleteOtherPending(task.getNodeInstanceId(), task.getId())
                     .then();

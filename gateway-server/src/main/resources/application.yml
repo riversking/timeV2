@@ -25,18 +25,26 @@ spring:
               uri: lb://user-server
               predicates:
                 - Path=/user-server/**
+              filters:
+                - StripPrefix=1
             - id: batch-server
               uri: lb://batch-server
               predicates:
                 - Path=/batch-server/**
+              filters:
+                - StripPrefix=1
             - id: im-server
               uri: lb://im-server
               predicates:
                 - Path=/im-server/**
+              filters:
+                - StripPrefix=1
             - id: approval-server
               uri: lb://approval-server
               predicates:
                 - Path=/approval-server/**
+              filters:
+                - StripPrefix=1
 
 
 ignore:
@@ -46,6 +54,14 @@ ignore:
     - /user-server/logout
     - /user-server/refresh
     - /im-server/ws/**
+    # NBA 客户端公开接口（列表/新闻/赛程免登录访问，详情接口仍需认证）
+    - /nba-server/news/**
+    - /nba-server/player/getPlayerPage
+    - /nba-server/stadium/getStadiumPage
+    - /nba-server/team/getTeamPage
+    - /nba-server/game/getGamePage
+    - /nba-server/game/getRecentGames
+    - /nba-server/game/getGameCalendar
 
 logging:
   level:

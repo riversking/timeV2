@@ -120,6 +120,20 @@ public interface FlowTaskRepository extends ReactiveCrudRepository<FlowTask, Lon
                                      @Param("claimedId") Long claimedId);
 
     /**
+     * 退回/拒绝收尾：作废本节点全部剩余活跃行（WAITING/PENDING/CLAIMED）。
+     * 退回重审模式下节点将整体重跑，未轮到的顺位/候选不得继续办理；
+     * 被作废行从未被办理，与 ANY_ONE 的 deleteOtherPending 一致直接物理删除（不归档）。
+     */
+    @Modifying
+    @Query("""
+            DELETE FROM flow_task
+            WHERE node_instance_id = :nodeInstanceId
+              AND status IN ('PENDING', 'CLAIMED', 'WAITING')
+              AND is_deleted = 0
+            """)
+    Mono<Integer> deleteActiveByNodeInstanceId(@Param("nodeInstanceId") Long nodeInstanceId);
+
+    /**
      * 完成任务标记（CLAIMED → COMPLETED，仅需领单模式，只有认领人能完成）
      */
     @Modifying
