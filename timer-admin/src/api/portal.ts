@@ -39,6 +39,13 @@ export async function getRecentGames() {
 }
 
 /**
+ * 比分实时推送流（SSE 长连接，公开；后台发现比分变动主动推送，前台无需轮询）
+ */
+export function openScoreStream(): EventSource {
+  return new EventSource(`${API_PREFIX}/game/scoreStream`);
+}
+
+/**
  * 比赛日历（公开，按月汇总每天场次，支持 season/teamId 筛选）
  */
 export async function getGameCalendar(data: any) {

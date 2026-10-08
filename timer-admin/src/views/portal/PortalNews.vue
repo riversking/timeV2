@@ -4,48 +4,12 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">资讯中心</h1>
-        <p class="page-sub">NBA 最新动态 · 最近比赛一览</p>
+        <p class="page-sub">NBA 最新动态</p>
       </div>
       <span class="source-tag">来源 ESPN</span>
     </div>
 
     <div class="news-layout">
-      <!-- 左侧：最近的比赛 -->
-      <aside class="recent-side">
-        <h3 class="side-title">最近的比赛</h3>
-        <div v-loading="loadingRecent" class="recent-list">
-          <div v-for="g in recentGames" :key="g.gameId" class="recent-item">
-            <div class="recent-top">
-              <span class="recent-date">{{ formatDay(g.day) }}</span>
-              <span v-if="g.channel" class="recent-channel">{{ g.channel }}</span>
-            </div>
-            <div class="recent-match">
-              <span class="team away">{{ g.awayTeam }}</span>
-              <span class="at">@</span>
-              <span class="team home">{{ g.homeTeam }}</span>
-            </div>
-            <div class="recent-bottom">
-              <template v-if="g.isClosed">
-                <span class="score" :class="{ win: g.awayTeamScore > g.homeTeamScore }">
-                  {{ g.awayTeamScore }}
-                </span>
-                <span class="score-sep">-</span>
-                <span class="score" :class="{ win: g.homeTeamScore > g.awayTeamScore }">
-                  {{ g.homeTeamScore }}
-                </span>
-              </template>
-              <span v-else class="recent-time">{{ formatGameTime(g.dateTime) }}</span>
-            </div>
-          </div>
-          <el-empty
-            v-if="!loadingRecent && !recentGames.length"
-            description="暂无比赛"
-            :image-size="60"
-          />
-        </div>
-      </aside>
-
-      <!-- 右侧：新闻流 -->
       <main class="news-main">
         <div v-loading="loadingNews" class="news-list">
           <a
@@ -84,12 +48,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { getNews, getRecentGames } from "@/api/portal";
+import { getNews } from "@/api/portal";
 
 const news = ref<any[]>([]);
-const recentGames = ref<any[]>([]);
 const loadingNews = ref(false);
-const loadingRecent = ref(false);
 
 const loadNews = async () => {
   loadingNews.value = true;
@@ -103,34 +65,6 @@ const loadNews = async () => {
   } finally {
     loadingNews.value = false;
   }
-};
-
-const loadRecentGames = async () => {
-  loadingRecent.value = true;
-  try {
-    const res = await getRecentGames();
-    if (res.code === 200) {
-      recentGames.value = res.data?.games || [];
-    }
-  } catch (error) {
-    console.error("加载最近比赛失败:", error);
-  } finally {
-    loadingRecent.value = false;
-  }
-};
-
-/** 比赛日 "2027-04-11" → "04-11" */
-const formatDay = (day: string) => {
-  if (!day || day.length < 10) return day || "-";
-  return day.slice(5, 10);
-};
-
-/** 比赛时间 "2027-04-11 19:00:00" → "19:00" */
-const formatGameTime = (dt: string) => {
-  if (!dt) return "-";
-  const m = dt.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  if (!m) return dt;
-  return `${m[4]}:${m[5]}`;
 };
 
 /** ESPN 发布时间 ISO 串 → "MM-DD HH:mm" */
@@ -148,7 +82,6 @@ const onImgError = (e: Event) => {
 
 onMounted(() => {
   loadNews();
-  loadRecentGames();
 });
 </script>
 
@@ -189,133 +122,7 @@ onMounted(() => {
   align-items: flex-start;
 }
 
-/* 左侧最近比赛 */
-.recent-side {
-  width: 300px;
-  flex-shrink: 0;
-  background: rgba(30, 41, 59, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  padding: 18px 16px;
-  position: sticky;
-  top: 88px;
-}
-
-.side-title {
-  margin: 0 0 14px;
-  font-size: 16px;
-  font-weight: 700;
-  color: #f1f5f9;
-  padding-left: 12px;
-  position: relative;
-}
-
-.side-title::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 16px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #fb923c, #ea580c);
-}
-
-.recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 120px;
-}
-
-.recent-item {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  padding: 10px 12px;
-  transition: border-color 0.2s;
-}
-
-.recent-item:hover {
-  border-color: rgba(249, 115, 22, 0.4);
-}
-
-.recent-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.recent-date {
-  font-size: 12px;
-  font-weight: 700;
-  color: #fb923c;
-  font-variant-numeric: tabular-nums;
-}
-
-.recent-channel {
-  font-size: 11px;
-  color: #64748b;
-}
-
-.recent-match {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.team {
-  font-size: 13px;
-  font-weight: 700;
-  color: #e2e8f0;
-}
-
-.team.away {
-  text-align: left;
-}
-
-.team.home {
-  text-align: right;
-}
-
-.at {
-  font-size: 11px;
-  color: #64748b;
-}
-
-.recent-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.recent-time {
-  font-size: 12px;
-  color: #94a3b8;
-  font-variant-numeric: tabular-nums;
-}
-
-.score {
-  font-size: 14px;
-  font-weight: 800;
-  color: #cbd5e1;
-  font-variant-numeric: tabular-nums;
-}
-
-.score.win {
-  color: #fb923c;
-}
-
-.score-sep {
-  color: #475569;
-  font-size: 12px;
-}
-
-/* 右侧新闻流 */
+/* 新闻流 */
 .news-main {
   flex: 1;
   min-width: 0;
@@ -413,13 +220,6 @@ onMounted(() => {
 
 /* 响应式 */
 @media (max-width: 900px) {
-  .news-layout {
-    flex-direction: column;
-  }
-  .recent-side {
-    width: 100%;
-    position: static;
-  }
   .news-thumb {
     width: 130px;
   }

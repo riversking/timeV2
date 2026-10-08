@@ -7,6 +7,8 @@ import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
+
 /**
  * <p>
  * 比赛信息表 Repository（R2DBC）
@@ -36,6 +38,25 @@ public interface GameRepository extends ReactiveCrudRepository<Game, Long> {
 
     @Query("SELECT * FROM game WHERE is_deleted = 0 AND day >= NOW() ORDER BY day ASC, id ASC LIMIT :limit")
     Flux<Game> findUpcoming(int limit);
+
+    @Query("SELECT * FROM game WHERE is_deleted = 0 AND game_id = :gameId LIMIT 1")
+    Mono<Game> findByGameId(int gameId);
+
+    @Query("""
+            SELECT * FROM game WHERE is_deleted = 0 AND is_closed = 0
+            AND DATE(day) = :date
+            ORDER BY day ASC, id ASC
+            """)
+    Flux<Game> findActiveByDay(String date);
+
+    @Modifying
+    @Query("""
+            UPDATE game SET away_team_score = :awayTeamScore, home_team_score = :homeTeamScore,
+            status = :status, is_closed = :isClosed, updated = :updated, update_user = :updateUser
+            WHERE is_deleted = 0 AND game_id = :gameId
+            """)
+    Mono<Long> updateScore(int gameId, int awayTeamScore, int homeTeamScore, String status, boolean isClosed,
+                           LocalDateTime updated, String updateUser);
 
     @Query("""
             SELECT * FROM game WHERE is_deleted = 0 AND DATE_FORMAT(day, '%Y-%m') = :month

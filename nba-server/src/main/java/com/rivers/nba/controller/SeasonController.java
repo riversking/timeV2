@@ -17,7 +17,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-02
  */
 @RestController
-@RequestMapping("/season")
+@RequestMapping("season")
 public class SeasonController {
 
     private final ICurrentSeasonService currentSeasonService;

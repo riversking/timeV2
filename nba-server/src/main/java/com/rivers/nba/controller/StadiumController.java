@@ -21,7 +21,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-02
  */
 @RestController
-@RequestMapping("/stadium")
+@RequestMapping("stadium")
 public class StadiumController {
 
     private final IStadiumService stadiumService;

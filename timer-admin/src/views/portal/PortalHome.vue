@@ -24,45 +24,83 @@
       </div>
     </section>
 
-    <!-- 新闻资讯 -->
-    <section class="section">
-      <div class="section-header">
-        <h2 class="section-title">新闻资讯</h2>
-        <div class="news-header-right">
-          <span class="source-tag">来源 ESPN</span>
-          <router-link to="/portal/news" class="more-link">更多资讯 →</router-link>
+    <!-- 最近的比赛 + 新闻资讯 两栏布局 -->
+    <section class="section news-recent-layout">
+      <!-- 左侧：最近的比赛 -->
+      <aside class="recent-side">
+        <div class="section-header">
+          <h2 class="section-title">最近的比赛</h2>
+          <router-link to="/portal/schedule" class="more-link">全部赛程 →</router-link>
         </div>
-      </div>
-      <div v-loading="loadingNews" class="news-grid">
-        <a
-          v-for="n in news"
-          :key="n.link"
-          :href="n.link"
-          target="_blank"
-          rel="noopener"
-          class="news-card"
-        >
-          <div class="news-img-box">
-            <img
-              v-if="n.imageUrl"
-              :src="n.imageUrl"
-              class="news-img"
-              loading="lazy"
-              @error="onImgError"
-            />
-            <div v-else class="news-img-placeholder">🏀</div>
+        <div v-loading="loadingRecent" class="recent-list">
+          <div v-for="g in recentGames" :key="g.gameId" class="recent-item">
+            <div class="recent-top">
+              <span class="recent-date">{{ formatDay(g.day) }}</span>
+              <span v-if="g.channel" class="recent-channel">{{ g.channel }}</span>
+            </div>
+            <div class="recent-match">
+              <span class="team away">{{ g.awayTeam }}</span>
+              <span class="at">@</span>
+              <span class="team home">{{ g.homeTeam }}</span>
+            </div>
+            <div class="recent-bottom">
+              <template v-if="hasScore(g)">
+                <span class="score" :class="{ win: g.awayTeamScore > g.homeTeamScore }">{{ g.awayTeamScore }}</span>
+                <span class="score-sep">-</span>
+                <span class="score" :class="{ win: g.homeTeamScore > g.awayTeamScore }">{{ g.homeTeamScore }}</span>
+                <span v-if="g.isLive" class="live-flag">LIVE</span>
+              </template>
+              <span v-else class="recent-time">{{ formatGameTime(g.dateTime) }}</span>
+            </div>
           </div>
-          <div class="news-body">
-            <h3 class="news-title">{{ n.title }}</h3>
-            <p class="news-desc">{{ n.description }}</p>
-            <div class="news-time">{{ formatTime(n.published) }}</div>
+          <el-empty
+            v-if="!loadingRecent && !recentGames.length"
+            description="暂无比赛"
+            :image-size="60"
+          />
+        </div>
+      </aside>
+
+      <!-- 右侧：新闻资讯 -->
+      <main class="news-main">
+        <div class="section-header">
+          <h2 class="section-title">新闻资讯</h2>
+          <div class="news-header-right">
+            <span class="source-tag">来源 ESPN</span>
+            <router-link to="/portal/news" class="more-link">更多资讯 →</router-link>
           </div>
-        </a>
-      </div>
-      <el-empty
-        v-if="!loadingNews && !news.length"
-        description="暂无新闻，稍后再来看看"
-      />
+        </div>
+        <div v-loading="loadingNews" class="news-grid">
+          <a
+            v-for="n in news"
+            :key="n.link"
+            :href="n.link"
+            target="_blank"
+            rel="noopener"
+            class="news-card"
+          >
+            <div class="news-img-box">
+              <img
+                v-if="n.imageUrl"
+                :src="n.imageUrl"
+                class="news-img"
+                loading="lazy"
+                @error="onImgError"
+              />
+              <div v-else class="news-img-placeholder">🏀</div>
+            </div>
+            <div class="news-body">
+              <h3 class="news-title">{{ n.title }}</h3>
+              <p class="news-desc">{{ n.description }}</p>
+              <div class="news-time">{{ formatTime(n.published) }}</div>
+            </div>
+          </a>
+        </div>
+        <el-empty
+          v-if="!loadingNews && !news.length"
+          description="暂无新闻，稍后再来看看"
+        />
+      </main>
     </section>
 
     <!-- 球员速览 -->
@@ -100,10 +138,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { getPlayerPage, getTeamPage, getGamePage, getNews } from "@/api/portal";
+import { getPlayerPage, getTeamPage, getGamePage, getNews, getRecentGames, openScoreStream } from "@/api/portal";
 import { useClientAuth } from "@/composables/useClientAuth";
 
 const router = useRouter();
@@ -114,8 +152,10 @@ const pendingPlayerId = ref<number | null>(null);
 
 const players = ref<any[]>([]);
 const news = ref<any[]>([]);
+const recentGames = ref<any[]>([]);
 const loadingPlayers = ref(false);
 const loadingNews = ref(false);
+const loadingRecent = ref(false);
 
 const playerTotal = ref(0);
 const teamTotal = ref(0);
@@ -172,6 +212,66 @@ const loadNews = async () => {
   }
 };
 
+const loadRecentGames = async () => {
+  loadingRecent.value = true;
+  try {
+    const res = await getRecentGames();
+    if (res.code === 200) {
+      recentGames.value = res.data?.games || [];
+    }
+  } catch (error) {
+    console.error("加载最近比赛失败:", error);
+  } finally {
+    loadingRecent.value = false;
+  }
+};
+
+// 比分实时推送（SSE 长连接：后台发现比分变动主动推送，前台只订阅不轮询）
+let scoreSource: EventSource | null = null;
+let scoreRetryTimer: number | null = null;
+
+/** 已完场或已产生比分时展示比分 */
+const hasScore = (g: any) => {
+  if (g.isClosed) {
+    return true;
+  }
+  return (g.awayTeamScore || 0) + (g.homeTeamScore || 0) > 0;
+};
+
+/** 收到比分变动事件：更新对应比赛卡片（比分 / 完场 / LIVE 标记） */
+const handleScoreUpdate = (e: MessageEvent) => {
+  let data: any;
+  try {
+    data = JSON.parse(e.data);
+  } catch (error) {
+    console.error("解析比分推送失败:", error);
+    return;
+  }
+  const game = recentGames.value.find((g) => g.gameId === data.gameId);
+  if (!game) {
+    return;
+  }
+  game.awayTeamScore = data.awayTeamScore;
+  game.homeTeamScore = data.homeTeamScore;
+  game.isClosed = data.isClosed;
+  game.isLive = !data.isClosed;
+};
+
+const connectScoreStream = () => {
+  scoreSource = openScoreStream();
+  scoreSource.addEventListener("scoreUpdate", handleScoreUpdate as EventListener);
+  // 服务重启等场景下 EventSource 收到非 200 响应会永久关闭且不再自动重连，这里统一改为定时手动重连
+  scoreSource.onerror = () => {
+    console.warn("比分推送连接中断，10 秒后重连");
+    scoreSource?.close();
+    scoreSource = null;
+    if (scoreRetryTimer) {
+      window.clearTimeout(scoreRetryTimer);
+    }
+    scoreRetryTimer = window.setTimeout(connectScoreStream, 10_000);
+  };
+};
+
 /** 首页球员卡点击：详情门控——未登录先提示登录，已登录跳到球员页并打开详情 */
 const handlePlayerClick = (p: any) => {
   if (!isClientLoggedIn.value) {
@@ -209,11 +309,36 @@ const formatTime = (iso: string) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+/** 比赛日 "2026-10-20" → "10-20" */
+const formatDay = (day: string) => {
+  if (!day || day.length < 10) return day || "-";
+  return day.slice(5, 10);
+};
+
+/** 比赛时间 "2026-10-20 15:00:00" → "10-20 15:00" */
+const formatGameTime = (dt: string) => {
+  if (!dt) return "-";
+  const m = dt.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!m) return dt;
+  return `${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+};
+
 onMounted(() => {
   loadPlayers();
   loadTeams();
   loadGames();
   loadNews();
+  loadRecentGames();
+  connectScoreStream();
+});
+
+onBeforeUnmount(() => {
+  if (scoreRetryTimer) {
+    window.clearTimeout(scoreRetryTimer);
+    scoreRetryTimer = null;
+  }
+  scoreSource?.close();
+  scoreSource = null;
 });
 </script>
 
@@ -408,10 +533,124 @@ onMounted(() => {
   font-weight: 700;
 }
 
+/* 最近的比赛 + 新闻资讯两栏布局 */
+.news-recent-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.recent-side {
+  width: 320px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 88px;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
+}
+
+.recent-item {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  transition: border-color 0.2s;
+}
+
+.recent-item:hover {
+  border-color: rgba(249, 115, 22, 0.4);
+}
+
+.recent-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.recent-date {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fb923c;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-channel {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.recent-match {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.recent-match .team {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.recent-match .at {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.recent-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.recent-time {
+  font-size: 12px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-bottom .score {
+  font-size: 15px;
+  font-weight: 800;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-bottom .score.win {
+  color: #fb923c;
+}
+
+.live-flag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 1px;
+}
+
+.score-sep {
+  color: #475569;
+  font-size: 12px;
+}
+
+.news-main {
+  flex: 1;
+  min-width: 0;
+}
+
 /* 新闻网格 */
 .news-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 18px;
   min-height: 160px;
 }
@@ -501,6 +740,13 @@ onMounted(() => {
 @media (max-width: 900px) {
   .player-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .news-recent-layout {
+    flex-direction: column;
+  }
+  .recent-side {
+    width: 100%;
+    position: static;
   }
   .news-grid {
     grid-template-columns: 1fr;

@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
  * @since 2024-06-16
  */
 @RestController
-@RequestMapping("/player")
+@RequestMapping("player")
 public class PlayerController {
 
     private final IPlayerService playerService;

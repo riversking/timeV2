@@ -1,10 +1,12 @@
 package com.rivers.nba.service;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.nba.GameInfo;
 import com.rivers.nba.GetGameCalendarReq;
 import com.rivers.nba.GetGameCalendarRes;
 import com.rivers.nba.GetGamesReq;
 import com.rivers.nba.GetGamesRes;
+import com.rivers.nba.ScoreReportReq;
 import com.rivers.nba.SyncGamesByDateReq;
 import com.rivers.nba.SyncGamesBySeasonReq;
 import reactor.core.publisher.Mono;
@@ -41,4 +43,9 @@ public interface IGameService {
      * 查询比赛日历（按月汇总每天场次，season/teamId 可选过滤）
      */
     Mono<ResultVO<GetGameCalendarRes>> getGameCalendar(GetGameCalendarReq req);
+
+    /**
+     * 比分变动上报（更新本地比分并实时广播 SSE 事件）
+     */
+    Mono<ResultVO<GameInfo>> reportScoreChange(ScoreReportReq req);
 }

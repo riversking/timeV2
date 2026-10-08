@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-03
  */
 @RestController
-@RequestMapping("/news")
+@RequestMapping("news")
 public class NewsController {
 
     private final INewsService newsService;

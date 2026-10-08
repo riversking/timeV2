@@ -21,7 +21,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-02
  */
 @RestController
-@RequestMapping("/team")
+@RequestMapping("team")
 public class TeamController {
 
     private final ITeamService teamService;

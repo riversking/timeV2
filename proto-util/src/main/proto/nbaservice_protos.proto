@@ -176,6 +176,13 @@ message GameDayCount {
 message GetGameCalendarRes {
     repeated GameDayCount days = 1;
 }
+//比分变动上报请求（后台检测到比分变化时上报并实时广播）
+message ScoreReportReq {
+    int32 gameId = 1;
+    int32 awayTeamScore = 2;
+    int32 homeTeamScore = 3;
+    bool isClosed = 4;
+}
 
 //球员简档信息
 message PlayerBasicInfo {

@@ -20,7 +20,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-02
  */
 @RestController
-@RequestMapping("/transaction")
+@RequestMapping("transaction")
 public class TransactionController {
 
     private final ITransactionService transactionService;

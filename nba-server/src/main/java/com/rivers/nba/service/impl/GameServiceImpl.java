@@ -9,11 +9,13 @@ import com.rivers.nba.GetGameCalendarReq;
 import com.rivers.nba.GetGameCalendarRes;
 import com.rivers.nba.GetGamesReq;
 import com.rivers.nba.GetGamesRes;
+import com.rivers.nba.ScoreReportReq;
 import com.rivers.nba.SyncGamesByDateReq;
 import com.rivers.nba.SyncGamesBySeasonReq;
 import com.rivers.nba.entity.Game;
 import com.rivers.nba.repository.GameRepository;
 import com.rivers.nba.service.IGameService;
+import com.rivers.nba.service.ScorePushService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -54,8 +56,11 @@ public class GameServiceImpl implements IGameService {
 
     private final GameRepository gameRepository;
 
-    public GameServiceImpl(GameRepository gameRepository) {
+    private final ScorePushService scorePushService;
+
+    public GameServiceImpl(GameRepository gameRepository, ScorePushService scorePushService) {
         this.gameRepository = gameRepository;
+        this.scorePushService = scorePushService;
     }
 
     @Override
@@ -132,6 +137,25 @@ public class GameServiceImpl implements IGameService {
                         .setTotal(list.size())
                         .addAllGames(list)
                         .build()));
+    }
+
+    @Override
+    public Mono<ResultVO<GameInfo>> reportScoreChange(ScoreReportReq req) {
+        return gameRepository.findByGameId(req.getGameId())
+                .flatMap(game -> {
+                    game.setAwayTeamScore(req.getAwayTeamScore());
+                    game.setHomeTeamScore(req.getHomeTeamScore());
+                    game.setIsClosed(req.getIsClosed());
+                    game.setUpdateUser("system");
+                    return gameRepository.updateScore(req.getGameId(),
+                                    defaultInt(game.getAwayTeamScore()), defaultInt(game.getHomeTeamScore()),
+                                    game.getStatus(), Boolean.TRUE.equals(game.getIsClosed()), game.getUpdated(),
+                                    game.getUpdateUser())
+                            .then(Mono.just(game));
+                })
+                .doOnNext(scorePushService::broadcastScoreChange)
+                .map(game -> ResultVO.ok(toGameInfo(game)))
+                .switchIfEmpty(Mono.just(ResultVO.<GameInfo>fail("比赛不存在: " + req.getGameId())));
     }
 
     @Override

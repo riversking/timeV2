@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-02
  */
 @RestController
-@RequestMapping("/referee")
+@RequestMapping("referee")
 public class RefereeController {
 
     private final IRefereeService refereeService;

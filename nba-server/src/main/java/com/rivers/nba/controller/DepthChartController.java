@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
  * @since 2026-10-02
  */
 @RestController
-@RequestMapping("/depthChart")
+@RequestMapping("depthChart")
 public class DepthChartController {
 
     private final IDepthChartService depthChartService;
