@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.CurrentSeasonInfo;
 import com.rivers.nba.GetCurrentSeasonRes;
@@ -40,8 +40,11 @@ public class CurrentSeasonServiceImpl implements ICurrentSeasonService {
 
     private final CurrentSeasonRepository currentSeasonRepository;
 
-    public CurrentSeasonServiceImpl(CurrentSeasonRepository currentSeasonRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public CurrentSeasonServiceImpl(CurrentSeasonRepository currentSeasonRepository, WebClientUtil webClientUtil) {
         this.currentSeasonRepository = currentSeasonRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
@@ -54,7 +57,7 @@ public class CurrentSeasonServiceImpl implements ICurrentSeasonService {
                     }
                     return Mono.empty();
                 })
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "CurrentSeason?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "CurrentSeason?key=" + nbaKey))
                 .map(result -> {
                     log.info("current season result:{}", result);
                     if (result.isEmpty()) {

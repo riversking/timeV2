@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetTransactionsReq;
 import com.rivers.nba.GetTransactionsRes;
@@ -49,8 +49,11 @@ public class TransactionServiceImpl implements ITransactionService {
 
     private final TransactionRepository transactionRepository;
 
-    public TransactionServiceImpl(TransactionRepository transactionRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public TransactionServiceImpl(TransactionRepository transactionRepository, WebClientUtil webClientUtil) {
         this.transactionRepository = transactionRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
@@ -58,7 +61,7 @@ public class TransactionServiceImpl implements ITransactionService {
     public Mono<ResultVO<Void>> syncTransactionsByDate(SyncTransactionsByDateReq req) {
         String date = req.getDate();
         return transactionRepository.logicDeleteByDate(date)
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "TransactionsByDate/" + date + "?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "TransactionsByDate/" + date + "?key=" + nbaKey))
                 .map(result -> {
                     log.info("transactions date:{} result length:{}", date, StringUtils.length(result));
                     return Optional.ofNullable(result)

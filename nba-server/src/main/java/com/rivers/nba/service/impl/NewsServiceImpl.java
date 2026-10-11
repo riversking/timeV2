@@ -3,7 +3,7 @@ package com.rivers.nba.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetNewsReq;
 import com.rivers.nba.GetNewsRes;
@@ -37,6 +37,12 @@ public class NewsServiceImpl implements INewsService {
 
     private final AtomicReference<CachedNews> cache = new AtomicReference<>();
 
+    private final WebClientUtil webClientUtil;
+
+    public NewsServiceImpl(WebClientUtil webClientUtil) {
+        this.webClientUtil = webClientUtil;
+    }
+
     @Override
     public Mono<ResultVO<GetNewsRes>> getNews(GetNewsReq req) {
         int limit = resolveLimit(req.getLimit());
@@ -55,7 +61,7 @@ public class NewsServiceImpl implements INewsService {
         if (cached != null && System.currentTimeMillis() - cached.time() < CACHE_MILLIS) {
             return Mono.just(cached.json());
         }
-        return Mono.fromFuture(() -> HttpClientUtil.getAsync(NEWS_URL))
+        return webClientUtil.get(NEWS_URL)
                 .doOnNext(json -> {
                     if (StringUtils.isNotBlank(json)) {
                         cache.set(new CachedNews(json, System.currentTimeMillis()));

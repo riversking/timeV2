@@ -3,7 +3,7 @@ package com.rivers.nba.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.DepthChartInfo;
 import com.rivers.nba.GetDepthChartsReq;
@@ -48,15 +48,18 @@ public class DepthChartServiceImpl implements IDepthChartService {
 
     private final DepthChartRepository depthChartRepository;
 
-    public DepthChartServiceImpl(DepthChartRepository depthChartRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public DepthChartServiceImpl(DepthChartRepository depthChartRepository, WebClientUtil webClientUtil) {
         this.depthChartRepository = depthChartRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> syncDepthCharts() {
         return depthChartRepository.logicDeleteAll()
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "DepthCharts?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "DepthCharts?key=" + nbaKey))
                 .map(result -> {
                     log.info("depth charts result length:{}", result.length());
                     return Optional.of(result)

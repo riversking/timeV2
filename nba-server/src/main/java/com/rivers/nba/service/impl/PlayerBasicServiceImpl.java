@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetPlayerBasicsReq;
 import com.rivers.nba.GetPlayerBasicsRes;
@@ -46,8 +46,11 @@ public class PlayerBasicServiceImpl implements IPlayerBasicService {
 
     private final PlayerBasicRepository playerBasicRepository;
 
-    public PlayerBasicServiceImpl(PlayerBasicRepository playerBasicRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public PlayerBasicServiceImpl(PlayerBasicRepository playerBasicRepository, WebClientUtil webClientUtil) {
         this.playerBasicRepository = playerBasicRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
@@ -76,7 +79,7 @@ public class PlayerBasicServiceImpl implements IPlayerBasicService {
 
     private Mono<ResultVO<Void>> syncBySource(int source, String endpoint) {
         return playerBasicRepository.logicDeleteBySource(source)
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + endpoint + "?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + endpoint + "?key=" + nbaKey))
                 .map(result -> {
                     log.info("player basic source:{} result length:{}", source, StringUtils.length(result));
                     return Optional.ofNullable(result)

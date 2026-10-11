@@ -3,6 +3,7 @@ package com.rivers.batch.quartz;
 import com.rivers.batch.factory.BatchFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NullMarked;
+import org.quartz.DisallowConcurrentExecution;
 import org.quartz.JobDataMap;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
@@ -13,7 +14,17 @@ import org.springframework.batch.core.job.parameters.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.scheduling.quartz.QuartzJobBean;
 
+/**
+ * Quartz 与 Spring Batch 的桥接 Job。
+ *
+ * @DisallowConcurrentExecution：禁止同一任务（同一 JobDetail）并发执行。
+ * 背景：机器休眠/长时间暂停（如 macOS DarkWake）或时钟跳变时，Quartz 的 misfire
+ * 恢复可能对同一 trigger 产生「双重释放」，实测出现过同一任务在几十毫秒内被两个
+ * worker 并发启动的重复执行；该注解通过 FIRED_TRIGGERS 记录在 Quartz 层拦截并发，
+ * 集群多实例下同样生效（共享同一 Quartz 库时）。
+ */
 @Slf4j
+@DisallowConcurrentExecution
 public class BatchQuartzJob extends QuartzJobBean {
 
     private final JobOperator jobOperator;

@@ -3,7 +3,7 @@ package com.rivers.nba.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetPlayerDetailReq;
 import com.rivers.nba.GetPlayerDetailRes;
@@ -54,9 +54,12 @@ public class PlayerServiceImpl implements IPlayerService {
 
     private final UserServiceClient userServiceClient;
 
-    public PlayerServiceImpl(PlayerRepository playerRepository, UserServiceClient userServiceClient) {
+    private final WebClientUtil webClientUtil;
+
+    public PlayerServiceImpl(PlayerRepository playerRepository, UserServiceClient userServiceClient, WebClientUtil webClientUtil) {
         this.playerRepository = playerRepository;
         this.userServiceClient = userServiceClient;
+        this.webClientUtil = webClientUtil;
     }
 
 
@@ -70,7 +73,7 @@ public class PlayerServiceImpl implements IPlayerService {
                     }
                     return Mono.empty();
                 })
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "Players?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "Players?key=" + nbaKey))
                 .map(result -> {
                     log.info("result:{}", result);
                     return Optional.ofNullable(result)

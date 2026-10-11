@@ -21,14 +21,15 @@
         </nav>
 
         <div class="header-right">
-          <el-button
+          <!-- 未登录：默认头像入口（点击弹登录框），替代原“登录”文字按钮 -->
+          <div
             v-if="!isClientLoggedIn"
-            class="login-btn"
-            size="default"
+            class="avatar-entry"
+            title="登录"
             @click="openLoginDialog"
           >
-            登录
-          </el-button>
+            <el-icon :size="18"><User /></el-icon>
+          </div>
           <el-dropdown v-else trigger="click" @command="handleCommand">
             <span class="user-chip">
               <span class="avatar">{{ (clientUsername || "U").charAt(0).toUpperCase() }}</span>
@@ -62,7 +63,7 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { ArrowDown } from "@element-plus/icons-vue";
+import { ArrowDown, User } from "@element-plus/icons-vue";
 import { useClientAuth } from "@/composables/useClientAuth";
 import ClientLoginDialog from "@/components/ClientLoginDialog.vue";
 
@@ -183,12 +184,25 @@ const handleCommand = async (command: string) => {
   align-items: center;
 }
 
-.login-btn {
-  background: linear-gradient(135deg, #f97316, #ea580c);
-  border: none;
-  color: #fff;
-  font-weight: 600;
-  padding: 8px 22px;
+/* 未登录默认头像入口：与已登录头像尺寸一致，避免登录前后跳变 */
+.avatar-entry {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.avatar-entry:hover {
+  color: #fb923c;
+  border-color: rgba(249, 115, 22, 0.6);
+  background: rgba(249, 115, 22, 0.14);
 }
 
 .user-chip {
@@ -209,12 +223,12 @@ const handleCommand = async (command: string) => {
 }
 
 .avatar {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: linear-gradient(135deg, #f97316, #ea580c);
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   display: flex;
   align-items: center;

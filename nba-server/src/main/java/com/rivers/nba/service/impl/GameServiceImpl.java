@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GameDayCount;
 import com.rivers.nba.GameInfo;
@@ -23,12 +23,16 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -58,50 +62,143 @@ public class GameServiceImpl implements IGameService {
 
     private final ScorePushService scorePushService;
 
-    public GameServiceImpl(GameRepository gameRepository, ScorePushService scorePushService) {
+    private final WebClientUtil webClientUtil;
+
+    public GameServiceImpl(GameRepository gameRepository, ScorePushService scorePushService, WebClientUtil webClientUtil) {
         this.gameRepository = gameRepository;
         this.scorePushService = scorePushService;
+        this.webClientUtil = webClientUtil;
     }
 
+    /**
+     * 整赛季同步：作为赛程骨架来源使用（该端点位于数据源演示环境，比分字段为模拟值），
+     * 真实比分需按日调用 syncGamesByDate 修正
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> syncGamesBySeason(SyncGamesBySeasonReq req) {
         int season = req.getSeason();
-        return gameRepository.logicDeleteBySeason(season)
-                .then(Mono.fromFuture(() ->
-                        HttpClientUtil.getAsync(nbaUrl + "Games/" + season + "NBA?key=" + nbaKey)))
+        return webClientUtil.get(nbaUrl + "Games/" + season + "NBA?key=" + nbaKey)
                 .flatMap(this::saveGames);
     }
 
+    /**
+     * 按日同步比赛：赛程骨架取自 GamesByDate（对阵/球馆/频道等完整字段），
+     * 比分用 ScoresBasic 的真实比分覆盖后入库（演示环境下 GamesByDate 的比分是模拟值，
+     * ScoresBasic 才返回真实比分）；ScoresBasic 拉取失败时降级为按赛程原始数据同步，不阻断赛程
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> syncGamesByDate(SyncGamesByDateReq req) {
         String date = req.getDate();
-        return gameRepository.logicDeleteByDay(date)
-                .then(Mono.fromFuture(() ->
-                        HttpClientUtil.getAsync(nbaUrl + "GamesByDate/" + date + "?key=" + nbaKey)))
+        return webClientUtil.get(nbaUrl + "GamesByDate/" + date + "?key=" + nbaKey)
+                .flatMap(scheduleJson -> webClientUtil.get(nbaUrl + "ScoresBasic/" + date + "?key=" + nbaKey)
+                        .onErrorResume(e -> {
+                            log.warn("ScoresBasic 获取失败，本次按赛程原始数据同步: date={}, error={}", date, e.getMessage());
+                            return Mono.just("[]");
+                        })
+                        .map(scoreJson -> mergeRealScores(scheduleJson, scoreJson)))
                 .flatMap(this::saveGames);
     }
 
+    /**
+     * 合并赛程与真实比分：以赛程列表为基准，按 game_id 对齐 ScoresBasic 的真实比分，
+     * 覆盖比分/状态/完场旗标/更新时间/完场时间（赛程结构字段保持 GamesByDate 来源）
+     */
+    private List<Game> mergeRealScores(String scheduleJson, String scoreJson) {
+        List<Game> schedules = parseGames(scheduleJson);
+        List<Game> scores = parseGames(scoreJson);
+        if (CollectionUtils.isEmpty(scores)) {
+            return schedules;
+        }
+        Map<Integer, Game> scoreMap = scores.stream()
+                .filter(game -> game.getGameId() != null)
+                .collect(Collectors.toMap(Game::getGameId, Function.identity(), (first, second) -> first));
+        for (Game schedule : schedules) {
+            Game real = scoreMap.get(schedule.getGameId());
+            if (real == null) {
+                continue;
+            }
+            schedule.setAwayTeamScore(real.getAwayTeamScore());
+            schedule.setHomeTeamScore(real.getHomeTeamScore());
+            schedule.setStatus(real.getStatus());
+            schedule.setIsClosed(real.getIsClosed());
+            if (real.getUpdated() != null) {
+                schedule.setUpdated(real.getUpdated());
+            }
+            if (real.getGameEndDateTime() != null) {
+                schedule.setGameEndDateTime(real.getGameEndDateTime());
+            }
+        }
+        return schedules;
+    }
+
+    /**
+     * 外部数据按 game_id 做 upsert：已存在的比赛更新为最新数据（比分/状态等随外部源刷新），
+     * 不存在的比赛插入；同步全程不删除任何已有数据，保证历史赛程与比分持续留存
+     */
     private Mono<ResultVO<Void>> saveGames(String result) {
-        log.info("games result length:{}", StringUtils.length(result));
-        List<Game> games = Optional.ofNullable(result)
-                .map(i -> {
-                    List<Game> list = JSON.parseArray(i, Game.class);
-                    return list.stream()
-                            .map(g -> {
-                                Game game = new Game();
-                                BeanUtils.copyProperties(g, game);
-                                game.setCreateUser("system");
-                                game.setUpdateUser("system");
-                                return game;
-                            })
-                            .toList();
-                }).orElse(null);
+        return saveGames(parseGames(result));
+    }
+
+    /**
+     * 比赛列表 upsert：逐场按 game_id 更新或插入
+     */
+    private Mono<ResultVO<Void>> saveGames(List<Game> games) {
         if (CollectionUtils.isEmpty(games)) {
             return Mono.just(ResultVO.ok());
         }
-        return gameRepository.saveAll(games).then(Mono.just(ResultVO.ok()));
+        return Flux.fromIterable(games)
+                .concatMap(this::upsertGame)
+                .then(Mono.just(ResultVO.ok()));
+    }
+
+    /**
+     * 解析外部返回的 JSON 为 Game 列表并补齐审计字段（解析失败按空处理）
+     */
+    private List<Game> parseGames(String result) {
+        log.info("games result length:{}", StringUtils.length(result));
+        List<Game> parsed = Optional.ofNullable(result)
+                .map(i -> JSON.parseArray(i, Game.class))
+                .orElse(List.of());
+        if (parsed == null) {
+            return List.of();
+        }
+        return parsed.stream()
+                .map(g -> {
+                    Game game = new Game();
+                    BeanUtils.copyProperties(g, game);
+                    game.setCreateUser("system");
+                    game.setUpdateUser("system");
+                    return game;
+                })
+                .toList();
+    }
+
+    /**
+     * 单场比赛 upsert：按 game_id 查有效记录，存在则显式 UPDATE（项目 R2DBC 实体无 @Id 注解，
+     * save() 对存量记录会误走 INSERT，更新必须使用显式 UPDATE 语句），不存在则插入
+     */
+    private Mono<Void> upsertGame(Game game) {
+        Integer gameId = game.getGameId();
+        if (gameId == null || gameId == 0) {
+            log.warn("比赛数据缺少 gameId，跳过同步: {}", game);
+            return Mono.empty();
+        }
+        return gameRepository.findByGameId(gameId)
+                .flatMap(existing -> gameRepository.updateGame(gameId,
+                        defaultInt(game.getSeason()), defaultInt(game.getSeasonType()), defaultString(game.getStatus()),
+                        game.getDay(), game.getDateTime(), defaultString(game.getAwayTeam()),
+                        defaultString(game.getHomeTeam()), defaultInt(game.getAwayTeamId()),
+                        defaultInt(game.getHomeTeamId()), defaultInt(game.getStadiumId()),
+                        defaultString(game.getChannel()), game.getAttendance(), game.getAwayTeamScore(),
+                        game.getHomeTeamScore(), game.getUpdated(), Boolean.TRUE.equals(game.getIsClosed()),
+                        game.getGameEndDateTime(), Boolean.TRUE.equals(game.getNeutralVenue()),
+                        game.getDateTimeUtc(), Boolean.TRUE.equals(game.getInseasonTournament()),
+                        defaultInt(game.getGlobalGameId()), "system")
+                        .thenReturn(game))
+                .switchIfEmpty(Mono.defer(() -> gameRepository.save(game)))
+                .then();
     }
 
     @Override

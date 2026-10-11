@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetTeamDetailReq;
 import com.rivers.nba.GetTeamDetailRes;
@@ -43,8 +43,11 @@ public class TeamServiceImpl implements ITeamService {
 
     private final TeamRepository teamRepository;
 
-    public TeamServiceImpl(TeamRepository teamRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public TeamServiceImpl(TeamRepository teamRepository, WebClientUtil webClientUtil) {
         this.teamRepository = teamRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
@@ -57,7 +60,7 @@ public class TeamServiceImpl implements ITeamService {
                     }
                     return Mono.empty();
                 })
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "teams?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "teams?key=" + nbaKey))
                 .map(result -> {
                     log.info("teams result length:{}", StringUtils.length(result));
                     return Optional.ofNullable(result)

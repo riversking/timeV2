@@ -1,7 +1,7 @@
 package com.rivers.nba.job;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.nba.entity.Game;
 import com.rivers.nba.repository.GameRepository;
 import com.rivers.nba.service.ScorePushService;
@@ -48,9 +48,12 @@ public class ScoreMonitorJob {
 
     private final ScorePushService scorePushService;
 
-    public ScoreMonitorJob(GameRepository gameRepository, ScorePushService scorePushService) {
+    private final WebClientUtil webClientUtil;
+
+    public ScoreMonitorJob(GameRepository gameRepository, ScorePushService scorePushService, WebClientUtil webClientUtil) {
         this.gameRepository = gameRepository;
         this.scorePushService = scorePushService;
+        this.webClientUtil = webClientUtil;
     }
 
     /**
@@ -80,10 +83,12 @@ public class ScoreMonitorJob {
     }
 
     /**
-     * 拉取数据源当日比赛，与本地未结束比赛逐一对比，发现变动即更新并广播
+     * 拉取数据源当日比赛，与本地未结束比赛逐一对比，发现变动即更新并广播；
+     * 实时比分必须走 ScoresBasic 端点——完整版 GamesByDate 的比分字段是演示环境的模拟值，
+     * Basic 端点才返回真实比分
      */
     private Mono<Void> syncChangedGames(List<Game> dbGames, String today) {
-        return Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "GamesByDate/" + today + "?key=" + nbaKey))
+        return webClientUtil.get(nbaUrl + "ScoresBasic/" + today + "?key=" + nbaKey)
                 .flatMapMany(json -> Flux.fromIterable(parseRemoteGames(json)))
                 .collectList()
                 .map(list -> list.stream()

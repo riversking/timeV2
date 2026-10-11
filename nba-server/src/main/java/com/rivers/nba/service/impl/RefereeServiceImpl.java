@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetRefereesReq;
 import com.rivers.nba.GetRefereesRes;
@@ -41,8 +41,11 @@ public class RefereeServiceImpl implements IRefereeService {
 
     private final RefereeRepository refereeRepository;
 
-    public RefereeServiceImpl(RefereeRepository refereeRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public RefereeServiceImpl(RefereeRepository refereeRepository, WebClientUtil webClientUtil) {
         this.refereeRepository = refereeRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
@@ -55,7 +58,7 @@ public class RefereeServiceImpl implements IRefereeService {
                     }
                     return Mono.empty();
                 })
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "Referees?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "Referees?key=" + nbaKey))
                 .map(result -> {
                     log.info("referees result length:{}", StringUtils.length(result));
                     return Optional.ofNullable(result)

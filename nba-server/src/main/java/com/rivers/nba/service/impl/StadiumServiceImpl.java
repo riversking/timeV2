@@ -1,7 +1,7 @@
 package com.rivers.nba.service.impl;
 
 import com.alibaba.fastjson.JSON;
-import com.rivers.core.util.HttpClientUtil;
+import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetStadiumDetailReq;
 import com.rivers.nba.GetStadiumDetailRes;
@@ -43,8 +43,11 @@ public class StadiumServiceImpl implements IStadiumService {
 
     private final StadiumRepository stadiumRepository;
 
-    public StadiumServiceImpl(StadiumRepository stadiumRepository) {
+    private final WebClientUtil webClientUtil;
+
+    public StadiumServiceImpl(StadiumRepository stadiumRepository, WebClientUtil webClientUtil) {
         this.stadiumRepository = stadiumRepository;
+        this.webClientUtil = webClientUtil;
     }
 
     @Override
@@ -57,7 +60,7 @@ public class StadiumServiceImpl implements IStadiumService {
                     }
                     return Mono.empty();
                 })
-                .then(Mono.fromFuture(() -> HttpClientUtil.getAsync(nbaUrl + "Stadiums?key=" + nbaKey)))
+                .then(webClientUtil.get(nbaUrl + "Stadiums?key=" + nbaKey))
                 .map(result -> {
                     log.info("stadiums result length:{}", StringUtils.length(result));
                     return Optional.ofNullable(result)
