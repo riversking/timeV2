@@ -82,7 +82,7 @@ public class PlayerBasicServiceImpl implements IPlayerBasicService {
                 .then(webClientUtil.get(nbaUrl + endpoint + "?key=" + nbaKey))
                 .map(result -> {
                     log.info("player basic source:{} result length:{}", source, StringUtils.length(result));
-                    return Optional.ofNullable(result)
+                    return Optional.of(result)
                             .map(i -> {
                                 List<PlayerBasic> list = JSON.parseArray(i, PlayerBasic.class);
                                 return list.stream()

@@ -63,7 +63,7 @@ public class TeamServiceImpl implements ITeamService {
                 .then(webClientUtil.get(nbaUrl + "teams?key=" + nbaKey))
                 .map(result -> {
                     log.info("teams result length:{}", StringUtils.length(result));
-                    return Optional.ofNullable(result)
+                    return Optional.of(result)
                             .map(i -> {
                                 List<Team> teams = JSON.parseArray(i, Team.class);
                                 return teams.stream()

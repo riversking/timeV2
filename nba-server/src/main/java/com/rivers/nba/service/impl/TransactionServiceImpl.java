@@ -64,7 +64,7 @@ public class TransactionServiceImpl implements ITransactionService {
                 .then(webClientUtil.get(nbaUrl + "TransactionsByDate/" + date + "?key=" + nbaKey))
                 .map(result -> {
                     log.info("transactions date:{} result length:{}", date, StringUtils.length(result));
-                    return Optional.ofNullable(result)
+                    return Optional.of(result)
                             .map(i -> {
                                 List<TransactionRecord> transactions = JSON.parseArray(i, TransactionRecord.class);
                                 return transactions.stream()

@@ -61,7 +61,7 @@ public class RefereeServiceImpl implements IRefereeService {
                 .then(webClientUtil.get(nbaUrl + "Referees?key=" + nbaKey))
                 .map(result -> {
                     log.info("referees result length:{}", StringUtils.length(result));
-                    return Optional.ofNullable(result)
+                    return Optional.of(result)
                             .map(i -> {
                                 List<Referee> referees = JSON.parseArray(i, Referee.class);
                                 return referees.stream()

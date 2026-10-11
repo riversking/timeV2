@@ -63,7 +63,7 @@ public class StadiumServiceImpl implements IStadiumService {
                 .then(webClientUtil.get(nbaUrl + "Stadiums?key=" + nbaKey))
                 .map(result -> {
                     log.info("stadiums result length:{}", StringUtils.length(result));
-                    return Optional.ofNullable(result)
+                    return Optional.of(result)
                             .map(i -> {
                                 List<TimerStadium> stadiums = JSON.parseArray(i, TimerStadium.class);
                                 return stadiums.stream()

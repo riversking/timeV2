@@ -76,7 +76,7 @@ public class PlayerServiceImpl implements IPlayerService {
                 .then(webClientUtil.get(nbaUrl + "Players?key=" + nbaKey))
                 .map(result -> {
                     log.info("result:{}", result);
-                    return Optional.ofNullable(result)
+                    return Optional.of(result)
                             .map(i -> {
                                 JSONArray array = JSON.parseArray(i);
                                 return array.stream()
