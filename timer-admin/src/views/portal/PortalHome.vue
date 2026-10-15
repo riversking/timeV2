@@ -33,7 +33,7 @@
           <router-link to="/portal/schedule" class="more-link">全部赛程 →</router-link>
         </div>
         <div v-loading="loadingRecent" class="recent-list">
-          <div v-for="g in recentGames" :key="g.gameId" class="recent-item">
+          <div v-for="g in recentGames" :key="g.gameId" class="recent-item" @click="goGameDetail(g)">
             <div class="recent-top">
               <span class="recent-date">{{ formatDay(g.day) }}</span>
               <span v-if="g.channel" class="recent-channel">{{ g.channel }}</span>
@@ -71,13 +71,11 @@
           </div>
         </div>
         <div v-loading="loadingNews" class="news-grid">
-          <a
+          <div
             v-for="n in news"
             :key="n.link"
-            :href="n.link"
-            target="_blank"
-            rel="noopener"
             class="news-card"
+            @click="openDetail(n)"
           >
             <div class="news-img-box">
               <img
@@ -94,7 +92,7 @@
               <p class="news-desc">{{ n.description }}</p>
               <div class="news-time">{{ formatTime(n.published) }}</div>
             </div>
-          </a>
+          </div>
         </div>
         <el-empty
           v-if="!loadingNews && !news.length"
@@ -134,6 +132,9 @@
         </div>
       </div>
     </section>
+
+    <!-- 新闻详情弹窗（站内渲染，不跳转） -->
+    <NewsDetailDialog v-model="detailVisible" :news="currentNews" />
   </div>
 </template>
 
@@ -142,6 +143,7 @@ import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { getPlayerPage, getTeamPage, getGamePage, getNews, getRecentGames, openScoreStream } from "@/api/portal";
+import NewsDetailDialog from "@/components/NewsDetailDialog.vue";
 import { useClientAuth } from "@/composables/useClientAuth";
 
 const router = useRouter();
@@ -156,6 +158,15 @@ const recentGames = ref<any[]>([]);
 const loadingPlayers = ref(false);
 const loadingNews = ref(false);
 const loadingRecent = ref(false);
+
+// 新闻详情弹窗：点击新闻卡片站内渲染，不跳转 ESPN
+const detailVisible = ref(false);
+const currentNews = ref<any>(null);
+
+const openDetail = (n: any) => {
+  currentNews.value = n;
+  detailVisible.value = true;
+};
 
 const playerTotal = ref(0);
 const teamTotal = ref(0);
@@ -285,6 +296,11 @@ const handlePlayerClick = (p: any) => {
 
 const goPlayerDetail = (playerId: number) => {
   router.push({ path: "/portal/players", query: { focus: String(playerId) } });
+};
+
+/** 最近的比赛点击 → 比赛详情页（每节比分 + 球员数据） */
+const goGameDetail = (g: any) => {
+  router.push(`/portal/game/${g.gameId}`);
 };
 
 // 登录成功后自动衔接暂存的球员详情
@@ -560,6 +576,7 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   padding: 12px 14px;
   transition: border-color 0.2s;
+  cursor: pointer;
 }
 
 .recent-item:hover {
@@ -663,6 +680,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   overflow: hidden;
   text-decoration: none;
+  cursor: pointer;
   transition: all 0.22s ease;
 }
 

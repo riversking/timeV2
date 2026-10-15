@@ -4,14 +4,24 @@ import com.alibaba.fastjson.JSON;
 import com.rivers.core.client.WebClientUtil;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GameDayCount;
+import com.rivers.nba.GameDetail;
 import com.rivers.nba.GameInfo;
 import com.rivers.nba.GetGameCalendarReq;
 import com.rivers.nba.GetGameCalendarRes;
+import com.rivers.nba.GetGameDetailReq;
+import com.rivers.nba.GetGameDetailRes;
 import com.rivers.nba.GetGamesReq;
 import com.rivers.nba.GetGamesRes;
+import com.rivers.nba.PeriodScore;
+import com.rivers.nba.PlayerGameStatLine;
 import com.rivers.nba.ScoreReportReq;
 import com.rivers.nba.SyncGamesByDateReq;
 import com.rivers.nba.SyncGamesBySeasonReq;
+import com.rivers.nba.TeamBoxScore;
+import com.rivers.nba.client.EspnScoreboardClient;
+import com.rivers.nba.client.EspnScoreboardClient.EspnGame;
+import com.rivers.nba.client.EspnScoreboardClient.EspnGameDetail;
+import com.rivers.nba.client.EspnScoreboardClient.EspnTeamBox;
 import com.rivers.nba.entity.Game;
 import com.rivers.nba.repository.GameRepository;
 import com.rivers.nba.service.IGameService;
@@ -26,8 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,9 +62,20 @@ public class GameServiceImpl implements IGameService {
 
     private static final int RECENT_LIMIT = 6;
 
+    /** 时间线默认每批条数（请求未指定或非法时兜底） */
+    private static final int DEFAULT_TIMELINE_LIMIT = 20;
+
+    private static final String TIMELINE_FORWARD = "forward";
+
+    private static final String TIMELINE_BACKWARD = "backward";
+
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private static final ZoneId GAME_ZONE = ZoneId.of("America/New_York");
+
+    private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
 
     @Value("${nba.key}")
     private String nbaKey;
@@ -64,10 +89,14 @@ public class GameServiceImpl implements IGameService {
 
     private final WebClientUtil webClientUtil;
 
-    public GameServiceImpl(GameRepository gameRepository, ScorePushService scorePushService, WebClientUtil webClientUtil) {
+    private final EspnScoreboardClient espnScoreboardClient;
+
+    public GameServiceImpl(GameRepository gameRepository, ScorePushService scorePushService,
+                           WebClientUtil webClientUtil, EspnScoreboardClient espnScoreboardClient) {
         this.gameRepository = gameRepository;
         this.scorePushService = scorePushService;
         this.webClientUtil = webClientUtil;
+        this.espnScoreboardClient = espnScoreboardClient;
     }
 
     /**
@@ -84,51 +113,44 @@ public class GameServiceImpl implements IGameService {
 
     /**
      * 按日同步比赛：赛程骨架取自 GamesByDate（对阵/球馆/频道等完整字段），
-     * 比分用 ScoresBasic 的真实比分覆盖后入库（演示环境下 GamesByDate 的比分是模拟值，
-     * ScoresBasic 才返回真实比分）；ScoresBasic 拉取失败时降级为按赛程原始数据同步，不阻断赛程
+     * 比分用 ESPN 计分板的真实比分覆盖后入库（演示环境下 GamesByDate 的比分是模拟值，
+     * 需以真实数据源校正；ESPN 免密钥无配额，原 ScoresBasic 按调用计配额已弃用）；
+     * ESPN 拉取失败时降级为按赛程原始数据同步，不阻断赛程
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> syncGamesByDate(SyncGamesByDateReq req) {
         String date = req.getDate();
         return webClientUtil.get(nbaUrl + "GamesByDate/" + date + "?key=" + nbaKey)
-                .flatMap(scheduleJson -> webClientUtil.get(nbaUrl + "ScoresBasic/" + date + "?key=" + nbaKey)
-                        .onErrorResume(e -> {
-                            log.warn("ScoresBasic 获取失败，本次按赛程原始数据同步: date={}, error={}", date, e.getMessage());
-                            return Mono.just("[]");
-                        })
-                        .map(scoreJson -> mergeRealScores(scheduleJson, scoreJson)))
+                .flatMap(scheduleJson -> espnScoreboardClient.fetchGames(date)
+                        .map(espnGames -> mergeEspnScores(scheduleJson, espnGames)))
                 .flatMap(this::saveGames);
     }
 
     /**
-     * 合并赛程与真实比分：以赛程列表为基准，按 game_id 对齐 ScoresBasic 的真实比分，
-     * 覆盖比分/状态/完场旗标/更新时间/完场时间（赛程结构字段保持 GamesByDate 来源）
+     * 合并赛程与 ESPN 真实比分：对阵按「美东比赛日 + 主客队缩写」对齐（game_id 不同源无法直接关联），
+     * 覆盖比分/状态/完场旗标（球馆/频道等赛程结构字段保持 GamesByDate 来源）
      */
-    private List<Game> mergeRealScores(String scheduleJson, String scoreJson) {
+    private List<Game> mergeEspnScores(String scheduleJson, List<EspnGame> espnGames) {
         List<Game> schedules = parseGames(scheduleJson);
-        List<Game> scores = parseGames(scoreJson);
-        if (CollectionUtils.isEmpty(scores)) {
+        if (CollectionUtils.isEmpty(espnGames)) {
             return schedules;
         }
-        Map<Integer, Game> scoreMap = scores.stream()
-                .filter(game -> game.getGameId() != null)
-                .collect(Collectors.toMap(Game::getGameId, Function.identity(), (first, second) -> first));
+        Map<String, EspnGame> espnMap = espnGames.stream()
+                .collect(Collectors.toMap(EspnGame::matchKey, Function.identity(), (first, second) -> first));
         for (Game schedule : schedules) {
-            Game real = scoreMap.get(schedule.getGameId());
+            if (schedule.getDay() == null) {
+                continue;
+            }
+            EspnGame real = espnMap.get(EspnScoreboardClient.matchKey(schedule.getDay().toLocalDate(),
+                    schedule.getAwayTeam(), schedule.getHomeTeam()));
             if (real == null) {
                 continue;
             }
-            schedule.setAwayTeamScore(real.getAwayTeamScore());
-            schedule.setHomeTeamScore(real.getHomeTeamScore());
-            schedule.setStatus(real.getStatus());
-            schedule.setIsClosed(real.getIsClosed());
-            if (real.getUpdated() != null) {
-                schedule.setUpdated(real.getUpdated());
-            }
-            if (real.getGameEndDateTime() != null) {
-                schedule.setGameEndDateTime(real.getGameEndDateTime());
-            }
+            schedule.setAwayTeamScore(real.awayScore());
+            schedule.setHomeTeamScore(real.homeScore());
+            schedule.setStatus(real.status());
+            schedule.setIsClosed(real.closed());
         }
         return schedules;
     }
@@ -203,6 +225,17 @@ public class GameServiceImpl implements IGameService {
 
     @Override
     public Mono<ResultVO<GetGamesRes>> getGamePage(GetGamesReq req) {
+        String timelineMode = StringUtils.defaultIfBlank(req.getTimelineMode(), "");
+        if (StringUtils.isBlank(timelineMode)) {
+            return getGamePaged(req);
+        }
+        if (!TIMELINE_FORWARD.equals(timelineMode) && !TIMELINE_BACKWARD.equals(timelineMode)) {
+            return Mono.just(ResultVO.<GetGamesRes>fail("不支持的时间线模式: " + timelineMode));
+        }
+        return getGameTimeline(req, TIMELINE_FORWARD.equals(timelineMode));
+    }
+
+    private Mono<ResultVO<GetGamesRes>> getGamePaged(GetGamesReq req) {
         int currentPage = req.getCurrentPage();
         int pageSize = req.getPageSize();
         long offset = (long) (currentPage - 1) * pageSize;
@@ -222,6 +255,35 @@ public class GameServiceImpl implements IGameService {
                                     .addAllGames(list)
                                     .build())
                             .map(ResultVO::ok);
+                });
+    }
+
+    /**
+     * 赛程时间线：以锚点日（中国观赛日）为起点、游标 (cursorDay, cursorId) 行级翻页。
+     * forward 取锚点日及以后按比赛日正序，backward 取锚点日以前按倒序（反转为正序返回）
+     */
+    private Mono<ResultVO<GetGamesRes>> getGameTimeline(GetGamesReq req, boolean forward) {
+        int teamId = req.getTeamId();
+        int season = req.getSeason();
+        int limit = req.getPageSize() > 0 ? req.getPageSize() : DEFAULT_TIMELINE_LIMIT;
+        String anchorDay = StringUtils.defaultIfBlank(req.getAnchorDay(),
+                LocalDate.now(CHINA_ZONE).format(DATE_FORMATTER));
+        String cursorDay = StringUtils.defaultIfBlank(req.getCursorDay(), "");
+        long cursorId = req.getCursorId();
+        Flux<Game> query = forward
+                ? gameRepository.timelineForward(teamId, season, anchorDay, cursorDay, cursorId, limit)
+                : gameRepository.timelineBackward(teamId, season, anchorDay, cursorDay, cursorId, limit);
+        return query.map(this::toGameInfo)
+                .collectList()
+                .map(list -> {
+                    List<GameInfo> ordered = new ArrayList<>(list);
+                    if (!forward) {
+                        Collections.reverse(ordered);
+                    }
+                    return ResultVO.ok(GetGamesRes.newBuilder()
+                            .setTotal(ordered.size())
+                            .addAllGames(ordered)
+                            .build());
                 });
     }
 
@@ -261,7 +323,7 @@ public class GameServiceImpl implements IGameService {
         int teamId = req.getTeamId();
         String month = StringUtils.defaultIfBlank(req.getMonth(), "");
         return gameRepository.findByMonth(month, season, teamId)
-                .map(g -> formatDate(g.getDay()))
+                .map(g -> formatChinaDay(g.getDay()))
                 .filter(StringUtils::isNotBlank)
                 .collectMultimap(day -> day)
                 .map(dayMap -> {
@@ -275,16 +337,88 @@ public class GameServiceImpl implements IGameService {
     }
 
     /**
-     * 实体转 proto 消息（日期用 DateTimeFormatter 格式化，空值用默认值替换）
+     * 比赛详情：基础信息取库内（任何比赛都可打开页面），每节比分与球员数据实时取 ESPN；
+     * 无比赛日或未匹配到 ESPN 比赛（如全明星赛）时仅返回基础信息
+     */
+    @Override
+    public Mono<ResultVO<GetGameDetailRes>> getGameDetail(GetGameDetailReq req) {
+        int gameId = req.getGameId();
+        return gameRepository.findByGameId(gameId)
+                .flatMap(game -> loadGameDetail(game)
+                        .map(detail -> ResultVO.ok(GetGameDetailRes.newBuilder().setDetail(detail).build())))
+                .switchIfEmpty(Mono.just(ResultVO.<GetGameDetailRes>fail("比赛不存在: " + gameId)));
+    }
+
+    private Mono<GameDetail> loadGameDetail(Game game) {
+        GameInfo info = toGameInfo(game);
+        if (game.getDay() == null) {
+            return Mono.just(GameDetail.newBuilder().setGame(info).build());
+        }
+        return espnScoreboardClient.fetchGameDetail(game.getDay().toLocalDate(),
+                        game.getAwayTeam(), game.getHomeTeam())
+                .map(detail -> buildGameDetail(game, info, detail))
+                .defaultIfEmpty(GameDetail.newBuilder().setGame(info).build());
+    }
+
+    /**
+     * 组装详情：每节比分加总节数对齐（缺项补 0），球员数据表按归一后的缩写归属主客队
+     */
+    private static GameDetail buildGameDetail(Game game, GameInfo info, EspnGameDetail detail) {
+        GameDetail.Builder builder = GameDetail.newBuilder().setGame(info);
+        builder.addAllPeriods(buildPeriods(detail.game()));
+        for (EspnTeamBox box : detail.boxes()) {
+            TeamBoxScore boxScore = toTeamBoxScore(box);
+            if (box.team().equals(game.getAwayTeam())) {
+                builder.setAwayBox(boxScore);
+            } else if (box.team().equals(game.getHomeTeam())) {
+                builder.setHomeBox(boxScore);
+            }
+        }
+        return builder.build();
+    }
+
+    private static List<PeriodScore> buildPeriods(EspnGame espnGame) {
+        List<Integer> away = espnGame.awayPeriods();
+        List<Integer> home = espnGame.homePeriods();
+        int size = Math.max(away.size(), home.size());
+        List<PeriodScore> periods = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            periods.add(PeriodScore.newBuilder()
+                    .setPeriod(i + 1)
+                    .setAwayScore(i < away.size() ? away.get(i) : 0)
+                    .setHomeScore(i < home.size() ? home.get(i) : 0)
+                    .build());
+        }
+        return periods;
+    }
+
+    private static TeamBoxScore toTeamBoxScore(EspnTeamBox box) {
+        return TeamBoxScore.newBuilder()
+                .setTeam(box.team())
+                .addAllColumns(box.columns())
+                .addAllPlayers(box.players().stream()
+                        .map(line -> PlayerGameStatLine.newBuilder()
+                                .setName(line.name())
+                                .setStarter(line.starter())
+                                .setPlayed(line.played())
+                                .addAllStats(line.stats())
+                                .build())
+                        .toList())
+                .build();
+    }
+
+    /**
+     * 实体转 proto 消息（比赛日 / 开赛时间 / 完场时间转中国观赛口径：日期 + 1 天、时间转北京时间；空值用默认值替换）
      */
     private GameInfo toGameInfo(Game g) {
         return GameInfo.newBuilder()
                 .setGameId(defaultInt(g.getGameId()))
+                .setId(defaultLong(g.getId()))
                 .setSeason(defaultInt(g.getSeason()))
                 .setSeasonType(defaultInt(g.getSeasonType()))
                 .setStatus(defaultString(g.getStatus()))
-                .setDay(formatDate(g.getDay()))
-                .setDateTime(formatDateTime(g.getDateTime()))
+                .setDay(formatChinaDay(g.getDay()))
+                .setDateTime(formatChinaDateTime(g.getDateTime()))
                 .setAwayTeam(defaultString(g.getAwayTeam()))
                 .setHomeTeam(defaultString(g.getHomeTeam()))
                 .setAwayTeamId(defaultInt(g.getAwayTeamId()))
@@ -296,7 +430,7 @@ public class GameServiceImpl implements IGameService {
                 .setHomeTeamScore(defaultInt(g.getHomeTeamScore()))
                 .setUpdated(formatDateTime(g.getUpdated()))
                 .setIsClosed(Boolean.TRUE.equals(g.getIsClosed()))
-                .setGameEndDateTime(formatDateTime(g.getGameEndDateTime()))
+                .setGameEndDateTime(formatChinaDateTime(g.getGameEndDateTime()))
                 .setNeutralVenue(Boolean.TRUE.equals(g.getNeutralVenue()))
                 .setDateTimeUtc(formatDateTime(g.getDateTimeUtc()))
                 .setInseasonTournament(Boolean.TRUE.equals(g.getInseasonTournament()))
@@ -305,13 +439,23 @@ public class GameServiceImpl implements IGameService {
     }
 
     /**
-     * 日期格式化为 yyyy-MM-dd（空值用默认值替换）
+     * 比赛日转中国观赛日期（美东比赛日 + 1 天：NBA 比赛北京时间均在美东次日凌晨至中午开赛）
      */
-    private static String formatDate(LocalDateTime dateTime) {
-        if (dateTime == null) {
+    private static String formatChinaDay(LocalDateTime gameDay) {
+        if (gameDay == null) {
             return "";
         }
-        return dateTime.format(DATE_FORMATTER);
+        return gameDay.plusDays(1).format(DATE_FORMATTER);
+    }
+
+    /**
+     * 美东时间转北京时间（夏令时/冬令时自动处理，如美东 20:30 = 北京时间次日 08:30）
+     */
+    private static String formatChinaDateTime(LocalDateTime gameTime) {
+        if (gameTime == null) {
+            return "";
+        }
+        return gameTime.atZone(GAME_ZONE).withZoneSameInstant(CHINA_ZONE).toLocalDateTime().format(DATE_TIME_FORMATTER);
     }
 
     /**
@@ -340,6 +484,16 @@ public class GameServiceImpl implements IGameService {
     private static int defaultInt(Integer value) {
         if (value == null) {
             return 0;
+        }
+        return value;
+    }
+
+    /**
+     * 长整数空值用默认值替换（null 转 0）
+     */
+    private static long defaultLong(Long value) {
+        if (value == null) {
+            return 0L;
         }
         return value;
     }

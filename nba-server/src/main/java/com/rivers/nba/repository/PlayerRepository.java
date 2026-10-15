@@ -36,6 +36,12 @@ public interface PlayerRepository extends ReactiveCrudRepository<TimerPlayer, Lo
     Mono<TimerPlayer> findByPlayerId(long playerId);
 
     /**
+     * 按球员ID查询最新头像地址（同一球员可能有多条同步记录，取最新一条）
+     */
+    @Query("SELECT photo_url FROM player WHERE player_id = :playerId AND is_deleted = 0 AND photo_url IS NOT NULL AND photo_url <> '' ORDER BY id DESC LIMIT 1")
+    Mono<String> photoByPlayerId(long playerId);
+
+    /**
      * 逻辑删除全表（is_deleted 置 1，与存量 MyBatis @TableLogic 语义对齐）
      */
     @Modifying

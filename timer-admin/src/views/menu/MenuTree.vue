@@ -58,6 +58,16 @@
         <el-table-column prop="menuCode" label="菜单编码" />
         <el-table-column prop="routePath" label="路由路径" />
         <el-table-column prop="sortOrder" label="排序" />
+        <el-table-column prop="menuScope" label="归属" width="90">
+          <template #default="{ row }">
+            <el-tag
+              :type="row.menuScope === 2 ? 'warning' : 'info'"
+              size="small"
+            >
+              {{ row.menuScope === 2 ? "门户" : "后台" }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作">
           <template #default="{ row, $index }">
             <el-button size="small" @click="handleEdit(row)">编辑</el-button>
@@ -93,6 +103,7 @@ import {
   ElMessage,
   ElMessageBox,
   ElIcon,
+  ElTag,
 } from "element-plus";
 import { Plus, Search, Delete, CircleCheck } from "@element-plus/icons-vue";
 import {
@@ -115,6 +126,7 @@ interface Menu {
   parentId?: number;
   icon?: string;
   component?: string;
+  menuScope?: number;
   children?: Menu[];
 }
 
@@ -244,6 +256,7 @@ const handleSaveMenu = async (data: any) => {
       parentId: parentId.value,
       icon: data.icon,
       component: data.component,
+      menuScope: data.menuScope,
     };
     const res = await saveMenu(param);
     if (res.code != 200) {
@@ -271,6 +284,7 @@ const handleEditMenu = async (data: any) => {
       parentId: data.parentId,
       icon: data.icon,
       component: data.component,
+      menuScope: data.menuScope,
     };
     const res = await updateMenu(param);
     if (res.code != 200) {

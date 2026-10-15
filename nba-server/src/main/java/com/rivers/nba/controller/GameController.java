@@ -4,6 +4,8 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GameInfo;
 import com.rivers.nba.GetGameCalendarReq;
 import com.rivers.nba.GetGameCalendarRes;
+import com.rivers.nba.GetGameDetailReq;
+import com.rivers.nba.GetGameDetailRes;
 import com.rivers.nba.GetGamesReq;
 import com.rivers.nba.GetGamesRes;
 import com.rivers.nba.ScoreReportReq;
@@ -65,6 +67,14 @@ public class GameController {
     @PostMapping("getGameCalendar")
     public Mono<ResultVO<GetGameCalendarRes>> getGameCalendar(@RequestBody GetGameCalendarReq req) {
         return gameService.getGameCalendar(req);
+    }
+
+    /**
+     * 比赛详情（每节比分 + 双方球员数据，实时取外部数据源）
+     */
+    @PostMapping("getGameDetail")
+    public Mono<ResultVO<GetGameDetailRes>> getGameDetail(@RequestBody GetGameDetailReq req) {
+        return gameService.getGameDetail(req);
     }
 
     /**

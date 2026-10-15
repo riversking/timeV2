@@ -35,6 +35,11 @@ public class MenuServiceImpl implements IMenuService {
 
     public static final String MENU_EMPTY = "菜单编码不能为空";
     public static final String ROLE_EMPTY = "角色编码不能为空";
+    /**
+     * 菜单归属：1-后台管理，2-门户
+     */
+    private static final int SCOPE_ADMIN = 1;
+    private static final int SCOPE_PORTAL = 2;
     private final TimerMenuMapper timerMenuMapper;
     private final TimerRoleMapper timerRoleMapper;
     private final TimerRoleMenuMapper timerRoleMenuMapper;
@@ -65,6 +70,7 @@ public class MenuServiceImpl implements IMenuService {
                     menu.setMenuCode(saveMenuReq.getMenuCode());
                     menu.setMenuName(saveMenuReq.getMenuName());
                     menu.setMenuType(saveMenuReq.getMenuType());
+                    menu.setMenuScope(normalizeScope(saveMenuReq.getMenuScope()));
                     menu.setIcon(saveMenuReq.getIcon());
                     menu.setParentId(saveMenuReq.getParentId() == 0 ? -1L : saveMenuReq.getParentId());
                     menu.setRoutePath(saveMenuReq.getRoutePath());
@@ -104,6 +110,7 @@ public class MenuServiceImpl implements IMenuService {
                     menu.setMenuCode(updateMenuReq.getMenuCode());
                     menu.setMenuName(updateMenuReq.getMenuName());
                     menu.setMenuType(updateMenuReq.getMenuType());
+                    menu.setMenuScope(normalizeScope(updateMenuReq.getMenuScope()));
                     menu.setIcon(updateMenuReq.getIcon());
                     menu.setParentId(updateMenuReq.getParentId());
                     menu.setRoutePath(updateMenuReq.getRoutePath());
@@ -143,6 +150,32 @@ public class MenuServiceImpl implements IMenuService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(Exception.class, e -> {
                     log.error("获取菜单树失败", e);
+                    return Mono.just(ResultVO.fail("加载菜单失败"));
+                })
+                .onErrorReturn(ResultVO.fail("系统异常"));
+    }
+
+    @Override
+    public Mono<ResultVO<List<MenuTreeVO>>> getPortalMenuTree() {
+        return Mono.fromCallable(() -> {
+                    LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
+                    wrapper.eq(TimerMenu::getMenuScope, SCOPE_PORTAL)
+                            .eq(TimerMenu::getStatus, 1)
+                            .isNotNull(TimerMenu::getRoutePath)
+                            .ne(TimerMenu::getRoutePath, "")
+                            .orderByAsc(TimerMenu::getSortOrder);
+                    List<MenuTreeVO> menus = timerMenuMapper.selectList(wrapper).stream()
+                            .map(menu -> {
+                                MenuTreeVO vo = new MenuTreeVO();
+                                BeanUtils.copyProperties(menu, vo);
+                                return vo;
+                            })
+                            .toList();
+                    return ResultVO.ok(menus);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorResume(Exception.class, e -> {
+                    log.error("获取门户菜单失败", e);
                     return Mono.just(ResultVO.fail("加载菜单失败"));
                 })
                 .onErrorReturn(ResultVO.fail("系统异常"));
@@ -321,5 +354,12 @@ public class MenuServiceImpl implements IMenuService {
                 .onErrorResume(BusinessException.class, e ->
                         Mono.just(ResultVO.fail(e.getMessage())))
                 .onErrorReturn(ResultVO.fail("系统异常"));
+    }
+
+    /**
+     * 归一化菜单归属：仅 2 视为门户，其余一律后台
+     */
+    private static int normalizeScope(int scope) {
+        return scope == SCOPE_PORTAL ? SCOPE_PORTAL : SCOPE_ADMIN;
     }
 }

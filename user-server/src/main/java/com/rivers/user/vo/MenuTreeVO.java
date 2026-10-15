@@ -19,6 +19,8 @@ public class MenuTreeVO implements TreeNode<Long, MenuTreeVO> {
 
     private Integer menuType;
 
+    private Integer menuScope;
+
     private String routePath;
 
     private String icon;

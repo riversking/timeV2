@@ -4,6 +4,8 @@ import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GameInfo;
 import com.rivers.nba.GetGameCalendarReq;
 import com.rivers.nba.GetGameCalendarRes;
+import com.rivers.nba.GetGameDetailReq;
+import com.rivers.nba.GetGameDetailRes;
 import com.rivers.nba.GetGamesReq;
 import com.rivers.nba.GetGamesRes;
 import com.rivers.nba.ScoreReportReq;
@@ -43,6 +45,11 @@ public interface IGameService {
      * 查询比赛日历（按月汇总每天场次，season/teamId 可选过滤）
      */
     Mono<ResultVO<GetGameCalendarRes>> getGameCalendar(GetGameCalendarReq req);
+
+    /**
+     * 查询比赛详情（基础信息取库内，每节比分与球员数据实时取外部数据源）
+     */
+    Mono<ResultVO<GetGameDetailRes>> getGameDetail(GetGameDetailReq req);
 
     /**
      * 比分变动上报（更新本地比分并实时广播 SSE 事件）

@@ -49,6 +49,12 @@ public class TimerMenu extends BasicDO<TimerMenu> {
     private Integer menuType;
 
     /**
+     * 菜单归属：1-后台管理，2-门户
+     */
+    @TableField("menu_scope")
+    private Integer menuScope;
+
+    /**
      * 路由路径
      */
     @TableField("route_path")

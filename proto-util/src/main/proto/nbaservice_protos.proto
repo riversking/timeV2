@@ -139,6 +139,8 @@ message GameInfo {
     string dateTimeUtc = 20;
     bool inseasonTournament = 21;
     int32 globalGameId = 22;
+    //记录主键（时间线行级游标：与比赛日组合保证翻页无重复无缺口）
+    int64 id = 23;
 }
 //按赛季同步比赛请求
 message SyncGamesBySeasonReq {
@@ -155,6 +157,14 @@ message GetGamesReq {
     int32 season = 3;
     string date = 4;
     int32 teamId = 5;
+    //时间线模式：空=普通分页；forward=锚点/游标之后（按比赛日正序）；backward=锚点/游标之前（按比赛日倒序，服务端反转为正序返回）
+    string timelineMode = 6;
+    //锚点日（中国观赛日，yyyy-MM-dd）：无游标时的起点，forward 含锚点日起、backward 取锚点日前
+    string anchorDay = 7;
+    //游标比赛日（中国观赛日）：上一批边界条目的比赛日
+    string cursorDay = 8;
+    //游标记录主键：上一批边界条目的 id（同日排序稳定，与 cursorDay 组成行级游标）
+    int64 cursorId = 9;
 }
 //比赛分页查询响应
 message GetGamesRes {
@@ -175,6 +185,40 @@ message GameDayCount {
 //比赛日历查询响应
 message GetGameCalendarRes {
     repeated GameDayCount days = 1;
+}
+//比赛详情查询请求
+message GetGameDetailReq {
+    int32 gameId = 1;
+}
+//单节比分（period 从 1 开始，加时赛依次递增）
+message PeriodScore {
+    int32 period = 1;
+    int32 awayScore = 2;
+    int32 homeScore = 3;
+}
+//球员单场数据行（stats 与所属 TeamBoxScore.columns 按位对齐）
+message PlayerGameStatLine {
+    string name = 1;
+    bool starter = 2;
+    bool played = 3;
+    repeated string stats = 4;
+}
+//球队单场数据表（columns 为数据源表头，前端按列动态渲染）
+message TeamBoxScore {
+    string team = 1;
+    repeated string columns = 2;
+    repeated PlayerGameStatLine players = 3;
+}
+//比赛详情（详情数据实时取外部数据源，无对应数据时仅返回基础比赛信息）
+message GameDetail {
+    GameInfo game = 1;
+    repeated PeriodScore periods = 2;
+    TeamBoxScore awayBox = 3;
+    TeamBoxScore homeBox = 4;
+}
+//比赛详情查询响应
+message GetGameDetailRes {
+    GameDetail detail = 1;
 }
 //比分变动上报请求（后台检测到比分变化时上报并实时广播）
 message ScoreReportReq {
@@ -336,6 +380,8 @@ message NewsItem {
     string imageUrl = 4;
     string link = 5;
     string type = 6;
+    //数据源文章ID（详情查询用）
+    string id = 7;
 }
 //新闻查询请求
 message GetNewsReq {
@@ -344,4 +390,77 @@ message GetNewsReq {
 //新闻查询响应
 message GetNewsRes {
     repeated NewsItem news = 1;
+}
+//新闻详情查询请求
+message GetNewsDetailReq {
+    string id = 1;
+}
+//新闻详情
+message NewsDetail {
+    string id = 1;
+    string title = 2;
+    string description = 3;
+    string published = 4;
+    string imageUrl = 5;
+    string link = 6;
+    string byline = 7;
+    //正文HTML（服务端已清洗白名单标签）
+    string content = 8;
+}
+//新闻详情查询响应
+message GetNewsDetailRes {
+    NewsDetail detail = 1;
+}
+
+//球队排名条目（东西部/分区排名由服务端按胜率计算，上游 ConferenceRank/DivisionRank 字段不可信）
+message TeamStandingInfo {
+    int32 teamId = 1;
+    string key = 2;
+    string city = 3;
+    string name = 4;
+    string conference = 5;
+    string division = 6;
+    int32 wins = 7;
+    int32 losses = 8;
+    double winPct = 9;
+    double gamesBack = 10;
+    int32 conferenceRank = 11;
+    int32 divisionRank = 12;
+    int32 lastTenWins = 13;
+    int32 lastTenLosses = 14;
+    string streakDescription = 15;
+    double pointsPerGameFor = 16;
+    double pointsPerGameAgainst = 17;
+}
+//球队排名查询请求（season 非正数时自动取最近有数据的赛季）
+message GetTeamStandingsReq {
+    int32 season = 1;
+}
+//球队排名查询响应
+message GetTeamStandingsRes {
+    int32 season = 1;
+    repeated TeamStandingInfo standings = 2;
+}
+
+//球员数据排名条目（value 为场均数值，命中率为百分比）
+message PlayerStatLeaderInfo {
+    int64 playerId = 1;
+    string name = 2;
+    string team = 3;
+    string position = 4;
+    int32 games = 5;
+    double value = 6;
+    string photoUrl = 7;
+}
+//球员数据排名查询请求（statType：points/rebounds/assists/steals/blocks/threePointers/fieldGoalPercentage）
+message GetPlayerStatLeadersReq {
+    int32 season = 1;
+    string statType = 2;
+    int32 limit = 3;
+}
+//球员数据排名查询响应
+message GetPlayerStatLeadersRes {
+    int32 season = 1;
+    string statType = 2;
+    repeated PlayerStatLeaderInfo leaders = 3;
 }

@@ -39,6 +39,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
     implementation 'io.asyncer:r2dbc-mysql:1.3.2'
+    // 新闻正文 HTML 清洗（白名单过滤，防 XSS）
+    implementation 'org.jsoup:jsoup:1.18.1'
     // 定时任务分布式锁（多实例部署时同一任务同一时刻仅一个实例执行）
     implementation 'net.javacrumbs.shedlock:shedlock-spring:6.6.0'
     implementation 'net.javacrumbs.shedlock:shedlock-provider-redis-lettuce:6.6.0'

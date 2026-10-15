@@ -55,11 +55,47 @@ export async function getGameCalendar(data: any) {
 }
 
 /**
+ * 比赛详情（公开，含每节比分与双方球员数据，实时取数据源）
+ */
+export async function getGameDetail(data: any) {
+  return clientHttp
+    .post(`${API_PREFIX}/game/getGameDetail`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 球队排名（公开，东西部与分区名次由服务端按胜率计算）
+ */
+export async function getTeamStandings(data: any) {
+  return clientHttp
+    .post(`${API_PREFIX}/ranking/getTeamStandings`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 球员数据排名（公开，value 为场均数值，命中率为百分比）
+ */
+export async function getPlayerStatLeaders(data: any) {
+  return clientHttp
+    .post(`${API_PREFIX}/ranking/getPlayerStatLeaders`, data)
+    .then((res) => res.data);
+}
+
+/**
  * NBA 新闻资讯（公开，含配图）
  */
 export async function getNews(data: any) {
   return clientHttp
     .post(`${API_PREFIX}/news/getNews`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * NBA 新闻详情（公开，返回清洗后的正文 HTML）
+ */
+export async function getNewsDetail(data: any) {
+  return clientHttp
+    .post(`${API_PREFIX}/news/getNewsDetail`, data)
     .then((res) => res.data);
 }
 

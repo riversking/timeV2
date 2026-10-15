@@ -42,6 +42,12 @@
       <el-form-item label="组件路径">
         <el-input v-model="formData.component" placeholder="请输入组件路径" />
       </el-form-item>
+      <el-form-item label="归属" prop="menuScope">
+        <el-radio-group v-model="formData.menuScope">
+          <el-radio :value="1">后台管理</el-radio>
+          <el-radio :value="2">门户</el-radio>
+        </el-radio-group>
+      </el-form-item>
     </el-form>
 
     <template #footer>
@@ -69,6 +75,8 @@ import {
   ElInputNumber,
   ElButton,
   ElMessage,
+  ElRadioGroup,
+  ElRadio,
 } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { MenuTreeVO } from "@/proto";
@@ -88,6 +96,7 @@ interface Menu {
   parentId?: number;
   icon?: string;
   component?: string;
+  menuScope?: number;
 }
 
 interface Emits {
@@ -116,6 +125,7 @@ const formData = reactive<Menu>({
   sortOrder: 0,
   icon: "",
   component: "",
+  menuScope: 1,
 });
 
 // 菜单树数据
@@ -162,6 +172,9 @@ watch(
       // 如果是编辑模式，填充表单数据
       if (isEditMode.value) {
         Object.assign(formData, props.menuData);
+        if (formData.menuScope == null) {
+          formData.menuScope = 1;
+        }
       }
     }
   }
@@ -177,6 +190,7 @@ const resetForm = () => {
     sortOrder: 0,
     icon: "",
     component: "",
+    menuScope: 1,
   });
   nextTick(() => {
     if (menuFormRef.value) {

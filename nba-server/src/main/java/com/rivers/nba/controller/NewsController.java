@@ -1,6 +1,8 @@
 package com.rivers.nba.controller;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.nba.GetNewsDetailReq;
+import com.rivers.nba.GetNewsDetailRes;
 import com.rivers.nba.GetNewsReq;
 import com.rivers.nba.GetNewsRes;
 import com.rivers.nba.service.INewsService;
@@ -31,5 +33,10 @@ public class NewsController {
     @PostMapping("getNews")
     public Mono<ResultVO<GetNewsRes>> getNews(@RequestBody GetNewsReq req) {
         return newsService.getNews(req);
+    }
+
+    @PostMapping("getNewsDetail")
+    public Mono<ResultVO<GetNewsDetailRes>> getNewsDetail(@RequestBody GetNewsDetailReq req) {
+        return newsService.getNewsDetail(req);
     }
 }

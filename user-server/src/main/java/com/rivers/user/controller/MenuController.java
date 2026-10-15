@@ -37,6 +37,14 @@ public class MenuController {
         return menuService.getMenuTree();
     }
 
+    /**
+     * 门户菜单（公开接口，C 端导航渲染用；网关白名单放行）
+     */
+    @PostMapping("getPortalMenuTree")
+    public Mono<ResultVO<List<MenuTreeVO>>> getPortalMenuTree() {
+        return menuService.getPortalMenuTree();
+    }
+
     @PostMapping("getMenuDetail")
     public Mono<ResultVO<MenuDetailRes>> getMenuDetail(@RequestBody MenuDetailReq menuDetailReq) {
         return menuService.getMenuDetail(menuDetailReq);

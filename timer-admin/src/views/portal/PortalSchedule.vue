@@ -23,17 +23,6 @@
             日历
           </button>
         </div>
-        <div class="season-tabs">
-          <button
-            v-for="opt in seasonOptions"
-            :key="String(opt.value)"
-            class="tab-btn"
-            :class="{ active: season === opt.value && !selectedDate }"
-            @click="handleSeasonChange(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
         <el-select
           v-model="selectedTeamId"
           placeholder="按球队筛选"
@@ -49,84 +38,97 @@
           />
         </el-select>
         <el-date-picker
-          v-if="viewMode === 'list'"
-          v-model="selectedDate"
+          v-if="viewMode === 'calendar'"
+          v-model="calendarDate"
           type="date"
-          placeholder="按日期筛选"
-          value-format="YYYY-MM-DD"
-          clearable
+          placeholder="跳转任意日期"
+          :clearable="false"
           class="date-picker"
-          @change="handleDateChange"
         />
       </div>
     </div>
 
-    <!-- 列表视图 -->
+    <!-- 列表视图：以当天为锚点的时间线，上滑更早 / 下滑更晚 -->
     <template v-if="viewMode === 'list'">
-      <div v-loading="loading" class="game-list">
-        <div v-for="g in games" :key="g.gameId" class="game-row">
-          <div class="game-time">
-            <div class="time-main">{{ formatGameTime(g.dateTime) }}</div>
-            <div class="time-sub">{{ g.season }} 赛季</div>
+      <div v-loading="loading" class="timeline">
+        <!-- 顶部哨兵：接近页首时加载更早的比赛 -->
+        <div ref="topRef" class="load-sentinel">
+          <div v-if="loadingOlder" class="load-status">
+            <el-icon class="is-loading" :size="16"><Loading /></el-icon>
+            <span>正在加载更早的比赛…</span>
           </div>
-
-          <div class="team away">
-            <span class="team-name">{{ g.awayTeam }}</span>
-            <img
-              v-if="teamLogo(g.awayTeam)"
-              :src="teamLogo(g.awayTeam)"
-              class="team-logo"
-              loading="lazy"
-              @error="onImgError"
-            />
-          </div>
-
-          <div class="game-center">
-            <template v-if="g.isClosed">
-              <span class="score" :class="{ win: g.awayTeamScore > g.homeTeamScore }">{{ g.awayTeamScore }}</span>
-              <span class="vs-sep">-</span>
-              <span class="score" :class="{ win: g.homeTeamScore > g.awayTeamScore }">{{ g.homeTeamScore }}</span>
-            </template>
-            <span v-else class="vs-text">VS</span>
-          </div>
-
-          <div class="team home">
-            <img
-              v-if="teamLogo(g.homeTeam)"
-              :src="teamLogo(g.homeTeam)"
-              class="team-logo"
-              loading="lazy"
-              @error="onImgError"
-            />
-            <span class="team-name">{{ g.homeTeam }}</span>
-          </div>
-
-          <div class="game-status">
-            <el-tag :type="statusInfo(g).type" size="small" effect="dark">
-              {{ statusInfo(g).text }}
-            </el-tag>
-            <span class="channel" v-if="g.channel">{{ g.channel }}</span>
+          <div v-else-if="noMoreOlder && games.length" class="load-end">
+            — 已经是本赛季最早的比赛 —
           </div>
         </div>
-      </div>
 
-      <el-empty v-if="!loading && !games.length" description="该条件下暂无比赛" />
+        <div v-for="group in groupedGames" :key="group.day" class="day-group">
+          <div class="day-header">
+            <span class="day-label">{{ group.label }}</span>
+            <span class="day-count">{{ group.items.length }} 场</span>
+          </div>
 
-      <!-- 分页 -->
-      <div class="pagination">
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :total="total"
-          :page-sizes="[20, 40, 60]"
-          layout="total, sizes, prev, pager, next"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
+          <div v-for="g in group.items" :key="g.gameId" class="game-row" @click="openGame(g)">
+            <div class="game-time">
+              <div class="time-main">{{ formatClock(g.dateTime) }}</div>
+            </div>
+
+            <div class="team away">
+              <span class="team-name">{{ g.awayTeam }}</span>
+              <img
+                v-if="teamLogo(g.awayTeam)"
+                :src="teamLogo(g.awayTeam)"
+                class="team-logo"
+                loading="lazy"
+                @error="onImgError"
+              />
+            </div>
+
+            <div class="game-center">
+              <template v-if="g.isClosed">
+                <span class="score" :class="{ win: g.awayTeamScore > g.homeTeamScore }">{{ g.awayTeamScore }}</span>
+                <span class="vs-sep">-</span>
+                <span class="score" :class="{ win: g.homeTeamScore > g.awayTeamScore }">{{ g.homeTeamScore }}</span>
+              </template>
+              <span v-else class="vs-text">VS</span>
+            </div>
+
+            <div class="team home">
+              <img
+                v-if="teamLogo(g.homeTeam)"
+                :src="teamLogo(g.homeTeam)"
+                class="team-logo"
+                loading="lazy"
+                @error="onImgError"
+              />
+              <span class="team-name">{{ g.homeTeam }}</span>
+            </div>
+
+            <div class="game-status">
+              <el-tag :type="statusInfo(g).type" size="small" effect="dark">
+                {{ statusInfo(g).text }}
+              </el-tag>
+              <span class="channel" v-if="g.channel">{{ g.channel }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部哨兵：接近页尾时加载更晚的比赛 -->
+        <div ref="bottomRef" class="load-sentinel">
+          <div v-if="loadingNewer" class="load-status">
+            <el-icon class="is-loading" :size="16"><Loading /></el-icon>
+            <span>正在加载更晚的比赛…</span>
+          </div>
+          <div v-else-if="noMoreNewer && games.length" class="load-end">
+            — 已经是本赛季最新的比赛 —
+          </div>
+        </div>
+
+        <el-empty v-if="!loading && !games.length" description="暂无赛程数据" />
       </div>
     </template>
 
-    <!-- 日历视图 -->
+    <!-- 日历视图：可浏览任意月份（含往赛季），用日期跳转查找 -->
     <template v-else>
       <div class="calendar-layout">
         <div v-loading="loadingCalendar" class="calendar-box">
@@ -145,8 +147,8 @@
         <div class="calendar-games">
           <h3 class="day-title">{{ selectedDayText }} 的比赛</h3>
           <div v-loading="loadingDayGames" class="day-list">
-            <div v-for="g in calendarGames" :key="g.gameId" class="day-item">
-              <div class="day-time">{{ formatGameTime(g.dateTime) }}</div>
+            <div v-for="g in calendarGames" :key="g.gameId" class="day-item" @click="openGame(g)">
+              <div class="day-time">{{ formatClock(g.dateTime) }}</div>
               <div class="day-match">
                 <span class="team-name">{{ g.awayTeam }}</span>
                 <img
@@ -192,20 +194,305 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
-import { ElMessage } from "element-plus";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { useRouter } from "vue-router";
+import { Loading } from "@element-plus/icons-vue";
 import { getGamePage, getGameCalendar, getTeamPage } from "@/api/portal";
+
+const router = useRouter();
+
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+/** 每批加载条数 */
+const PAGE_SIZE = 20;
+/** 距页面顶部/底部多少像素内触发加载 */
+const EDGE_MARGIN = 400;
+
+/** 中国观赛日（yyyy-MM-dd）：与后端比赛日口径一致 */
+const chinaToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+
+const todayStr = ref(chinaToday());
+
+/** NBA 赛季按结束年份标记（如 2026 年 10 月属于 2027 赛季） */
+const currentSeason = () => {
+  const [y, m] = todayStr.value.split("-").map(Number);
+  return m >= 7 ? y + 1 : y;
+};
+
+const seasonLabel = computed(() => {
+  const s = currentSeason();
+  return `${s - 1}-${String(s % 100).padStart(2, "0")}`;
+});
+
+const shiftDay = (day: string, delta: number) => {
+  const [y, m, d] = day.split("-").map(Number);
+  const date = new Date(y, m - 1, d + delta);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+};
+
+const dayLabel = (day: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return day || "未知日期";
+  }
+  const [y, m, d] = day.split("-").map(Number);
+  const base = `${y === Number(todayStr.value.slice(0, 4)) ? "" : `${y}年`}${m}月${d}日 ${
+    WEEKDAYS[new Date(y, m - 1, d).getDay()]
+  }`;
+  if (day === todayStr.value) {
+    return `今天 · ${base}`;
+  }
+  if (day === shiftDay(todayStr.value, -1)) {
+    return `昨天 · ${base}`;
+  }
+  if (day === shiftDay(todayStr.value, 1)) {
+    return `明天 · ${base}`;
+  }
+  return base;
+};
+
+const formatClock = (dt: string) => {
+  if (!dt) return "-";
+  const m = dt.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  return m ? `${m[4]}:${m[5]}` : dt;
+};
+
+/* ---------- 列表时间线 ---------- */
 
 const games = ref<any[]>([]);
 const loading = ref(false);
-const currentPage = ref(1);
-const pageSize = ref(20);
-const total = ref(0);
+const loadingOlder = ref(false);
+const loadingNewer = ref(false);
+const noMoreOlder = ref(false);
+const noMoreNewer = ref(false);
+const topRef = ref<HTMLElement | null>(null);
+const bottomRef = ref<HTMLElement | null>(null);
 
-const season = ref(2027);
-const selectedDate = ref<string | null>(null);
 const selectedTeamId = ref<number | null>(null);
 const teams = ref<any[]>([]);
+const teamLogoMap = ref<Record<string, string>>({});
+
+const teamLogo = (key: string) => teamLogoMap.value[key] || "";
+
+/** 按（比赛日，开赛时间，id）正序：游标要求比赛日 + id，展示层再按时间细化同日顺序 */
+const sortGames = (list: any[]) =>
+  [...list].sort((a, b) => {
+    const da = String(a.day || "");
+    const db = String(b.day || "");
+    if (da !== db) {
+      return da < db ? -1 : 1;
+    }
+    const ta = String(a.dateTime || "");
+    const tb = String(b.dateTime || "");
+    if (ta !== tb) {
+      return ta < tb ? -1 : 1;
+    }
+    return Number(a.id || 0) - Number(b.id || 0);
+  });
+
+const mergeGames = (incoming: any[]) => {
+  const map = new Map<any, any>();
+  games.value.forEach((g) => map.set(g.gameId, g));
+  incoming.forEach((g) => map.set(g.gameId, g));
+  games.value = sortGames([...map.values()]);
+};
+
+/** 已加载集中 (day, id) 最大 / 最小的条目：作为行级翻页游标 */
+const latestCursor = () => {
+  let day = "";
+  let id = 0;
+  for (const g of games.value) {
+    const d = String(g.day || "");
+    const i = Number(g.id || 0);
+    if (d > day || (d === day && i > id)) {
+      day = d;
+      id = i;
+    }
+  }
+  return day ? { day, id } : null;
+};
+
+const earliestCursor = () => {
+  let day = "";
+  let id = 0;
+  for (const g of games.value) {
+    const d = String(g.day || "");
+    const i = Number(g.id || 0);
+    if (!day || d < day || (d === day && i < id)) {
+      day = d;
+      id = i;
+    }
+  }
+  return day ? { day, id } : null;
+};
+
+const timelineReq = (mode: "forward" | "backward") => {
+  const params: any = {
+    currentPage: 1,
+    pageSize: PAGE_SIZE,
+    season: currentSeason(),
+    teamId: selectedTeamId.value || 0,
+    timelineMode: mode,
+  };
+  const cursor = mode === "forward" ? latestCursor() : earliestCursor();
+  if (cursor) {
+    params.cursorDay = cursor.day;
+    params.cursorId = cursor.id;
+  } else {
+    params.anchorDay = todayStr.value;
+  }
+  return params;
+};
+
+const loadInitial = async () => {
+  loading.value = true;
+  games.value = [];
+  noMoreOlder.value = false;
+  noMoreNewer.value = false;
+  try {
+    const res = await getGamePage(timelineReq("forward"));
+    if (res.code === 200) {
+      const batch = res.data?.games || [];
+      if (batch.length) {
+        mergeGames(batch);
+      }
+      noMoreNewer.value = batch.length < PAGE_SIZE;
+    }
+  } catch (error) {
+    console.error("加载赛程失败:", error);
+  } finally {
+    loading.value = false;
+  }
+  await nextTick();
+  if (!games.value.length) {
+    // 当天及以后没有比赛（休赛期/赛季末）：向前取最近的比赛
+    await loadOlder();
+  }
+  maybeLoadNewer();
+};
+
+const loadOlder = async () => {
+  if (loadingOlder.value || noMoreOlder.value || loading.value) {
+    return;
+  }
+  loadingOlder.value = true;
+  const prevHeight = document.documentElement.scrollHeight;
+  const prevScroll = window.scrollY;
+  try {
+    const res = await getGamePage(timelineReq("backward"));
+    if (res.code === 200) {
+      const batch = res.data?.games || [];
+      if (batch.length) {
+        mergeGames(batch);
+        await nextTick();
+        const delta = document.documentElement.scrollHeight - prevHeight;
+        // 顶部插入后补偿滚动位置：视口内容不跳变
+        if (delta > 0) {
+          window.scrollTo(0, prevScroll + delta);
+        }
+      }
+      noMoreOlder.value = batch.length < PAGE_SIZE;
+    }
+  } catch (error) {
+    console.error("加载更早比赛失败:", error);
+  } finally {
+    loadingOlder.value = false;
+  }
+};
+
+const loadNewer = async () => {
+  if (loadingNewer.value || noMoreNewer.value || loading.value) {
+    return;
+  }
+  loadingNewer.value = true;
+  let success = false;
+  try {
+    const res = await getGamePage(timelineReq("forward"));
+    if (res.code === 200) {
+      success = true;
+      const batch = res.data?.games || [];
+      if (batch.length) {
+        mergeGames(batch);
+      }
+      noMoreNewer.value = batch.length < PAGE_SIZE;
+    }
+  } catch (error) {
+    console.error("加载更晚比赛失败:", error);
+  } finally {
+    loadingNewer.value = false;
+    if (success) {
+      nextTick(maybeLoadNewer);
+    }
+  }
+};
+
+/** 底部哨兵进入触发区则加载更晚的比赛（加载完成后链式补查，覆盖内容不满一屏的情况） */
+const maybeLoadNewer = () => {
+  const el = bottomRef.value;
+  if (!el || loading.value || loadingNewer.value || noMoreNewer.value) {
+    return;
+  }
+  if (el.getBoundingClientRect().top <= window.innerHeight + EDGE_MARGIN) {
+    loadNewer();
+  }
+};
+
+/** 顶部哨兵进入触发区（页首附近）则加载更早的比赛；仅在向上滚动时触发，避免下滑浏览时无谓预取 */
+let lastScrollY = 0;
+const onScroll = () => {
+  if (viewMode.value !== "list") {
+    return;
+  }
+  const goingUp = window.scrollY < lastScrollY;
+  lastScrollY = window.scrollY;
+  const el = topRef.value;
+  if (el && goingUp && games.value.length && !loadingOlder.value && !noMoreOlder.value) {
+    const top = el.getBoundingClientRect().top;
+    if (top >= -EDGE_MARGIN && top <= window.innerHeight) {
+      loadOlder();
+    }
+  }
+  maybeLoadNewer();
+};
+
+/** 页首向上滑动意图（滚轮/触摸）：页面已无法继续向上滚动时，同样加载更早的比赛 */
+const canLoadOlder = () =>
+  viewMode.value === "list" && games.value.length && !loadingOlder.value && !noMoreOlder.value;
+
+const onWheel = (e: WheelEvent) => {
+  if (e.deltaY < 0 && window.scrollY <= 1 && canLoadOlder()) {
+    loadOlder();
+  }
+};
+
+let touchStartY = 0;
+const onTouchStart = (e: TouchEvent) => {
+  touchStartY = e.touches[0]?.clientY ?? 0;
+};
+const onTouchMove = (e: TouchEvent) => {
+  const y = e.touches[0]?.clientY ?? 0;
+  if (y > touchStartY + 10 && window.scrollY <= 1 && canLoadOlder()) {
+    loadOlder();
+  }
+};
+
+const groupedGames = computed(() => {
+  const groups: { day: string; label: string; items: any[] }[] = [];
+  for (const g of games.value) {
+    const day = String(g.day || (g.dateTime ? g.dateTime.slice(0, 10) : ""));
+    let last = groups[groups.length - 1];
+    if (!last || last.day !== day) {
+      last = { day, label: dayLabel(day), items: [] };
+      groups.push(last);
+    }
+    last.items.push(g);
+  }
+  return groups;
+});
+
+/* ---------- 日历视图 ---------- */
 
 const viewMode = ref<"list" | "calendar">("list");
 const calendarDate = ref(new Date());
@@ -215,68 +502,32 @@ const calendarGames = ref<any[]>([]);
 const loadingCalendar = ref(false);
 const loadingDayGames = ref(false);
 
-// 缩写 → 队标 URL 映射
-const teamLogoMap = ref<Record<string, string>>({});
-
-const seasonOptions = [
-  { label: "2027 赛季", value: 2027 },
-  { label: "2026 赛季", value: 2026 },
-  { label: "全部", value: 0 },
-];
-
-const teamLogo = (key: string) => teamLogoMap.value[key] || "";
-
 const monthKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 const dayKey = (d: Date) =>
   `${monthKey(d)}-${String(d.getDate()).padStart(2, "0")}`;
 
-const selectedDayText = computed(() => dayKey(calendarDate.value));
+const selectedDayText = computed(() => {
+  const day = dayKey(calendarDate.value);
+  const [y, m, d] = day.split("-").map(Number);
+  return `${y}年${m}月${d}日 ${WEEKDAYS[new Date(y, m - 1, d).getDay()]}`;
+});
 
 const pageSub = computed(() => {
   if (viewMode.value === "calendar") {
-    return "切换月份浏览赛程，点击日期查看当日比赛";
+    return "翻月浏览或选择任意日期查看赛程，可查看往年赛季";
   }
-  return `共 ${total.value} 场比赛，支持赛季 / 球队 / 日期筛选，按比赛日正序`;
+  return `${seasonLabel.value} 赛季 · 从今天开始：向上滑动查看更早，向下滑动查看更晚`;
 });
 
-const fetchGames = async () => {
-  loading.value = true;
-  try {
-    const params: any = {
-      currentPage: currentPage.value,
-      pageSize: pageSize.value,
-    };
-    if (selectedDate.value) {
-      params.date = selectedDate.value;
-    } else if (season.value > 0) {
-      params.season = season.value;
-    }
-    if (selectedTeamId.value) {
-      params.teamId = selectedTeamId.value;
-    }
-    const res = await getGamePage(params);
-    if (res.code !== 200) {
-      ElMessage.error(res.message || "获取赛程失败");
-      return;
-    }
-    games.value = res.data?.games || [];
-    total.value = res.data?.total || 0;
-  } catch (error) {
-    ElMessage.error("获取赛程失败");
-    console.error(error);
-  } finally {
-    loading.value = false;
-  }
-};
-
+/** 日历不做赛季过滤：任何月份的赛程（含往赛季）都能查到 */
 const fetchCalendar = async () => {
   const month = monthKey(calendarDate.value);
   loadingCalendar.value = true;
   try {
     const res = await getGameCalendar({
-      season: season.value,
+      season: 0,
       month,
       teamId: selectedTeamId.value || 0,
     });
@@ -336,52 +587,31 @@ const fetchTeams = async () => {
   }
 };
 
+/* ---------- 交互 ---------- */
+
+/** 点击比赛进入详情页（每节比分 + 球员数据） */
+const openGame = (g: any) => {
+  router.push(`/portal/game/${g.gameId}`);
+};
+
 const handleViewChange = (mode: "list" | "calendar") => {
   if (viewMode.value === mode) return;
   viewMode.value = mode;
   if (mode === "calendar") {
     fetchCalendar();
     fetchDayGames();
-  } else {
-    fetchGames();
-  }
-};
-
-const handleSeasonChange = (val: number) => {
-  season.value = val;
-  selectedDate.value = null;
-  currentPage.value = 1;
-  if (viewMode.value === "list") {
-    fetchGames();
-  } else {
-    fetchCalendar();
-    fetchDayGames();
+  } else if (!games.value.length) {
+    loadInitial();
   }
 };
 
 const handleTeamChange = () => {
-  currentPage.value = 1;
   if (viewMode.value === "list") {
-    fetchGames();
+    loadInitial();
   } else {
     fetchCalendar();
     fetchDayGames();
   }
-};
-
-const handleDateChange = () => {
-  currentPage.value = 1;
-  fetchGames();
-};
-
-const handleSizeChange = (val: number) => {
-  pageSize.value = val;
-  fetchGames();
-};
-
-const handleCurrentChange = (val: number) => {
-  currentPage.value = val;
-  fetchGames();
 };
 
 // 日历选日 / 切月：月变化时重拉场次标记，月内选日只拉当日比赛
@@ -392,13 +622,6 @@ watch(calendarDate, () => {
   }
   fetchDayGames();
 });
-
-const formatGameTime = (dt: string) => {
-  if (!dt) return "-";
-  const m = dt.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  if (!m) return dt;
-  return `${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
-};
 
 const statusInfo = (g: any): { text: string; type: "primary" | "warning" | "info" | "success" } => {
   if (g.isClosed) return { text: "已结束", type: "info" };
@@ -412,8 +635,21 @@ const onImgError = (e: Event) => {
 };
 
 onMounted(() => {
-  fetchGames();
+  loadInitial();
   fetchTeams();
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll, { passive: true });
+  window.addEventListener("wheel", onWheel, { passive: true });
+  window.addEventListener("touchstart", onTouchStart, { passive: true });
+  window.addEventListener("touchmove", onTouchMove, { passive: true });
+});
+
+onUnmounted(() => {
+  window.removeEventListener("scroll", onScroll);
+  window.removeEventListener("resize", onScroll);
+  window.removeEventListener("wheel", onWheel);
+  window.removeEventListener("touchstart", onTouchStart);
+  window.removeEventListener("touchmove", onTouchMove);
 });
 </script>
 
@@ -476,34 +712,6 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.season-tabs {
-  display: flex;
-  gap: 8px;
-}
-
-.tab-btn {
-  padding: 7px 18px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: transparent;
-  color: #94a3b8;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.tab-btn:hover {
-  color: #f1f5f9;
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-.tab-btn.active {
-  color: #fff;
-  background: linear-gradient(135deg, #f97316, #ea580c);
-  border-color: transparent;
-  font-weight: 600;
-}
-
 .team-select {
   width: 160px;
 }
@@ -518,23 +726,69 @@ onMounted(() => {
   color: #cbd5e1;
 }
 
-/* 赛程列表 */
-.game-list {
+.date-picker :deep(.el-input__wrapper) {
+  background-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+}
+
+.date-picker :deep(.el-input__inner) {
+  color: #cbd5e1;
+}
+
+.date-picker :deep(.el-input__inner)::placeholder {
+  color: #94a3b8;
+}
+
+/* 时间线列表 */
+.timeline {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 200px;
+  min-height: 320px;
+}
+
+.day-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.day-header {
+  position: sticky;
+  top: 72px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.day-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fb923c;
+  letter-spacing: 0.5px;
+}
+
+.day-count {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .game-row {
   display: grid;
-  grid-template-columns: 110px 1fr 120px 1fr 160px;
+  grid-template-columns: 90px 1fr 120px 1fr 160px;
   align-items: center;
   background: rgba(30, 41, 59, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 14px 20px;
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .game-row:hover {
@@ -549,15 +803,10 @@ onMounted(() => {
 }
 
 .time-main {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: #f1f5f9;
   font-variant-numeric: tabular-nums;
-}
-
-.time-sub {
-  font-size: 11px;
-  color: #64748b;
 }
 
 .team {
@@ -640,30 +889,27 @@ onMounted(() => {
   color: #64748b;
 }
 
-/* 分页（深色适配） */
-.pagination {
+/* 滚动加载状态 */
+.load-sentinel {
   display: flex;
+  align-items: center;
   justify-content: center;
-  margin-top: 26px;
+  padding: 14px 0 4px;
+  min-height: 18px;
 }
 
-.pagination :deep(.el-pagination) {
-  --el-pagination-text-color: #cbd5e1;
-  --el-pagination-button-color: #cbd5e1;
-  --el-pagination-hover-color: #fb923c;
-  --el-pagination-bg-color: transparent;
-  --el-pagination-button-bg-color: rgba(255, 255, 255, 0.06);
-  --el-pagination-button-disabled-bg-color: transparent;
-  --el-pagination-button-disabled-color: #475569;
+.load-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #94a3b8;
 }
 
-.pagination :deep(.el-input__wrapper) {
-  background-color: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
-}
-
-.pagination :deep(.el-input__inner) {
-  color: #cbd5e1;
+.load-end {
+  font-size: 12.5px;
+  color: #64748b;
+  letter-spacing: 1px;
 }
 
 /* 日历视图 */
@@ -812,6 +1058,7 @@ onMounted(() => {
   border-radius: 12px;
   padding: 12px 16px;
   transition: border-color 0.2s;
+  cursor: pointer;
 }
 
 .day-item:hover {
@@ -877,6 +1124,9 @@ onMounted(() => {
   .team.away,
   .team.home {
     justify-content: center;
+  }
+  .day-header {
+    top: 66px;
   }
   .calendar-layout {
     flex-direction: column;

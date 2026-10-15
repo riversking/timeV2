@@ -167,6 +167,8 @@ message SaveMenuReq {
     string component = 8;
     string routePath = 9;
     LoginUser loginUser = 10;
+    //菜单归属：1-后台管理 2-门户（缺省 1）
+    int32 menuScope = 11;
 }
 
 message UpdateMenuReq {
@@ -181,6 +183,8 @@ message UpdateMenuReq {
     string routePath = 9;
     string component = 10;
     LoginUser loginUser = 11;
+    //菜单归属：1-后台管理 2-门户（缺省 1）
+    int32 menuScope = 12;
 }
 
 message Menu {
@@ -369,4 +373,8 @@ message ScanQrCodeReq {
 message ConfirmQrCodeReq {
     string qrCodeId = 1;
     string userId = 2;
+}
+
+message ClaimQrSessionReq {
+    string qrCodeId = 1;
 }

@@ -15,6 +15,11 @@ public interface IMenuService {
 
     Mono<ResultVO<List<MenuTreeVO>>> getMenuTree();
 
+    /**
+     * 门户菜单树（公开接口：按归属=门户 + 启用过滤，直出扁平列表供 C 端导航渲染）
+     */
+    Mono<ResultVO<List<MenuTreeVO>>> getPortalMenuTree();
+
     Mono<ResultVO<MenuDetailRes>> getMenuDetail(MenuDetailReq menuDetailReq);
 
     Mono<ResultVO<Void>> deleteMenu(DeleteMenuReq deleteMenuReq);

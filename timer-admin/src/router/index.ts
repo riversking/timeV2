@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 import { useUserStore } from "@/store/user";
 import { MenuTreeVO } from "@/proto";
+import { loadPortalMenus } from "@/utils/portalMenu";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -11,34 +12,16 @@ const router = createRouter({
       component: () => import("@/components/Login.vue"),
     },
     // C 端门户：独立布局，无需登录即可访问（详情门控在页面内处理，登录态与后台管理隔离）
+    // 菜单页子路由由 ensurePortalRoutes 按后台菜单配置（menu_scope=2）动态注册；非菜单页（如比赛详情）静态注册
     {
       path: "/portal",
+      name: "PortalRoot",
       component: () => import("@/layouts/PortalLayout.vue"),
       children: [
         {
-          path: "",
-          name: "PortalHome",
-          component: () => import("@/views/portal/PortalHome.vue"),
-        },
-        {
-          path: "players",
-          name: "PortalPlayers",
-          component: () => import("@/views/portal/PortalPlayers.vue"),
-        },
-        {
-          path: "news",
-          name: "PortalNews",
-          component: () => import("@/views/portal/PortalNews.vue"),
-        },
-        {
-          path: "teams",
-          name: "PortalTeams",
-          component: () => import("@/views/portal/PortalTeams.vue"),
-        },
-        {
-          path: "schedule",
-          name: "PortalSchedule",
-          component: () => import("@/views/portal/PortalSchedule.vue"),
+          path: "game/:gameId",
+          name: "PortalGameDetail",
+          component: () => import("@/views/portal/PortalGameDetail.vue"),
         },
       ],
     },
@@ -141,11 +124,52 @@ function convertToRoutes(menuList: MenuTreeVO[]): RouteRecordRaw[] {
     .filter(Boolean);
 }
 
+/** 门户菜单全路径 → 相对 /portal 的子路径；非 /portal 前缀返回 null */
+function portalChildPath(fullPath: string): string | null {
+  if (fullPath === "/portal") return "";
+  if (fullPath.startsWith("/portal/")) return fullPath.slice("/portal/".length);
+  return null;
+}
+
+let portalRoutesReady = false;
+
+/**
+ * 按后台菜单配置注册门户子路由（只执行一次，失败回落内置菜单由 loadPortalMenus 保证）
+ * 以后新增门户页面只需在后台配置 menu_scope=2 的菜单，无需改代码
+ */
+export async function ensurePortalRoutes() {
+  if (portalRoutesReady) return;
+  portalRoutesReady = true;
+  const menus = await loadPortalMenus();
+  const modules = import.meta.glob("/src/views/**/*.vue");
+  menus.forEach((item) => {
+    const childPath = portalChildPath(item.path);
+    if (childPath === null) return;
+    const key = `/src/views${item.component}.vue`;
+    const component =
+      (item.component && modules[key]) || (() => import("@/views/404.vue"));
+    router.addRoute("PortalRoot", {
+      path: childPath,
+      name: item.path === "/portal" ? "PortalHome" : `Portal${item.path.slice("/portal".length)}`,
+      component,
+    });
+  });
+}
+
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
 
   // C 端门户：公开访问，不做后台登录拦截（列表/新闻/赛程免登录，详情由页面内门控）
-  if (to.path.startsWith("/portal")) {
+  if (to.path === "/portal" || to.path.startsWith("/portal/")) {
+    const terminalBefore = to.matched[to.matched.length - 1];
+    await ensurePortalRoutes();
+    // 首次导航时路由刚注册（或父路由新增了默认子路由）：按新路由表重新解析
+    const afterMatched = router.resolve(to.fullPath).matched;
+    const terminalAfter = afterMatched[afterMatched.length - 1];
+    if (terminalAfter !== terminalBefore) {
+      next({ path: to.fullPath, replace: true });
+      return;
+    }
     next();
     return;
   }

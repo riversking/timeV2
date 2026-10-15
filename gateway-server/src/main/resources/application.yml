@@ -62,6 +62,12 @@ ignore:
     - /nba-server/game/getGamePage
     - /nba-server/game/getRecentGames
     - /nba-server/game/getGameCalendar
+    - /nba-server/game/getGameDetail
+    # 门户排行榜（球队排名/球员数据排名，免登录）
+    - /nba-server/ranking/getTeamStandings
+    - /nba-server/ranking/getPlayerStatLeaders
+    # 门户菜单（后台配置、接口下发，门户导航与动态路由共用；菜单管理接口仍需认证）
+    - /user-server/menu/getPortalMenuTree
     # 比分实时推送流（SSE 长连接，前台免登录订阅）
     - /nba-server/game/scoreStream
 

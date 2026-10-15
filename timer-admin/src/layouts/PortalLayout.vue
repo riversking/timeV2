@@ -61,23 +61,24 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowDown, User } from "@element-plus/icons-vue";
 import { useClientAuth } from "@/composables/useClientAuth";
+import { loadPortalMenus, type PortalMenuItem } from "@/utils/portalMenu";
 import ClientLoginDialog from "@/components/ClientLoginDialog.vue";
 
 const router = useRouter();
 const route = useRoute();
 const { clientUsername, isClientLoggedIn, clientLogout, openLoginDialog } = useClientAuth();
 
-const navItems = [
-  { label: "首页", path: "/portal" },
-  { label: "资讯", path: "/portal/news" },
-  { label: "球员", path: "/portal/players" },
-  { label: "球队", path: "/portal/teams" },
-  { label: "赛程", path: "/portal/schedule" },
-];
+// 导航项来自后台菜单配置（menu_scope=2），接口失败自动回落内置菜单
+const navItems = ref<PortalMenuItem[]>([]);
+
+onMounted(async () => {
+  navItems.value = await loadPortalMenus();
+});
 
 const isActive = (path: string) => {
   if (path === "/portal") {
