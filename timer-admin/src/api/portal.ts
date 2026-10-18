@@ -1,6 +1,7 @@
 import clientHttp from "@/services/clientHttp";
 
 const API_PREFIX = "/api/nba-server";
+const MOMENT_PREFIX = "/api/moment-server";
 
 /**
  * 球员分页查询（公开）
@@ -114,5 +115,118 @@ export async function getPlayerDetail(data: any) {
 export async function getTeamDetail(data: any) {
   return clientHttp
     .post(`${API_PREFIX}/team/getTeamDetail`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 发布动态（需登录，作者身份由网关在报文中注入 loginUser；teamId=0 表示不归属球队社区）
+ */
+export async function publishMoment(data: {
+  content: string;
+  images: string[];
+  teamId?: number;
+}) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/publishMoment`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 动态分页查询（公开，按 id 倒序；teamId=0 仅主动态，>0 仅该社区文章，两类严格隔离）
+ */
+export async function getMomentPage(data: {
+  currentPage: number;
+  pageSize: number;
+  userId?: string;
+  teamId?: number;
+  viewerId?: string;
+}) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/getMomentPage`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 点赞 / 取消点赞（需登录，返回切换后的状态与点赞数）
+ */
+export async function toggleMomentLike(data: { momentId: number }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/toggleLike`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 评论分页（公开，按 id 倒序）
+ */
+export async function getMomentComments(data: {
+  momentId: number;
+  currentPage: number;
+  pageSize: number;
+}) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/getCommentPage`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 发表评论（需登录，返回落库评论与最新评论数）
+ */
+export async function addMomentComment(data: { momentId: number; content: string }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/addComment`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 删除动态（需登录，仅能删除本人发布的动态）
+ */
+export async function deleteMoment(data: { momentId: number }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/deleteMoment`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 加入球队社区（需登录）
+ */
+export async function joinCommunity(data: { teamId: number }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/joinCommunity`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 退出球队社区（需登录）
+ */
+export async function leaveCommunity(data: { teamId: number }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/leaveCommunity`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 我的社交数据：加入的社区、我关注的人、我的粉丝（需登录）
+ */
+export async function getMySocial() {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/getMySocial`, {})
+    .then((res) => res.data);
+}
+
+/**
+ * 关注用户（需登录）
+ */
+export async function followUser(data: { targetUserId: string; targetUserName: string }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/followUser`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 取消关注（需登录）
+ */
+export async function unfollowUser(data: { targetUserId: string }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/unfollowUser`, data)
     .then((res) => res.data);
 }

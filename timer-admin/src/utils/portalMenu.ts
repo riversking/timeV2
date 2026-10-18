@@ -14,6 +14,7 @@ const BUILTIN_MENUS: PortalMenuItem[] = [
   { label: "球员", path: "/portal/players", component: "/portal/PortalPlayers", sortOrder: 30 },
   { label: "球队", path: "/portal/teams", component: "/portal/PortalTeams", sortOrder: 40 },
   { label: "赛程", path: "/portal/schedule", component: "/portal/PortalSchedule", sortOrder: 50 },
+  { label: "动态", path: "/portal/moments", component: "/portal/PortalMoments", sortOrder: 55 },
   { label: "排行", path: "/portal/rankings", component: "/portal/PortalRankings", sortOrder: 60 },
 ];
 

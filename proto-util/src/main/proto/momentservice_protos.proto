@@ -1,0 +1,154 @@
+syntax="proto3";
+
+package grpc;//package与java_package有些不同，java_package是定义编译生成的java文件所在的目录，而package是对应的java类的命名空间
+option java_package = "com.rivers.moment";
+option java_outer_classname = "MomentServiceProto";//要生成Java类的名称
+option java_multiple_files = true;
+
+//登录身份（由网关在 JSON 报文中注入，服务端不信任客户端自行传入的同名字段）
+message LoginUser {
+    string username = 1;
+    string userId = 2;
+}
+
+//动态条目（images 为图片 URL 列表；userName 为发布时冗余的作者名，展示用；teamId 为所属球队社区，0=未归属；
+//likeCount/commentCount 为冗余计数；liked 为当前浏览者是否已点赞，未登录恒为 false）
+message MomentInfo {
+    int64 id = 1;
+    string content = 2;
+    repeated string images = 3;
+    string userId = 4;
+    string userName = 5;
+    string createTime = 6;
+    int32 teamId = 7;
+    int32 likeCount = 8;
+    int32 commentCount = 9;
+    bool liked = 10;
+}
+
+//发布动态请求（content 与 images 至少传一项；teamId 为所属球队社区，0=未归属；loginUser 由网关注入）
+message PublishMomentReq {
+    string content = 1;
+    repeated string images = 2;
+    LoginUser loginUser = 3;
+    int32 teamId = 4;
+}
+
+//发布动态响应（返回落库后的完整动态，便于前台直接上屏）
+message PublishMomentRes {
+    MomentInfo moment = 1;
+}
+
+//动态分页查询请求（userId 为空查全部，指定时查该用户的动态；
+//teamId=0 只查主动态，>0 只查该球队社区文章，两类内容严格隔离；
+//viewerId 仅用于回填 liked 展示态，不参与鉴权）
+message GetMomentPageReq {
+    int32 currentPage = 1;
+    int32 pageSize = 2;
+    string userId = 3;
+    int32 teamId = 4;
+    string viewerId = 5;
+}
+
+//动态分页查询响应
+message GetMomentPageRes {
+    int64 total = 1;
+    repeated MomentInfo moments = 2;
+}
+
+//删除动态请求（仅能删除本人发布的动态；loginUser 由网关注入）
+message DeleteMomentReq {
+    int64 momentId = 1;
+    LoginUser loginUser = 2;
+}
+
+//用户简要信息（关注/粉丝列表展示用）
+message SocialUser {
+    string userId = 1;
+    string userName = 2;
+}
+
+//加入球队社区请求（loginUser 由网关注入）
+message JoinCommunityReq {
+    int32 teamId = 1;
+    LoginUser loginUser = 2;
+}
+
+//退出球队社区请求
+message LeaveCommunityReq {
+    int32 teamId = 1;
+    LoginUser loginUser = 2;
+}
+
+//我的社交数据请求
+message GetMySocialReq {
+    LoginUser loginUser = 1;
+}
+
+//我的社交数据：加入的社区、我关注的人、我的粉丝
+message GetMySocialRes {
+    repeated int32 communityTeamIds = 1;
+    repeated SocialUser following = 2;
+    repeated SocialUser followers = 3;
+}
+
+//点赞切换请求（loginUser 由网关注入；已赞则取消，未赞则点赞）
+message ToggleLikeReq {
+    int64 momentId = 1;
+    LoginUser loginUser = 2;
+}
+
+//点赞切换响应（返回切换后的状态与最新点赞数）
+message ToggleLikeRes {
+    bool liked = 1;
+    int32 likeCount = 2;
+}
+
+//评论分页请求（公开接口）
+message GetCommentPageReq {
+    int64 momentId = 1;
+    int32 currentPage = 2;
+    int32 pageSize = 3;
+}
+
+//评论条目（userName 为发布时冗余的评论人名称）
+message CommentInfo {
+    int64 id = 1;
+    int64 momentId = 2;
+    string userId = 3;
+    string userName = 4;
+    string content = 5;
+    string createTime = 6;
+}
+
+//评论分页响应
+message GetCommentPageRes {
+    int64 total = 1;
+    repeated CommentInfo comments = 2;
+}
+
+//发表评论请求（loginUser 由网关注入）
+message AddCommentReq {
+    int64 momentId = 1;
+    string content = 2;
+    LoginUser loginUser = 3;
+}
+
+//发表评论响应（返回落库评论与最新评论数）
+message AddCommentRes {
+    CommentInfo comment = 1;
+    int32 commentCount = 2;
+}
+
+//关注用户请求（targetUserName 为动态中冗余的作者名，仅展示用）
+message FollowUserReq {
+    string targetUserId = 1;
+    string targetUserName = 2;
+    LoginUser loginUser = 3;
+}
+
+//取消关注请求
+message UnfollowUserReq {
+    string targetUserId = 1;
+    LoginUser loginUser = 2;
+}

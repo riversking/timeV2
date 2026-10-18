@@ -4,7 +4,7 @@
     <div class="page-header">
       <div>
         <h1 class="page-title">球队</h1>
-        <p class="page-sub">NBA 联盟 30 支球队，查看详情需登录</p>
+        <p class="page-sub">NBA 联盟 30 支球队，加入社区参与讨论，查看详情需登录</p>
       </div>
       <div class="conf-filter">
         <button
@@ -43,6 +43,14 @@
           <span class="tag conf">{{ confLabel(t.conference) }}</span>
           <span class="tag division">{{ t.division }}</span>
         </div>
+        <button
+          class="join-btn"
+          :class="{ joined: isCommunityJoined(t.teamId) }"
+          :disabled="communityUpdating === Number(t.teamId)"
+          @click.stop="toggleCommunity(t)"
+        >
+          {{ isCommunityJoined(t.teamId) ? "已加入社区" : "加入社区" }}
+        </button>
       </div>
     </div>
 
@@ -93,7 +101,13 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import { getTeamPage, getTeamDetail } from "@/api/portal";
+import {
+  getTeamPage,
+  getTeamDetail,
+  getMySocial,
+  joinCommunity,
+  leaveCommunity,
+} from "@/api/portal";
 import { useClientAuth } from "@/composables/useClientAuth";
 
 const { isClientLoggedIn, openLoginDialog } = useClientAuth();
@@ -107,6 +121,9 @@ const detailLoading = ref(false);
 const currentTeam = ref<any>(null);
 
 const pendingTeamId = ref<number | null>(null);
+const myCommunityIds = ref<number[]>([]);
+const pendingJoinTeamId = ref<number | null>(null);
+const communityUpdating = ref<number | null>(null);
 
 const confOptions = [
   { label: "全部", value: "" },
@@ -180,9 +197,67 @@ const handleCardClick = (t: any) => {
   openDetail(t.teamId);
 };
 
-// 登录成功后自动打开暂存的详情
-watch(isClientLoggedIn, (loggedIn) => {
-  if (loggedIn && pendingTeamId.value) {
+const isCommunityJoined = (teamId: number | string) =>
+  myCommunityIds.value.includes(Number(teamId));
+
+const loadMySocial = async () => {
+  try {
+    const res = await getMySocial();
+    if (res.code === 200) {
+      myCommunityIds.value = (res.data?.communityTeamIds || []).map(Number);
+    }
+  } catch (error) {
+    console.error("获取我的社区失败:", error);
+  }
+};
+
+const updateCommunity = async (teamId: number, join: boolean) => {
+  if (communityUpdating.value !== null) return;
+  communityUpdating.value = teamId;
+  try {
+    const res = join ? await joinCommunity({ teamId }) : await leaveCommunity({ teamId });
+    if (res.code !== 200) {
+      ElMessage.error(res.message || "操作失败");
+      return;
+    }
+    myCommunityIds.value = join
+      ? Array.from(new Set([...myCommunityIds.value, teamId]))
+      : myCommunityIds.value.filter((id) => id !== teamId);
+    ElMessage.success(join ? "已加入社区" : "已退出社区");
+  } catch (error) {
+    console.error("社区操作失败:", error);
+    ElMessage.error("操作失败，请稍后重试");
+  } finally {
+    communityUpdating.value = null;
+  }
+};
+
+const toggleCommunity = async (t: any) => {
+  const teamId = Number(t.teamId);
+  if (!isClientLoggedIn.value) {
+    pendingJoinTeamId.value = teamId;
+    ElMessage.warning("加入社区需要登录");
+    openLoginDialog();
+    return;
+  }
+  await updateCommunity(teamId, !isCommunityJoined(teamId));
+};
+
+// 登录成功后恢复社区状态并自动加入暂存的球队
+watch(isClientLoggedIn, async (loggedIn) => {
+  if (!loggedIn) {
+    myCommunityIds.value = [];
+    return;
+  }
+  await loadMySocial();
+  if (pendingJoinTeamId.value !== null) {
+    const id = pendingJoinTeamId.value;
+    pendingJoinTeamId.value = null;
+    if (!isCommunityJoined(id)) {
+      await updateCommunity(id, true);
+    }
+  }
+  if (pendingTeamId.value !== null) {
     const id = pendingTeamId.value;
     pendingTeamId.value = null;
     openDetail(id);
@@ -195,6 +270,9 @@ const onImgError = (e: Event) => {
 
 onMounted(() => {
   fetchTeams();
+  if (isClientLoggedIn.value) {
+    loadMySocial();
+  }
 });
 </script>
 
@@ -327,6 +405,34 @@ onMounted(() => {
 .tag.division {
   color: #93c5fd;
   background: rgba(59, 130, 246, 0.12);
+}
+
+.join-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 0;
+  border-radius: 16px;
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  background: rgba(249, 115, 22, 0.08);
+  color: #fb923c;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.join-btn:hover:not(:disabled) {
+  background: rgba(249, 115, 22, 0.18);
+}
+
+.join-btn.joined {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+}
+
+.join-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* 详情弹窗 */

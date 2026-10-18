@@ -31,6 +31,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.Serial;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
@@ -369,11 +370,20 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         exchange.getAttributes().put(ATTR_LOGIN_USER, loginUser);
         var mutatedRequest = exchange.getRequest().mutate()
                 .header("X-User-Id", loginUser.getUserId())
+                .header("X-User-Name", encodeIdentityHeader(loginUser.getUsername()))
                 .build();
         var finalRequest = mutatedRequest.getMethod() == HttpMethod.GET
                 ? handleGetRequest(mutatedRequest, loginUser.getUserId())
                 : new BodyRewriteDecorator(mutatedRequest, exchange);
         return chain.filter(exchange.mutate().request(finalRequest).build());
+    }
+
+    /**
+     * 身份头值需保证 ISO-8859-1 安全传输，用户名（可能为中文）统一 URL 编码，
+     * 下游服务按同一约定解码
+     */
+    private static String encodeIdentityHeader(@Nullable String value) {
+        return URLEncoder.encode(StringUtils.hasText(value) ? value : "", StandardCharsets.UTF_8);
     }
 
     /**

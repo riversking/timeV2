@@ -10,12 +10,9 @@ import com.rivers.nba.GetPlayerDetailRes;
 import com.rivers.nba.GetPlayersReq;
 import com.rivers.nba.GetPlayersRes;
 import com.rivers.nba.Player;
-import com.rivers.nba.client.UserServiceClient;
 import com.rivers.nba.entity.TimerPlayer;
 import com.rivers.nba.repository.PlayerRepository;
 import com.rivers.nba.service.IPlayerService;
-import com.rivers.proto.DicDataReq;
-import com.rivers.proto.DicDataRes;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -52,13 +49,10 @@ public class PlayerServiceImpl implements IPlayerService {
 
     private final PlayerRepository playerRepository;
 
-    private final UserServiceClient userServiceClient;
-
     private final WebClientUtil webClientUtil;
 
-    public PlayerServiceImpl(PlayerRepository playerRepository, UserServiceClient userServiceClient, WebClientUtil webClientUtil) {
+    public PlayerServiceImpl(PlayerRepository playerRepository, WebClientUtil webClientUtil) {
         this.playerRepository = playerRepository;
-        this.userServiceClient = userServiceClient;
         this.webClientUtil = webClientUtil;
     }
 
@@ -114,11 +108,6 @@ public class PlayerServiceImpl implements IPlayerService {
         String playerName = getPlayersReq.getPlayerName();
         String name = StringUtils.defaultIfBlank(playerName, "");
         long offset = (long) (currentPage - 1) * pageSize;
-        userServiceClient.getDicData(DicDataReq.newBuilder().setDicKey("sex").build())
-                .subscribe(i -> {
-                    DicDataRes data = i.getData();
-                    log.info("data {}", data);
-                }, e -> log.warn("字典查询失败: {}", e.getMessage()));
         return playerRepository.countByName(name)
                 .flatMap(total -> {
                     if (total == 0) {

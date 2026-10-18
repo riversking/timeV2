@@ -70,6 +70,9 @@ ignore:
     - /user-server/menu/getPortalMenuTree
     # 比分实时推送流（SSE 长连接，前台免登录订阅）
     - /nba-server/game/scoreStream
+    # 动态广场分页列表与评论列表（免登录浏览；发布/点赞/评论仍需认证）
+    - /moment-server/moment/getMomentPage
+    - /moment-server/moment/getCommentPage
 
 logging:
   level:
