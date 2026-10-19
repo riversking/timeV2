@@ -9,6 +9,7 @@ import com.rivers.nba.entity.CurrentSeason;
 import com.rivers.nba.repository.CurrentSeasonRepository;
 import com.rivers.nba.service.ICurrentSeasonService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -51,27 +52,35 @@ public class CurrentSeasonServiceImpl implements ICurrentSeasonService {
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> syncCurrentSeason() {
         return currentSeasonRepository.countActive()
-                .flatMap(count -> {
-                    if (count > 0) {
-                        return currentSeasonRepository.logicDeleteAll().then();
-                    }
-                    return Mono.empty();
-                })
+                .flatMap(this::deleteActiveSeasons)
                 .then(webClientUtil.get(nbaUrl + "CurrentSeason?key=" + nbaKey))
-                .map(result -> {
-                    log.info("current season result:{}", result);
-                    if (result.isEmpty()) {
-                        return null;
-                    }
-                    CurrentSeason season = JSON.parseObject(result, CurrentSeason.class);
-                    CurrentSeason entity = new CurrentSeason();
-                    BeanUtils.copyProperties(season, entity);
-                    entity.setCreateUser("system");
-                    entity.setUpdateUser("system");
-                    return entity;
-                })
-                .flatMap(season ->
-                        currentSeasonRepository.save(season).then(Mono.just(ResultVO.ok())));
+                .flatMap(this::parseSeasonEntity)
+                .flatMap(season -> currentSeasonRepository.save(season)
+                        .then(Mono.just(ResultVO.<Void>ok())))
+                .defaultIfEmpty(ResultVO.fail("未获取到当前赛季数据"));
+    }
+
+    private Mono<Void> deleteActiveSeasons(long count) {
+        if (count == 0) {
+            return Mono.empty();
+        }
+        return currentSeasonRepository.logicDeleteAll().then();
+    }
+
+    private Mono<CurrentSeason> parseSeasonEntity(String result) {
+        log.info("current season result:{}", result);
+        if (StringUtils.isEmpty(result)) {
+            return Mono.empty();
+        }
+        CurrentSeason season = JSON.parseObject(result, CurrentSeason.class);
+        if (season == null) {
+            return Mono.empty();
+        }
+        CurrentSeason entity = new CurrentSeason();
+        BeanUtils.copyProperties(season, entity);
+        entity.setCreateUser("system");
+        entity.setUpdateUser("system");
+        return Mono.just(entity);
     }
 
     @Override

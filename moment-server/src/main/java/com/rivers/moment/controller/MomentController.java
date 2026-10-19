@@ -1,19 +1,8 @@
 package com.rivers.moment.controller;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.moment.AddCommentReq;
-import com.rivers.moment.AddCommentRes;
-import com.rivers.moment.DeleteMomentReq;
-import com.rivers.moment.GetCommentPageReq;
-import com.rivers.moment.GetCommentPageRes;
-import com.rivers.moment.GetMomentPageReq;
-import com.rivers.moment.GetMomentPageRes;
-import com.rivers.moment.PublishMomentReq;
-import com.rivers.moment.PublishMomentRes;
-import com.rivers.moment.ToggleLikeReq;
-import com.rivers.moment.ToggleLikeRes;
+import com.rivers.moment.*;
 import com.rivers.moment.service.IMomentService;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -43,9 +32,6 @@ public class MomentController {
      */
     @PostMapping("publishMoment")
     public Mono<ResultVO<PublishMomentRes>> publishMoment(@RequestBody PublishMomentReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return momentService.publishMoment(req);
     }
 
@@ -62,9 +48,6 @@ public class MomentController {
      */
     @PostMapping("deleteMoment")
     public Mono<ResultVO<Void>> deleteMoment(@RequestBody DeleteMomentReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return momentService.deleteMoment(req);
     }
 
@@ -73,9 +56,6 @@ public class MomentController {
      */
     @PostMapping("toggleLike")
     public Mono<ResultVO<ToggleLikeRes>> toggleLike(@RequestBody ToggleLikeReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return momentService.toggleLike(req);
     }
 
@@ -92,13 +72,6 @@ public class MomentController {
      */
     @PostMapping("addComment")
     public Mono<ResultVO<AddCommentRes>> addComment(@RequestBody AddCommentReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return momentService.addComment(req);
-    }
-
-    private static boolean hasLoginUser(boolean present, String userId) {
-        return present && StringUtils.isNotBlank(userId);
     }
 }

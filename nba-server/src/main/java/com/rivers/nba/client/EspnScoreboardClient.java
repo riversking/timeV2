@@ -16,6 +16,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -139,61 +140,89 @@ public class EspnScoreboardClient {
      */
     private EspnGame parseGame(JSONObject event) {
         String date = StringUtils.trimToEmpty(event.getString("date"));
-        JSONObject competition = Optional.ofNullable(event.getJSONArray("competitions"))
-                .filter(list -> !list.isEmpty())
-                .map(list -> list.getJSONObject(0))
-                .orElse(null);
+        JSONObject competition = firstCompetition(event);
         if (competition == null || date.isEmpty()) {
             return null;
         }
-        String awayTeam = null;
-        String homeTeam = null;
-        String awayScore = null;
-        String homeScore = null;
-        List<Integer> awayPeriods = List.of();
-        List<Integer> homePeriods = List.of();
-        JSONArray competitors = competition.getJSONArray("competitors");
-        if (competitors != null) {
-            for (int i = 0; i < competitors.size(); i++) {
-                JSONObject competitor = competitors.getJSONObject(i);
-                String abbr = Optional.ofNullable(competitor.getJSONObject("team"))
-                        .map(team -> team.getString("abbreviation"))
-                        .orElse(null);
-                if (StringUtils.isBlank(abbr)) {
-                    continue;
-                }
-                String team = ESPN_TO_DB_TEAM.getOrDefault(abbr, abbr);
-                if ("away".equals(competitor.getString("homeAway"))) {
-                    awayTeam = team;
-                    awayScore = competitor.getString("score");
-                    awayPeriods = parsePeriods(competitor);
-                } else if ("home".equals(competitor.getString("homeAway"))) {
-                    homeTeam = team;
-                    homeScore = competitor.getString("score");
-                    homePeriods = parsePeriods(competitor);
-                }
-            }
-        }
+        Map<String, EspnCompetitor> competitors = parseCompetitors(competition);
+        EspnCompetitor away = competitors.get("away");
+        EspnCompetitor home = competitors.get("home");
         LocalDate day = parseDay(date);
-        if (awayTeam == null || homeTeam == null || day == null) {
+        if (away == null || home == null || day == null) {
             return null;
         }
+        EspnGameStatus status = parseStatus(event);
+        // ESPN 对未开赛比赛返回 "0" 比分，须保留 NULL 语义（写出 0 会被页面显示为 0:0）
+        boolean scoreAvailable = ("in".equals(status.state()) || "post".equals(status.state()))
+                && !NO_SCORE_STATUSES.contains(status.description());
+        return new EspnGame(matchKey(day, away.team(), home.team()),
+                scoreWhenAvailable(away.score(), scoreAvailable),
+                scoreWhenAvailable(home.score(), scoreAvailable),
+                mapStatus(status.state(), status.description()),
+                status.completed(),
+                StringUtils.trimToEmpty(event.getString("id")),
+                away.periods(),
+                home.periods());
+    }
+
+    private static JSONObject firstCompetition(JSONObject event) {
+        JSONArray competitions = event.getJSONArray("competitions");
+        if (competitions == null || competitions.isEmpty()) {
+            return null;
+        }
+        return competitions.getJSONObject(0);
+    }
+
+    private static Map<String, EspnCompetitor> parseCompetitors(JSONObject competition) {
+        JSONArray competitors = competition.getJSONArray("competitors");
+        if (competitors == null) {
+            return Map.of();
+        }
+        Map<String, EspnCompetitor> result = new HashMap<>();
+        for (int i = 0; i < competitors.size(); i++) {
+            EspnCompetitor competitor = parseCompetitor(competitors.getJSONObject(i));
+            if (competitor != null) {
+                result.put(competitor.side(), competitor);
+            }
+        }
+        return result;
+    }
+
+    private static EspnCompetitor parseCompetitor(JSONObject competitor) {
+        String side = StringUtils.trimToEmpty(competitor.getString("homeAway"));
+        if (!"away".equals(side) && !"home".equals(side)) {
+            return null;
+        }
+        String abbr = Optional.ofNullable(competitor.getJSONObject("team"))
+                .map(team -> team.getString("abbreviation"))
+                .orElse("");
+        if (StringUtils.isBlank(abbr)) {
+            return null;
+        }
+        return new EspnCompetitor(side,
+                ESPN_TO_DB_TEAM.getOrDefault(abbr, abbr),
+                competitor.getString("score"),
+                parsePeriods(competitor));
+    }
+
+    private static EspnGameStatus parseStatus(JSONObject event) {
         JSONObject type = Optional.ofNullable(event.getJSONObject("status"))
                 .map(status -> status.getJSONObject("type"))
                 .orElse(null);
-        String state = type == null ? "" : StringUtils.trimToEmpty(type.getString("state"));
-        String description = type == null ? "" : StringUtils.trimToEmpty(type.getString("description"));
-        // ESPN 对未开赛比赛返回 "0" 比分，须保留 NULL 语义（写出 0 会被页面显示为 0:0）
-        boolean scoreAvailable = ("in".equals(state) || "post".equals(state))
-                && !NO_SCORE_STATUSES.contains(description);
-        return new EspnGame(matchKey(day, awayTeam, homeTeam),
-                scoreAvailable ? parseScore(awayScore) : null,
-                scoreAvailable ? parseScore(homeScore) : null,
-                mapStatus(state, description),
-                type != null && type.getBooleanValue("completed"),
-                StringUtils.trimToEmpty(event.getString("id")),
-                awayPeriods,
-                homePeriods);
+        if (type == null) {
+            return new EspnGameStatus("", "", false);
+        }
+        return new EspnGameStatus(
+                StringUtils.trimToEmpty(type.getString("state")),
+                StringUtils.trimToEmpty(type.getString("description")),
+                type.getBooleanValue("completed"));
+    }
+
+    private static Integer scoreWhenAvailable(String score, boolean scoreAvailable) {
+        if (!scoreAvailable) {
+            return null;
+        }
+        return parseScore(score);
     }
 
     /**
@@ -209,7 +238,7 @@ public class EspnScoreboardClient {
         for (int i = 0; i < linescores.size(); i++) {
             maxPeriod = Math.max(maxPeriod, linescores.getJSONObject(i).getIntValue("period"));
         }
-        if (maxPeriod <= 0) {
+        if (maxPeriod == 0) {
             return List.of();
         }
         List<Integer> periods = new ArrayList<>(Collections.nCopies(maxPeriod, 0));
@@ -336,6 +365,18 @@ public class EspnScoreboardClient {
             return "Scheduled";
         }
         return description;
+    }
+
+    /**
+     * ESPN 单侧参赛队（side 为 away/home，team 已归一为库内缩写）
+     */
+    private record EspnCompetitor(String side, String team, String score, List<Integer> periods) {
+    }
+
+    /**
+     * ESPN 比赛状态（字段缺失时为空串，completed 缺失时为 false）
+     */
+    private record EspnGameStatus(String state, String description, boolean completed) {
     }
 
     /**

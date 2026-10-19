@@ -1,14 +1,8 @@
 package com.rivers.moment.controller;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.moment.FollowUserReq;
-import com.rivers.moment.GetMySocialReq;
-import com.rivers.moment.GetMySocialRes;
-import com.rivers.moment.JoinCommunityReq;
-import com.rivers.moment.LeaveCommunityReq;
-import com.rivers.moment.UnfollowUserReq;
+import com.rivers.moment.*;
 import com.rivers.moment.service.ISocialService;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,9 +32,6 @@ public class SocialController {
      */
     @PostMapping("joinCommunity")
     public Mono<ResultVO<Void>> joinCommunity(@RequestBody JoinCommunityReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return socialService.joinCommunity(req);
     }
 
@@ -49,9 +40,6 @@ public class SocialController {
      */
     @PostMapping("leaveCommunity")
     public Mono<ResultVO<Void>> leaveCommunity(@RequestBody LeaveCommunityReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return socialService.leaveCommunity(req);
     }
 
@@ -60,9 +48,6 @@ public class SocialController {
      */
     @PostMapping("getMySocial")
     public Mono<ResultVO<GetMySocialRes>> getMySocial(@RequestBody GetMySocialReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return socialService.getMySocial(req);
     }
 
@@ -71,9 +56,6 @@ public class SocialController {
      */
     @PostMapping("followUser")
     public Mono<ResultVO<Void>> followUser(@RequestBody FollowUserReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return socialService.followUser(req);
     }
 
@@ -82,13 +64,6 @@ public class SocialController {
      */
     @PostMapping("unfollowUser")
     public Mono<ResultVO<Void>> unfollowUser(@RequestBody UnfollowUserReq req) {
-        if (!hasLoginUser(req.hasLoginUser(), req.getLoginUser().getUserId())) {
-            return Mono.just(ResultVO.fail("未获取到登录身份"));
-        }
         return socialService.unfollowUser(req);
-    }
-
-    private static boolean hasLoginUser(boolean present, String userId) {
-        return present && StringUtils.isNotBlank(userId);
     }
 }

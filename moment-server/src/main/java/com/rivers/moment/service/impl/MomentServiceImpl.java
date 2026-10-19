@@ -1,19 +1,7 @@
 package com.rivers.moment.service.impl;
 
 import com.rivers.core.vo.ResultVO;
-import com.rivers.moment.AddCommentReq;
-import com.rivers.moment.AddCommentRes;
-import com.rivers.moment.CommentInfo;
-import com.rivers.moment.DeleteMomentReq;
-import com.rivers.moment.GetCommentPageReq;
-import com.rivers.moment.GetCommentPageRes;
-import com.rivers.moment.GetMomentPageReq;
-import com.rivers.moment.GetMomentPageRes;
-import com.rivers.moment.MomentInfo;
-import com.rivers.moment.PublishMomentReq;
-import com.rivers.moment.PublishMomentRes;
-import com.rivers.moment.ToggleLikeReq;
-import com.rivers.moment.ToggleLikeRes;
+import com.rivers.moment.*;
 import com.rivers.moment.entity.Moment;
 import com.rivers.moment.entity.MomentComment;
 import com.rivers.moment.entity.MomentImage;
@@ -77,8 +65,7 @@ public class MomentServiceImpl implements IMomentService {
 
     @Override
     public Mono<ResultVO<PublishMomentRes>> publishMoment(PublishMomentReq req) {
-        String userId = req.getLoginUser().getUserId();
-        String userName = req.getLoginUser().getUsername();
+        LoginUser loginUser = req.getLoginUser();
         String content = StringUtils.trimToEmpty(req.getContent());
         int teamId = req.getTeamId();
         List<String> images = req.getImagesList().stream()
@@ -97,11 +84,11 @@ public class MomentServiceImpl implements IMomentService {
         if (teamId < 0) {
             return Mono.just(ResultVO.fail("球队社区ID不正确"));
         }
-        LocalDateTime now = LocalDateTime.now();
-        Moment moment = buildMoment(content, teamId, userId, userName, now);
+        String userId = loginUser.getUserId();
+        Moment moment = buildMoment(content, teamId, loginUser);
         Mono<MomentInfo> action = momentRepository.save(moment)
                 .flatMap(saved -> momentImageRepository
-                        .saveAll(buildImages(images, saved.getId(), userId, now))
+                        .saveAll(buildImages(images, saved.getId(), loginUser))
                         .then(Mono.just(saved)))
                 .map(saved -> toMomentInfo(saved, images, Set.of()));
         return txOperator.transactional(action)
@@ -128,7 +115,7 @@ public class MomentServiceImpl implements IMomentService {
                         .flatMap(moments -> buildPage(total, moments, viewerId)))
                 .map(ResultVO::ok)
                 .onErrorResume(e -> {
-                    log.error("获取动态列表失败: {}", e.getMessage());
+                    log.error("获取动态列表失败:", e);
                     return Mono.just(ResultVO.fail("获取动态列表失败"));
                 });
     }
@@ -146,7 +133,7 @@ public class MomentServiceImpl implements IMomentService {
         return txOperator.transactional(action)
                 .map(rows -> rows > 0 ? ResultVO.<Void>ok() : ResultVO.<Void>fail("动态不存在或无权删除"))
                 .onErrorResume(e -> {
-                    log.error("删除动态失败: momentId={}, {}", req.getMomentId(), e.getMessage());
+                    log.error("删除动态失败: momentId={}", req.getMomentId(), e);
                     return Mono.just(ResultVO.fail("删除动态失败"));
                 });
     }
@@ -161,7 +148,7 @@ public class MomentServiceImpl implements IMomentService {
         String userName = StringUtils.trimToEmpty(req.getLoginUser().getUsername());
         return momentRepository.findById(momentId)
                 .filter(moment -> Integer.valueOf(0).equals(moment.getIsDeleted()))
-                .flatMap(moment -> {
+                .flatMap(_ -> {
                     Mono<Boolean> action = momentLikeRepository.toggle(momentId, userId, userName)
                             .then(momentRepository.refreshLikeCount(momentId))
                             .then(momentLikeRepository.findByMomentIdAndUserId(momentId, userId))
@@ -216,13 +203,10 @@ public class MomentServiceImpl implements IMomentService {
         if (content.length() > MAX_COMMENT_LENGTH) {
             return Mono.just(ResultVO.fail("评论内容不能超过 " + MAX_COMMENT_LENGTH + " 字"));
         }
-        String userId = req.getLoginUser().getUserId();
-        String userName = StringUtils.trimToEmpty(req.getLoginUser().getUsername());
         return momentRepository.findById(momentId)
                 .filter(moment -> Integer.valueOf(0).equals(moment.getIsDeleted()))
                 .flatMap(moment -> {
-                    LocalDateTime now = LocalDateTime.now();
-                    MomentComment comment = buildComment(momentId, content, userId, userName, now);
+                    MomentComment comment = buildComment(momentId, content, req.getLoginUser());
                     Mono<MomentComment> action = momentCommentRepository.save(comment)
                             .flatMap(saved -> momentRepository.refreshCommentCount(momentId)
                                     .thenReturn(saved));
@@ -241,12 +225,14 @@ public class MomentServiceImpl implements IMomentService {
                 });
     }
 
-    private static MomentComment buildComment(long momentId, String content, String userId,
-                                              String userName, LocalDateTime now) {
+    private static MomentComment buildComment(long momentId, String content, LoginUser loginUser) {
+        LocalDateTime now = LocalDateTime.now();
+        String userId = loginUser.getUserId();
+        String username = loginUser.getUsername();
         MomentComment comment = new MomentComment();
         comment.setMomentId(momentId);
         comment.setUserId(userId);
-        comment.setUserName(userName);
+        comment.setUserName(username);
         comment.setContent(content);
         comment.setCreateUser(userId);
         comment.setCreateTime(now);
@@ -256,15 +242,17 @@ public class MomentServiceImpl implements IMomentService {
         return comment;
     }
 
-    private static Moment buildMoment(String content, int teamId, String userId,
-                                      String userName, LocalDateTime now) {
+    private static Moment buildMoment(String content, int teamId, LoginUser loginUser) {
+        LocalDateTime now = LocalDateTime.now();
+        String userId = loginUser.getUserId();
+        String username = loginUser.getUsername();
         Moment moment = new Moment();
         moment.setContent(content);
         moment.setTeamId(teamId);
         moment.setLikeCount(0);
         moment.setCommentCount(0);
         moment.setUserId(userId);
-        moment.setUserName(StringUtils.trimToEmpty(userName));
+        moment.setUserName(StringUtils.trimToEmpty(username));
         moment.setCreateUser(userId);
         moment.setCreateTime(now);
         moment.setUpdateUser(userId);
@@ -274,7 +262,9 @@ public class MomentServiceImpl implements IMomentService {
     }
 
     private static List<MomentImage> buildImages(List<String> images, Long momentId,
-                                                 String userId, LocalDateTime now) {
+                                                 LoginUser loginUser) {
+        LocalDateTime now = LocalDateTime.now();
+        String userId = loginUser.getUserId();
         return IntStream.range(0, images.size())
                 .mapToObj(index -> {
                     MomentImage image = new MomentImage();
@@ -306,8 +296,8 @@ public class MomentServiceImpl implements IMomentService {
         Mono<Set<Long>> likedMono = StringUtils.isBlank(viewerId)
                 ? Mono.<Set<Long>>just(Set.of())
                 : momentLikeRepository.findByMomentIdInAndUserIdAndIsDeleted(momentIds, viewerId, 0)
-                        .map(MomentLike::getMomentId)
-                        .collect(Collectors.toSet());
+                .map(MomentLike::getMomentId)
+                .collect(Collectors.toSet());
         return Mono.zip(imagesMono, likedMono)
                 .map(tuple -> GetMomentPageRes.newBuilder()
                         .setTotal(total)

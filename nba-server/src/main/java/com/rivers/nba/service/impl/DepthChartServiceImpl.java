@@ -75,7 +75,8 @@ public class DepthChartServiceImpl implements IDepthChartService {
                                         continue;
                                     }
                                     for (int c = 0; c < charts.size(); c++) {
-                                        DepthChart dc = JSON.parseObject(charts.getJSONObject(c).toJSONString(), DepthChart.class);
+                                        DepthChart dc = JSON.parseObject(charts.getJSONObject(c).toJSONString(),
+                                                DepthChart.class);
                                         DepthChart entity = new DepthChart();
                                         BeanUtils.copyProperties(dc, entity);
                                         entity.setTeamId(teamId);
