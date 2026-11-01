@@ -85,10 +85,10 @@
             </div>
 
             <div class="game-center">
-              <template v-if="g.isClosed">
-                <span class="score" :class="{ win: g.awayTeamScore > g.homeTeamScore }">{{ g.awayTeamScore }}</span>
+              <template v-if="hasScore(g)">
+                <span class="score" :class="{ win: (g.awayTeamScore ?? 0) > (g.homeTeamScore ?? 0) }">{{ g.awayTeamScore ?? 0 }}</span>
                 <span class="vs-sep">-</span>
-                <span class="score" :class="{ win: g.homeTeamScore > g.awayTeamScore }">{{ g.homeTeamScore }}</span>
+                <span class="score" :class="{ win: (g.homeTeamScore ?? 0) > (g.awayTeamScore ?? 0) }">{{ g.homeTeamScore ?? 0 }}</span>
               </template>
               <span v-else class="vs-text">VS</span>
             </div>
@@ -159,10 +159,10 @@
                   @error="onImgError"
                 />
                 <span class="day-center">
-                  <template v-if="g.isClosed">
-                    <span class="score-sm" :class="{ win: g.awayTeamScore > g.homeTeamScore }">{{ g.awayTeamScore }}</span>
+                  <template v-if="hasScore(g)">
+                    <span class="score-sm" :class="{ win: (g.awayTeamScore ?? 0) > (g.homeTeamScore ?? 0) }">{{ g.awayTeamScore ?? 0 }}</span>
                     <span class="vs-sep">-</span>
-                    <span class="score-sm" :class="{ win: g.homeTeamScore > g.awayTeamScore }">{{ g.homeTeamScore }}</span>
+                    <span class="score-sm" :class="{ win: (g.homeTeamScore ?? 0) > (g.awayTeamScore ?? 0) }">{{ g.homeTeamScore ?? 0 }}</span>
                   </template>
                   <span v-else class="vs-text">VS</span>
                 </span>
@@ -197,7 +197,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { Loading } from "@element-plus/icons-vue";
-import { getGamePage, getGameCalendar, getTeamPage } from "@/api/portal";
+import { getGamePage, getGameCalendar, getTeamPage, openScoreStream } from "@/api/portal";
 
 const router = useRouter();
 
@@ -630,13 +630,59 @@ const statusInfo = (g: any): { text: string; type: "primary" | "warning" | "info
   return { text: "未开赛", type: "primary" };
 };
 
+/** 已结束或进行中的比赛都有比分（未开赛只显示 VS） */
+const hasScore = (g: any) => Boolean(g.isClosed) || g.status === "InProgress" || g.status === "Final";
+
 const onImgError = (e: Event) => {
   (e.target as HTMLImageElement).style.visibility = "hidden";
+};
+
+/* ---------- 比分实时推送：更新列表/日历中已加载的比赛 ---------- */
+
+let scoreSource: EventSource | null = null;
+let scoreRetryTimer: number | null = null;
+
+const applyScore = (g: any, data: any) => {
+  if (!g || Number(g.gameId) !== Number(data.gameId)) {
+    return;
+  }
+  g.awayTeamScore = data.awayTeamScore;
+  g.homeTeamScore = data.homeTeamScore;
+  g.isClosed = data.isClosed;
+  if (data.status) {
+    g.status = data.status;
+  }
+};
+
+const handleScoreUpdate = (e: MessageEvent) => {
+  let data: any;
+  try {
+    data = JSON.parse(e.data);
+  } catch (error) {
+    console.error("解析比分推送失败:", error);
+    return;
+  }
+  games.value.forEach((g) => applyScore(g, data));
+  calendarGames.value.forEach((g) => applyScore(g, data));
+};
+
+const connectScoreStream = () => {
+  scoreSource = openScoreStream();
+  scoreSource.addEventListener("scoreUpdate", handleScoreUpdate as EventListener);
+  scoreSource.onerror = () => {
+    scoreSource?.close();
+    scoreSource = null;
+    if (scoreRetryTimer) {
+      window.clearTimeout(scoreRetryTimer);
+    }
+    scoreRetryTimer = window.setTimeout(connectScoreStream, 10_000);
+  };
 };
 
 onMounted(() => {
   loadInitial();
   fetchTeams();
+  connectScoreStream();
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll, { passive: true });
   window.addEventListener("wheel", onWheel, { passive: true });
@@ -645,6 +691,12 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  scoreSource?.close();
+  scoreSource = null;
+  if (scoreRetryTimer) {
+    window.clearTimeout(scoreRetryTimer);
+    scoreRetryTimer = null;
+  }
   window.removeEventListener("scroll", onScroll);
   window.removeEventListener("resize", onScroll);
   window.removeEventListener("wheel", onWheel);

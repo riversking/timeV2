@@ -13,10 +13,14 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static com.rivers.core.util.DateTimeUtils.formatDate;
+import static com.rivers.core.util.DateTimeUtils.formatDateTime;
+import static com.rivers.core.util.ValueUtils.defaultInt;
+import static com.rivers.core.util.ValueUtils.defaultString;
 
 /**
  * <p>
@@ -41,10 +45,6 @@ public class ScorePushService {
     public static final String BROADCAST_CHANNEL = "nba:score:update";
 
     private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(30);
-
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
      * 当前在线的比分推送订阅者（每个 SSE 连接一个独立 emitter，断开自动移除，避免共享 Sink 状态残留导致后续订阅收不到事件）
@@ -149,45 +149,5 @@ public class ScorePushService {
         json.put("status", defaultString(game.getStatus()));
         json.put("isClosed", Boolean.TRUE.equals(game.getIsClosed()));
         return json.toJSONString();
-    }
-
-    /**
-     * 日期格式化为 yyyy-MM-dd（空值用默认值替换）
-     */
-    private static String formatDate(LocalDateTime dateTime) {
-        if (dateTime == null) {
-            return "";
-        }
-        return dateTime.format(DATE_FORMATTER);
-    }
-
-    /**
-     * 日期时间格式化为 yyyy-MM-dd HH:mm:ss（空值用默认值替换）
-     */
-    private static String formatDateTime(LocalDateTime dateTime) {
-        if (dateTime == null) {
-            return "";
-        }
-        return dateTime.format(DATE_TIME_FORMATTER);
-    }
-
-    /**
-     * 字符串空值用默认值替换（null 转空串）
-     */
-    private static String defaultString(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value;
-    }
-
-    /**
-     * 整数空值用默认值替换（null 转 0）
-     */
-    private static int defaultInt(Integer value) {
-        if (value == null) {
-            return 0;
-        }
-        return value;
     }
 }

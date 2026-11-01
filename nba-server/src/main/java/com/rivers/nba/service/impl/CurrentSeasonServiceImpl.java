@@ -17,7 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+
+import static com.rivers.core.util.DateTimeUtils.formatDate;
+import static com.rivers.core.util.ValueUtils.defaultInt;
+import static com.rivers.core.util.ValueUtils.defaultString;
 
 /**
  * <p>
@@ -30,8 +33,6 @@ import java.time.format.DateTimeFormatter;
 @Slf4j
 @Service
 public class CurrentSeasonServiceImpl implements ICurrentSeasonService {
-
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Value("${nba.key}")
     private String nbaKey;
@@ -100,35 +101,5 @@ public class CurrentSeasonServiceImpl implements ICurrentSeasonService {
                         .build())
                 .map(ResultVO::ok)
                 .defaultIfEmpty(ResultVO.ok(GetCurrentSeasonRes.newBuilder().getDefaultInstanceForType()));
-    }
-
-    /**
-     * 日期格式化为 yyyy-MM-dd（空值用默认值替换）
-     */
-    private static String formatDate(LocalDateTime dateTime) {
-        if (dateTime == null) {
-            return "";
-        }
-        return dateTime.format(DATE_FORMATTER);
-    }
-
-    /**
-     * 字符串空值用默认值替换（null 转空串）
-     */
-    private static String defaultString(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value;
-    }
-
-    /**
-     * 整数空值用默认值替换（null 转 0）
-     */
-    private static int defaultInt(Integer value) {
-        if (value == null) {
-            return 0;
-        }
-        return value;
     }
 }

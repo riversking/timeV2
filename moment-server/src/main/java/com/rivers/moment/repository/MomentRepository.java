@@ -67,4 +67,15 @@ public interface MomentRepository extends ReactiveCrudRepository<Moment, Long> {
             ) WHERE id = :momentId
             """)
     Mono<Long> refreshCommentCount(long momentId);
+
+    /**
+     * 按分享明细重算冗余分享数
+     */
+    @Modifying
+    @Query("""
+            UPDATE moment SET share_count = (
+                SELECT COUNT(*) FROM moment_share WHERE moment_id = :momentId AND is_deleted = 0
+            ) WHERE id = :momentId
+            """)
+    Mono<Long> refreshShareCount(long momentId);
 }

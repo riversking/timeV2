@@ -7,6 +7,7 @@ import com.rivers.core.client.WebClientUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
@@ -95,6 +96,37 @@ public class EspnScoreboardClient {
                         .orElseGet(Mono::empty));
     }
 
+    /**
+     * 拉取指定美东比赛日全部完赛比赛的球员数据表（概要接口逐场调用，并发 8 路；
+     * 单场概要失败按空数据表返回，不阻断其余比赛）
+     */
+    public Mono<List<EspnGameDetail>> fetchDayBoxes(String etDate) {
+        return fetchGames(etDate)
+                .flatMapMany(Flux::fromIterable)
+                .filter(game -> game.closed() && StringUtils.isNotBlank(game.eventId()))
+                .flatMap(this::fetchSummary, 8)
+                .collectList();
+    }
+
+    /**
+     * 拉取指定月份（yyyyMM）某赛程分类的完赛比赛球员数据表：
+     * byathlete 不提供季前赛统计，季前赛按月度计分板 + 单场概要聚合。
+     * 单场概要失败按空数据表返回，不阻断其余比赛
+     */
+    public Mono<List<EspnGameDetail>> fetchMonthBoxes(String month, int seasonType) {
+        return webClientUtil.get(SCOREBOARD_URL + month + "&seasontype=" + seasonType)
+                .map(this::parseGames)
+                .onErrorResume(e -> {
+                    log.warn("ESPN 月度计分板拉取失败: month={}, seasonType={}, error={}",
+                            month, seasonType, e.getMessage());
+                    return Mono.just(List.of());
+                })
+                .flatMapMany(Flux::fromIterable)
+                .filter(game -> game.closed() && StringUtils.isNotBlank(game.eventId()))
+                .flatMap(this::fetchSummary, 8)
+                .collectList();
+    }
+
     private Mono<EspnGameDetail> fetchSummary(EspnGame game) {
         if (StringUtils.isBlank(game.eventId())) {
             return Mono.just(new EspnGameDetail(game, List.of()));
@@ -105,6 +137,13 @@ public class EspnScoreboardClient {
                     log.warn("ESPN 比赛概要拉取失败: event={}, error={}", game.eventId(), e.getMessage());
                     return Mono.just(new EspnGameDetail(game, List.of()));
                 });
+    }
+
+    /**
+     * ESPN 球队缩写归一为库内体系（排行等 ESPN 数据源共用同一映射）
+     */
+    public static String toDbTeam(String espnAbbreviation) {
+        return ESPN_TO_DB_TEAM.getOrDefault(espnAbbreviation, espnAbbreviation);
     }
 
     /**
@@ -200,7 +239,7 @@ public class EspnScoreboardClient {
             return null;
         }
         return new EspnCompetitor(side,
-                ESPN_TO_DB_TEAM.getOrDefault(abbr, abbr),
+                toDbTeam(abbr),
                 competitor.getString("score"),
                 parsePeriods(competitor));
     }
@@ -278,7 +317,7 @@ public class EspnScoreboardClient {
             if (StringUtils.isBlank(abbr) || statistics == null) {
                 continue;
             }
-            boxes.add(new EspnTeamBox(ESPN_TO_DB_TEAM.getOrDefault(abbr, abbr),
+            boxes.add(new EspnTeamBox(toDbTeam(abbr),
                     parseColumns(statistics), parsePlayerLines(statistics)));
         }
         return boxes;

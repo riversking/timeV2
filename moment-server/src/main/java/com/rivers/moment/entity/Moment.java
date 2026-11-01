@@ -50,6 +50,11 @@ public class Moment implements Serializable {
     private Integer commentCount;
 
     /**
+     * 分享数(冗余)
+     */
+    private Integer shareCount;
+
+    /**
      * 发布人ID
      */
     private String userId;

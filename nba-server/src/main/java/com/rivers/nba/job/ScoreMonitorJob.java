@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.rivers.core.util.ValueUtils.defaultInt;
+
 /**
  * <p>
  * 比分实时监控检测逻辑：对比数据源与本地库中今日比赛的比分，
@@ -158,15 +160,5 @@ public class ScoreMonitorJob {
                         db.getStatus(), Boolean.TRUE.equals(db.getIsClosed()), db.getUpdated(), db.getUpdateUser())
                 .doOnNext(_ -> scorePushService.broadcastScoreChange(db))
                 .then();
-    }
-
-    /**
-     * 整数空值用默认值替换（null 转 0）
-     */
-    private static int defaultInt(Integer value) {
-        if (value == null) {
-            return 0;
-        }
-        return value;
     }
 }

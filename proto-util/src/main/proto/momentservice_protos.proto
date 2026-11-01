@@ -12,7 +12,7 @@ message LoginUser {
 }
 
 //动态条目（images 为图片 URL 列表；userName 为发布时冗余的作者名，展示用；teamId 为所属球队社区，0=未归属；
-//likeCount/commentCount 为冗余计数；liked 为当前浏览者是否已点赞，未登录恒为 false）
+//likeCount/commentCount/shareCount 为冗余计数；liked 为当前浏览者是否已点赞，未登录恒为 false）
 message MomentInfo {
     int64 id = 1;
     string content = 2;
@@ -24,6 +24,7 @@ message MomentInfo {
     int32 likeCount = 8;
     int32 commentCount = 9;
     bool liked = 10;
+    int32 shareCount = 11;
 }
 
 //发布动态请求（content 与 images 至少传一项；teamId 为所属球队社区，0=未归属；loginUser 由网关注入）
@@ -111,7 +112,8 @@ message GetCommentPageReq {
     int32 pageSize = 3;
 }
 
-//评论条目（userName 为发布时冗余的评论人名称）
+//评论条目（userName 为发布时冗余的评论人名称；parentId=0 为一级评论，>0 表示回复该评论；
+//replyToUserId/replyToUserName 为被回复人信息，仅回复时有值；replies 为一级评论下的回复，按时间正序）
 message CommentInfo {
     int64 id = 1;
     int64 momentId = 2;
@@ -119,25 +121,54 @@ message CommentInfo {
     string userName = 4;
     string content = 5;
     string createTime = 6;
+    int64 parentId = 7;
+    string replyToUserId = 8;
+    string replyToUserName = 9;
+    repeated CommentInfo replies = 10;
 }
 
-//评论分页响应
+//评论分页响应（按一级评论分页；total 为全部评论数，topLevelTotal 为一级评论数）
 message GetCommentPageRes {
     int64 total = 1;
     repeated CommentInfo comments = 2;
+    int64 topLevelTotal = 3;
 }
 
-//发表评论请求（loginUser 由网关注入）
+//发表评论请求（loginUser 由网关注入；parentId=0 为一级评论，>0 表示回复对应评论）
 message AddCommentReq {
     int64 momentId = 1;
     string content = 2;
     LoginUser loginUser = 3;
+    int64 parentId = 4;
 }
 
 //发表评论响应（返回落库评论与最新评论数）
 message AddCommentRes {
     CommentInfo comment = 1;
     int32 commentCount = 2;
+}
+
+//分享动态请求（loginUser 由网关注入；同一用户重复分享仅保留一条记录）
+message ShareMomentReq {
+    int64 momentId = 1;
+    LoginUser loginUser = 2;
+}
+
+//分享动态响应（返回最新分享人数）
+message ShareMomentRes {
+    int32 shareCount = 1;
+}
+
+//动态详情请求（viewerId 仅用于回填 liked 展示态，不参与鉴权）
+message GetMomentDetailReq {
+    int64 momentId = 1;
+    string viewerId = 2;
+}
+
+//动态详情响应（moments 全量图片；shareUsers 为分享过该动态的用户，按分享时间倒序）
+message GetMomentDetailRes {
+    MomentInfo moment = 1;
+    repeated SocialUser shareUsers = 2;
 }
 
 //关注用户请求（targetUserName 为动态中冗余的作者名，仅展示用）

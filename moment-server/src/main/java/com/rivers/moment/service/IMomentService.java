@@ -6,10 +6,14 @@ import com.rivers.moment.AddCommentRes;
 import com.rivers.moment.DeleteMomentReq;
 import com.rivers.moment.GetCommentPageReq;
 import com.rivers.moment.GetCommentPageRes;
+import com.rivers.moment.GetMomentDetailReq;
+import com.rivers.moment.GetMomentDetailRes;
 import com.rivers.moment.GetMomentPageReq;
 import com.rivers.moment.GetMomentPageRes;
 import com.rivers.moment.PublishMomentReq;
 import com.rivers.moment.PublishMomentRes;
+import com.rivers.moment.ShareMomentReq;
+import com.rivers.moment.ShareMomentRes;
 import com.rivers.moment.ToggleLikeReq;
 import com.rivers.moment.ToggleLikeRes;
 import reactor.core.publisher.Mono;
@@ -50,7 +54,17 @@ public interface IMomentService {
     Mono<ResultVO<GetCommentPageRes>> getCommentPage(GetCommentPageReq req);
 
     /**
-     * 发表评论
+     * 发表评论（parentId>0 表示回复评论）
      */
     Mono<ResultVO<AddCommentRes>> addComment(AddCommentReq req);
+
+    /**
+     * 动态详情（公开，含全量图片与分享人）
+     */
+    Mono<ResultVO<GetMomentDetailRes>> getMomentDetail(GetMomentDetailReq req);
+
+    /**
+     * 分享动态（登录后记录分享人，重复分享幂等）
+     */
+    Mono<ResultVO<ShareMomentRes>> shareMoment(ShareMomentReq req);
 }

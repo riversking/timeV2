@@ -68,10 +68,26 @@ public class MomentController {
     }
 
     /**
-     * 发表评论
+     * 发表评论（parentId>0 表示回复评论）
      */
     @PostMapping("addComment")
     public Mono<ResultVO<AddCommentRes>> addComment(@RequestBody AddCommentReq req) {
         return momentService.addComment(req);
+    }
+
+    /**
+     * 动态详情（公开接口，含全量图片与分享人）
+     */
+    @PostMapping("getMomentDetail")
+    public Mono<ResultVO<GetMomentDetailRes>> getMomentDetail(@RequestBody GetMomentDetailReq req) {
+        return momentService.getMomentDetail(req);
+    }
+
+    /**
+     * 分享动态
+     */
+    @PostMapping("shareMoment")
+    public Mono<ResultVO<ShareMomentRes>> shareMoment(@RequestBody ShareMomentReq req) {
+        return momentService.shareMoment(req);
     }
 }

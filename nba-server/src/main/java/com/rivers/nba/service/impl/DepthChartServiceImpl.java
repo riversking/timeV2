@@ -21,10 +21,14 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+
+import static com.rivers.core.util.DateTimeUtils.formatDateTime;
+import static com.rivers.core.util.ValueUtils.defaultInt;
+import static com.rivers.core.util.ValueUtils.defaultLong;
+import static com.rivers.core.util.ValueUtils.defaultString;
 
 /**
  * <p>
@@ -37,8 +41,6 @@ import java.util.Optional;
 @Slf4j
 @Service
 public class DepthChartServiceImpl implements IDepthChartService {
-
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Value("${nba.key}")
     private String nbaKey;
@@ -139,45 +141,5 @@ public class DepthChartServiceImpl implements IDepthChartService {
             return depthChartRepository.pageByTeam(teamId, pageSize, offset);
         }
         return depthChartRepository.pageAll(pageSize, offset);
-    }
-
-    /**
-     * 日期时间格式化为 yyyy-MM-dd HH:mm:ss（空值用默认值替换）
-     */
-    private static String formatDateTime(LocalDateTime dateTime) {
-        if (dateTime == null) {
-            return "";
-        }
-        return dateTime.format(DATE_TIME_FORMATTER);
-    }
-
-    /**
-     * 字符串空值用默认值替换（null 转空串）
-     */
-    private static String defaultString(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value;
-    }
-
-    /**
-     * 整数空值用默认值替换（null 转 0）
-     */
-    private static int defaultInt(Integer value) {
-        if (value == null) {
-            return 0;
-        }
-        return value;
-    }
-
-    /**
-     * 长整数空值用默认值替换（null 转 0）
-     */
-    private static long defaultLong(Long value) {
-        if (value == null) {
-            return 0L;
-        }
-        return value;
     }
 }

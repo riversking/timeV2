@@ -113,7 +113,12 @@
         </div>
 
         <div v-loading="loading" class="moment-list">
-          <article v-for="moment in moments" :key="moment.id" class="moment-card">
+          <article
+            v-for="moment in moments"
+            :key="moment.id"
+            class="moment-card"
+            @click="openDetail(moment)"
+          >
             <header class="moment-head">
               <span class="avatar">{{ initial(moment.userName || moment.userId) }}</span>
               <div class="moment-meta">
@@ -123,7 +128,7 @@
                   <button
                     v-if="communityLabel(moment.teamId)"
                     class="moment-community"
-                    @click="openCommunityById(moment.teamId)"
+                    @click.stop="openCommunityById(moment.teamId)"
                   >
                     {{ communityLabel(moment.teamId) }}
                   </button>
@@ -134,7 +139,7 @@
                 class="author-follow"
                 :class="{ followed: isFollowing(moment.userId) }"
                 :disabled="socialUpdatingId === moment.userId"
-                @click="toggleUserFollow(moment.userId, moment.userName)"
+                @click.stop="toggleUserFollow(moment.userId, moment.userName)"
               >
                 {{ isFollowing(moment.userId) ? "已关注" : "+ 关注" }}
               </button>
@@ -146,7 +151,7 @@
                 @confirm="handleDelete(moment)"
               >
                 <template #reference>
-                  <button class="delete-btn" title="删除动态">
+                  <button class="delete-btn" title="删除动态" @click.stop>
                     <el-icon :size="15"><Delete /></el-icon>
                   </button>
                 </template>
@@ -159,24 +164,50 @@
               v-if="imageList(moment).length"
               class="moment-images"
               :class="{ single: imageList(moment).length === 1 }"
+              @click.stop
             >
-              <el-image
-                v-for="(url, index) in imageList(moment)"
+              <div
+                v-for="(url, index) in feedImages(moment)"
                 :key="`${url}-${index}`"
-                :src="url"
-                :preview-src-list="imageList(moment)"
-                :initial-index="index"
-                fit="cover"
-                lazy
-                class="moment-image"
+                class="moment-image-wrap"
               >
-                <template #error>
-                  <div class="image-error">图片加载失败</div>
-                </template>
-              </el-image>
+                <el-image
+                  :src="url"
+                  :preview-src-list="imageList(moment)"
+                  :initial-index="index"
+                  fit="cover"
+                  lazy
+                  class="moment-image"
+                >
+                  <template #error>
+                    <div class="image-error">图片加载失败</div>
+                  </template>
+                </el-image>
+                <span
+                  v-if="index === 2 && imageList(moment).length > 3"
+                  class="image-more"
+                >
+                  +{{ imageList(moment).length - 3 }}
+                </span>
+              </div>
             </div>
 
-            <footer class="moment-actions">
+            <footer class="moment-actions" @click.stop>
+              <button
+                class="moment-action"
+                title="分享"
+                aria-label="分享"
+                @click="shareMoment(moment)"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4" />
+                </svg>
+                <span v-if="Number(moment.shareCount) > 0" class="action-count">{{ moment.shareCount }}</span>
+              </button>
               <button
                 class="moment-action"
                 :class="{ active: moment.liked }"
@@ -192,21 +223,17 @@
                 </svg>
                 <span v-if="Number(moment.likeCount) > 0" class="action-count">{{ moment.likeCount }}</span>
               </button>
-              <button class="moment-action" title="评论" aria-label="评论" @click="openComments(moment)">
+              <button
+                class="moment-action"
+                title="评论"
+                aria-label="评论"
+                @click="openQuickComment(moment)"
+              >
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
                      stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.5-5A8 8 0 1 1 21 12Z" />
                 </svg>
                 <span v-if="Number(moment.commentCount) > 0" class="action-count">{{ moment.commentCount }}</span>
-              </button>
-              <button class="moment-action" title="分享" aria-label="分享" @click="shareMoment(moment)">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <circle cx="18" cy="5" r="3" />
-                  <circle cx="6" cy="12" r="3" />
-                  <circle cx="18" cy="19" r="3" />
-                  <path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4" />
-                </svg>
               </button>
             </footer>
           </article>
@@ -324,10 +351,10 @@
       </template>
     </el-dialog>
 
-    <!-- 评论弹窗 -->
+    <!-- 快捷评论：只写评论，不展示评论列表 -->
     <el-dialog
-      v-model="commentVisible"
-      width="520px"
+      v-model="quickCommentVisible"
+      width="480px"
       align-center
       append-to-body
       class="comment-dialog"
@@ -336,56 +363,243 @@
       <template #header>
         <div class="dialog-title">
           <span class="logo-dot"></span>
-          评论<span v-if="commentMoment && Number(commentMoment.commentCount) > 0" class="comment-title-count">
-            {{ commentMoment.commentCount }}
-          </span>
+          写评论
         </div>
       </template>
 
-      <div v-loading="commentLoading" class="comment-list">
-        <div v-for="comment in comments" :key="comment.id" class="comment-item">
-          <span class="avatar comment-avatar">{{ initial(comment.userName || comment.userId) }}</span>
-          <div class="comment-main">
-            <div class="comment-meta">
-              <span class="comment-author">{{ comment.userName || comment.userId }}</span>
-              <span class="comment-time">{{ relativeTime(comment.createTime) }}</span>
-            </div>
-            <p class="comment-text">{{ comment.content }}</p>
-          </div>
+      <div v-if="quickCommentMoment" class="quick-moment">
+        <span class="avatar quick-avatar">
+          {{ initial(quickCommentMoment.userName || quickCommentMoment.userId) }}
+        </span>
+        <div class="quick-moment-main">
+          <span class="quick-author">{{ quickCommentMoment.userName || quickCommentMoment.userId }}</span>
+          <span class="quick-content">{{ quickCommentMoment.content || "分享了一条动态" }}</span>
         </div>
-        <p v-if="!commentLoading && !comments.length" class="comment-empty">
-          还没有评论，来说两句吧
-        </p>
-        <button
-          v-if="comments.length < commentTotal"
-          class="comment-more"
-          :disabled="commentLoading"
-          @click="loadCommentPage(false)"
-        >
-          加载更多
-        </button>
       </div>
 
-      <div class="comment-compose">
-        <el-input
-          v-model="commentContent"
-          type="textarea"
-          :rows="2"
-          :maxlength="MAX_COMMENT"
-          show-word-limit
-          resize="none"
-          :placeholder="isClientLoggedIn ? '写下你的评论…' : '登录后参与评论'"
-          :disabled="!isClientLoggedIn"
-          @keydown.enter.exact.prevent="submitComment"
-        />
+      <el-input
+        v-model="quickCommentContent"
+        type="textarea"
+        :rows="3"
+        :maxlength="MAX_COMMENT"
+        show-word-limit
+        resize="none"
+        placeholder="写下你的评论…"
+        class="compose-input"
+      />
+
+      <template #footer>
+        <el-button @click="quickCommentVisible = false">取消</el-button>
         <el-button
           class="comment-submit"
           type="primary"
-          :loading="commentSubmitting"
-          @click="submitComment"
+          :loading="quickCommentSubmitting"
+          @click="submitQuickComment"
         >
-          {{ isClientLoggedIn ? "发送" : "登录" }}
+          发送
         </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 动态详情：完整内容 + 全部图片 + 分享人 + 评论（可回复他人评论） -->
+    <el-dialog
+      v-model="detailVisible"
+      width="720px"
+      align-center
+      append-to-body
+      class="moment-detail-dialog"
+      :close-on-click-modal="false"
+    >
+      <template #header>
+        <div class="dialog-title">
+          <span class="logo-dot"></span>
+          动态详情
+        </div>
+      </template>
+
+      <div v-loading="detailLoading" class="detail-body">
+        <template v-if="detailMoment">
+          <header class="detail-head">
+            <span class="avatar">{{ initial(detailMoment.userName || detailMoment.userId) }}</span>
+            <div class="detail-meta">
+              <span class="detail-author">{{ detailMoment.userName || detailMoment.userId }}</span>
+              <span class="detail-sub">
+                {{ relativeTime(detailMoment.createTime) }}
+                <span v-if="communityLabel(detailMoment.teamId)" class="detail-community">
+                  {{ communityLabel(detailMoment.teamId) }}
+                </span>
+              </span>
+            </div>
+            <button
+              v-if="!isMine(detailMoment)"
+              class="author-follow"
+              :class="{ followed: isFollowing(detailMoment.userId) }"
+              :disabled="socialUpdatingId === detailMoment.userId"
+              @click="toggleUserFollow(detailMoment.userId, detailMoment.userName)"
+            >
+              {{ isFollowing(detailMoment.userId) ? "已关注" : "+ 关注" }}
+            </button>
+          </header>
+
+          <p v-if="detailMoment.content" class="detail-content">{{ detailMoment.content }}</p>
+
+          <div
+            v-if="imageList(detailMoment).length"
+            class="detail-images"
+            :class="{ single: imageList(detailMoment).length === 1 }"
+          >
+            <el-image
+              v-for="(url, index) in imageList(detailMoment)"
+              :key="`${url}-${index}`"
+              :src="url"
+              :preview-src-list="imageList(detailMoment)"
+              :initial-index="index"
+              fit="cover"
+              lazy
+              class="detail-image"
+            >
+              <template #error>
+                <div class="image-error">图片加载失败</div>
+              </template>
+            </el-image>
+          </div>
+
+          <div class="detail-stats">
+            <span>点赞 {{ Number(detailMoment.likeCount || 0) }}</span>
+            <span>评论 {{ Number(detailMoment.commentCount || 0) }}</span>
+            <span>分享 {{ Number(detailMoment.shareCount || 0) }}</span>
+          </div>
+
+          <div class="detail-tabs" role="tablist">
+            <button
+              class="detail-tab"
+              :class="{ active: detailTab === 'share' }"
+              role="tab"
+              :aria-selected="detailTab === 'share'"
+              @click="detailTab = 'share'"
+            >
+              分享
+              <span class="detail-tab-count">{{ Number(detailMoment.shareCount || 0) }}</span>
+            </button>
+            <button
+              class="detail-tab"
+              :class="{ active: detailTab === 'comment' }"
+              role="tab"
+              :aria-selected="detailTab === 'comment'"
+              @click="detailTab = 'comment'"
+            >
+              评论
+              <span class="detail-tab-count">{{ commentTotal }}</span>
+            </button>
+          </div>
+
+          <div v-show="detailTab === 'share'" class="detail-tab-panel">
+            <div v-if="detailShareUsers.length" class="sharer-list">
+              <span
+                v-for="user in detailShareUsers"
+                :key="user.userId"
+                class="sharer-chip"
+              >
+                <span class="sharer-avatar">{{ initial(user.userName || user.userId) }}</span>
+                {{ user.userName || user.userId }}
+              </span>
+            </div>
+            <p v-else class="detail-empty">还没有人分享</p>
+          </div>
+
+          <section v-show="detailTab === 'comment'" class="detail-comments">
+            <div v-loading="commentLoading" class="comment-list">
+              <div v-for="comment in comments" :key="comment.id" class="comment-thread">
+                <div
+                  class="comment-item"
+                  :class="{ clickable: canReply(comment) }"
+                  @click="startReply(comment)"
+                >
+                  <span class="avatar comment-avatar">
+                    {{ initial(comment.userName || comment.userId) }}
+                  </span>
+                  <div class="comment-main">
+                    <div class="comment-meta">
+                      <span class="comment-author">{{ comment.userName || comment.userId }}</span>
+                      <span class="comment-time">{{ relativeTime(comment.createTime) }}</span>
+                    </div>
+                    <p class="comment-text">
+                      <span v-if="comment.replyToUserName" class="reply-prefix">
+                        回复 @{{ comment.replyToUserName }}：
+                      </span>{{ comment.content }}
+                    </p>
+                  </div>
+                </div>
+
+                <div v-if="comment.replies?.length" class="comment-replies">
+                  <div
+                    v-for="reply in comment.replies"
+                    :key="reply.id"
+                    class="comment-item comment-reply"
+                    :class="{ clickable: canReply(reply) }"
+                    @click.stop="startReply(reply)"
+                  >
+                    <span class="avatar comment-avatar reply-avatar">
+                      {{ initial(reply.userName || reply.userId) }}
+                    </span>
+                    <div class="comment-main">
+                      <div class="comment-meta">
+                        <span class="comment-author">{{ reply.userName || reply.userId }}</span>
+                        <span class="comment-time">{{ relativeTime(reply.createTime) }}</span>
+                      </div>
+                      <p class="comment-text">
+                        <span v-if="reply.replyToUserName" class="reply-prefix">
+                          回复 @{{ reply.replyToUserName }}：
+                        </span>{{ reply.content }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p v-if="!commentLoading && !comments.length" class="comment-empty">
+                还没有评论，来说两句吧
+              </p>
+              <button
+                v-if="comments.length < commentTopTotal"
+                class="comment-more"
+                :disabled="commentLoading"
+                @click="loadCommentPage(false)"
+              >
+                加载更多
+              </button>
+            </div>
+
+            <div class="detail-compose">
+              <div v-if="replyTarget" class="reply-chip">
+                <span>回复 @{{ replyTarget.userName || replyTarget.userId }}</span>
+                <button class="reply-chip-close" title="取消回复" @click="cancelReply">×</button>
+              </div>
+              <div class="comment-compose">
+                <el-input
+                  ref="commentInputRef"
+                  v-model="commentContent"
+                  type="textarea"
+                  :rows="2"
+                  :maxlength="MAX_COMMENT"
+                  show-word-limit
+                  resize="none"
+                  :placeholder="commentPlaceholder"
+                  :disabled="!isClientLoggedIn"
+                  @keydown.enter.exact.prevent="submitDetailComment"
+                />
+                <el-button
+                  class="comment-submit"
+                  type="primary"
+                  :loading="commentSubmitting"
+                  @click="submitDetailComment"
+                >
+                  {{ isClientLoggedIn ? "发送" : "登录" }}
+                </el-button>
+              </div>
+            </div>
+          </section>
+        </template>
+        <el-empty v-else-if="!detailLoading" description="动态加载失败，请稍后再试" />
       </div>
     </el-dialog>
 
@@ -395,16 +609,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Close, Delete, EditPen } from "@element-plus/icons-vue";
 import {
   publishMoment,
   getMomentPage,
+  getMomentDetail,
   deleteMoment,
   toggleMomentLike,
   getMomentComments,
   addMomentComment,
+  recordMomentShare,
   getNews,
   getTeamPage,
   getMySocial,
@@ -432,6 +648,7 @@ interface MomentItem {
   teamId?: number;
   likeCount?: number;
   commentCount?: number;
+  shareCount?: number;
   liked?: boolean;
 }
 
@@ -442,6 +659,15 @@ interface CommentItem {
   userName: string;
   content: string;
   createTime: string;
+  parentId?: number;
+  replyToUserId?: string;
+  replyToUserName?: string;
+  replies?: CommentItem[];
+}
+
+interface MomentShareUser {
+  userId: string;
+  userName: string;
 }
 
 interface PortalTeam {
@@ -476,10 +702,22 @@ const draftImages = ref<string[]>([]);
 const pendingCompose = ref(false);
 const likeUpdatingId = ref<string | number | null>(null);
 
-const commentVisible = ref(false);
-const commentMoment = ref<MomentItem | null>(null);
+const quickCommentVisible = ref(false);
+const quickCommentMoment = ref<MomentItem | null>(null);
+const quickCommentContent = ref("");
+const quickCommentSubmitting = ref(false);
+
+const detailVisible = ref(false);
+const detailMoment = ref<MomentItem | null>(null);
+const detailShareUsers = ref<MomentShareUser[]>([]);
+const detailLoading = ref(false);
+const detailTab = ref<"share" | "comment">("comment");
+const replyTarget = ref<CommentItem | null>(null);
+const commentInputRef = ref<{ focus: () => void } | null>(null);
+
 const comments = ref<CommentItem[]>([]);
 const commentTotal = ref(0);
+const commentTopTotal = ref(0);
 const commentPageNum = ref(0);
 const commentLoading = ref(false);
 const commentContent = ref("");
@@ -504,6 +742,12 @@ const currentNews = ref<any>(null);
 
 const hasMore = computed(() => moments.value.length < total.value);
 const avatarText = computed(() => initial(clientUsername.value));
+const commentPlaceholder = computed(() => {
+  if (replyTarget.value) {
+    return `回复 @${replyTarget.value.userName || replyTarget.value.userId}`;
+  }
+  return "写下你的评论…";
+});
 
 function initial(name?: string | null) {
   return (name || "U").charAt(0).toUpperCase();
@@ -535,6 +779,11 @@ function newsTime(iso: string) {
 
 function imageList(moment: MomentItem) {
   return moment.images || [];
+}
+
+/** 动态流最多展示 3 张，其余在详情页铺开 */
+function feedImages(moment: MomentItem) {
+  return imageList(moment).slice(0, 3);
 }
 
 function isMine(moment: MomentItem) {
@@ -705,18 +954,102 @@ async function handleLike(moment: MomentItem) {
   }
 }
 
-async function openComments(moment: MomentItem) {
-  commentMoment.value = moment;
+function openQuickComment(moment: MomentItem) {
+  if (!isClientLoggedIn.value) {
+    openLoginDialog();
+    return;
+  }
+  quickCommentMoment.value = moment;
+  quickCommentContent.value = "";
+  quickCommentVisible.value = true;
+}
+
+async function submitQuickComment() {
+  const moment = quickCommentMoment.value;
+  if (!moment) return;
+  if (!isClientLoggedIn.value) {
+    openLoginDialog();
+    return;
+  }
+  const text = quickCommentContent.value.trim();
+  if (!text) {
+    ElMessage.warning("请输入评论内容");
+    return;
+  }
+  if (quickCommentSubmitting.value) return;
+  quickCommentSubmitting.value = true;
+  try {
+    const res = await addMomentComment({ momentId: Number(moment.id), content: text });
+    if (res.code !== 200 || !res.data?.comment) {
+      ElMessage.error(res.message || "评论失败");
+      return;
+    }
+    applyCommentCount(Number(moment.id), Number(res.data.commentCount || 0));
+    quickCommentContent.value = "";
+    quickCommentVisible.value = false;
+    ElMessage.success("评论成功");
+  } catch (error) {
+    console.error("发表评论失败:", error);
+    ElMessage.error("评论失败，请稍后重试");
+  } finally {
+    quickCommentSubmitting.value = false;
+  }
+}
+
+async function openDetail(moment: MomentItem) {
+  detailMoment.value = moment;
+  detailShareUsers.value = [];
+  detailVisible.value = true;
+  detailLoading.value = true;
+  detailTab.value = "comment";
+  replyTarget.value = null;
+  commentContent.value = "";
   comments.value = [];
   commentTotal.value = Number(moment.commentCount || 0);
+  commentTopTotal.value = 0;
   commentPageNum.value = 0;
-  commentContent.value = "";
-  commentVisible.value = true;
+  try {
+    const res = await getMomentDetail({
+      momentId: Number(moment.id),
+      viewerId: clientUsername.value || undefined,
+    });
+    if (res.code === 200 && res.data?.moment) {
+      detailMoment.value = res.data.moment;
+      detailShareUsers.value = res.data.shareUsers || [];
+      syncMomentCounters(res.data.moment);
+    } else {
+      ElMessage.error(res.message || "加载动态详情失败");
+    }
+  } catch (error) {
+    console.error("加载动态详情失败:", error);
+    ElMessage.error("加载动态详情失败，请稍后重试");
+  } finally {
+    detailLoading.value = false;
+  }
   await loadCommentPage(true);
 }
 
+/** 别人的评论才可点击回复 */
+function canReply(comment: CommentItem) {
+  return comment.userId !== clientUsername.value;
+}
+
+function startReply(comment: CommentItem) {
+  if (!canReply(comment)) return;
+  if (!isClientLoggedIn.value) {
+    openLoginDialog();
+    return;
+  }
+  replyTarget.value = comment;
+  nextTick(() => commentInputRef.value?.focus());
+}
+
+function cancelReply() {
+  replyTarget.value = null;
+}
+
 async function loadCommentPage(reset: boolean) {
-  const moment = commentMoment.value;
+  const moment = detailMoment.value;
   if (!moment || commentLoading.value) return;
   commentLoading.value = true;
   const nextPage = reset ? 1 : commentPageNum.value + 1;
@@ -731,7 +1064,8 @@ async function loadCommentPage(reset: boolean) {
       return;
     }
     const batch: CommentItem[] = res.data?.comments || [];
-    commentTotal.value = Number(res.data?.total || 0);
+    commentTotal.value = Number(res.data?.total ?? commentTotal.value);
+    commentTopTotal.value = Number(res.data?.topLevelTotal ?? batch.length);
     if (reset) {
       comments.value = batch;
     } else {
@@ -747,8 +1081,8 @@ async function loadCommentPage(reset: boolean) {
   }
 }
 
-async function submitComment() {
-  const moment = commentMoment.value;
+async function submitDetailComment() {
+  const moment = detailMoment.value;
   if (!moment) return;
   if (!isClientLoggedIn.value) {
     openLoginDialog();
@@ -762,17 +1096,31 @@ async function submitComment() {
   if (commentSubmitting.value) return;
   commentSubmitting.value = true;
   try {
-    const res = await addMomentComment({ momentId: Number(moment.id), content: text });
+    const res = await addMomentComment({
+      momentId: Number(moment.id),
+      content: text,
+      parentId: replyTarget.value ? Number(replyTarget.value.id) : undefined,
+    });
     if (res.code !== 200 || !res.data?.comment) {
       ElMessage.error(res.message || "评论失败");
       return;
     }
-    comments.value = [res.data.comment, ...comments.value];
+    const saved: CommentItem = res.data.comment;
+    if (replyTarget.value) {
+      const root = comments.value.find((item) => Number(item.id) === Number(saved.parentId || 0));
+      if (root) {
+        root.replies = [...(root.replies || []), saved];
+      } else {
+        await loadCommentPage(true);
+      }
+    } else {
+      comments.value = [saved, ...comments.value];
+      commentTopTotal.value += 1;
+    }
     commentTotal.value = Number(res.data.commentCount || commentTotal.value + 1);
     commentContent.value = "";
-    moment.commentCount = commentTotal.value;
-    const target = moments.value.find((item) => String(item.id) === String(moment.id));
-    if (target) target.commentCount = commentTotal.value;
+    replyTarget.value = null;
+    applyCommentCount(Number(moment.id), commentTotal.value);
     ElMessage.success("评论成功");
   } catch (error) {
     console.error("发表评论失败:", error);
@@ -782,24 +1130,69 @@ async function submitComment() {
   }
 }
 
+function applyCommentCount(momentId: number, count: number) {
+  if (detailMoment.value && Number(detailMoment.value.id) === momentId) {
+    detailMoment.value.commentCount = count;
+  }
+  const target = moments.value.find((item) => Number(item.id) === momentId);
+  if (target) target.commentCount = count;
+}
+
+function applyShareCount(momentId: number, count: number) {
+  if (detailMoment.value && Number(detailMoment.value.id) === momentId) {
+    detailMoment.value.shareCount = count;
+  }
+  const target = moments.value.find((item) => Number(item.id) === momentId);
+  if (target) target.shareCount = count;
+}
+
+/** 详情接口返回的是最新服务端状态，回填列表避免两处计数漂移 */
+function syncMomentCounters(source: MomentItem) {
+  const target = moments.value.find((item) => Number(item.id) === Number(source.id));
+  if (!target) return;
+  target.likeCount = Number(source.likeCount || 0);
+  target.commentCount = Number(source.commentCount || 0);
+  target.shareCount = Number(source.shareCount || 0);
+  target.liked = !!source.liked;
+}
+
 async function shareMoment(moment: MomentItem) {
   const url = window.location.href;
   const title = moment.userName ? `${moment.userName}的 NBA 动态` : "NBA 球迷动态";
   const text = moment.content?.trim() || "来看看这条 NBA 动态";
+  let shared = false;
   try {
     if (typeof navigator.share === "function") {
       await navigator.share({ title, text, url });
-      return;
-    }
-    if (navigator.clipboard?.writeText) {
+      shared = true;
+    } else if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(`${text} ${url}`);
       ElMessage.success("链接已复制");
-      return;
+      shared = true;
+    } else {
+      ElMessage.info(url);
     }
-    ElMessage.info(url);
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
     ElMessage.error("分享失败，请稍后重试");
+    return;
+  }
+  if (shared) {
+    await recordShare(moment);
+  }
+}
+
+async function recordShare(moment: MomentItem) {
+  if (!isClientLoggedIn.value) return;
+  try {
+    const res = await recordMomentShare({ momentId: Number(moment.id) });
+    if (res.code !== 200) {
+      console.error("记录分享失败:", res.message);
+      return;
+    }
+    applyShareCount(Number(moment.id), Number(res.data?.shareCount || 0));
+  } catch (error) {
+    console.error("记录分享失败:", error);
   }
 }
 
@@ -962,7 +1355,9 @@ watch(isClientLoggedIn, async (logged) => {
     resetSocial();
     pendingJoinTeamId.value = null;
     pendingFollowUser.value = null;
-    commentVisible.value = false;
+    quickCommentVisible.value = false;
+    detailVisible.value = false;
+    replyTarget.value = null;
     await loadPage(true);
     return;
   }
@@ -1228,6 +1623,7 @@ onMounted(() => {
   border-radius: 14px;
   padding: 16px 18px;
   transition: border-color 0.2s ease;
+  cursor: pointer;
 }
 
 .moment-card:hover {
@@ -1330,6 +1726,11 @@ onMounted(() => {
   grid-template-columns: minmax(0, 300px);
 }
 
+.moment-image-wrap {
+  position: relative;
+  min-width: 0;
+}
+
 .moment-image {
   width: 100%;
   aspect-ratio: 1;
@@ -1337,6 +1738,22 @@ onMounted(() => {
   overflow: hidden;
   background: #0f172a;
   cursor: zoom-in;
+  display: block;
+}
+
+.image-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  pointer-events: none;
 }
 
 .moment-images.single .moment-image {
@@ -1353,12 +1770,14 @@ onMounted(() => {
 }
 
 .moment-action {
+  flex: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  min-width: 34px;
-  height: 28px;
-  padding: 0 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -1756,15 +2175,304 @@ onMounted(() => {
   object-fit: contain;
 }
 
-/* 评论弹窗 */
-.comment-title-count {
-  margin-left: 2px;
-  padding: 1px 7px;
+/* 快捷评论弹窗 */
+.quick-moment {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.quick-avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 13px;
+}
+
+.quick-moment-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quick-author {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.quick-content {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #64748b;
+  word-break: break-word;
+}
+
+/* 动态详情 */
+.detail-body {
+  min-height: 220px;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.detail-head .avatar {
+  width: 42px;
+  height: 42px;
+  font-size: 15px;
+}
+
+.detail-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detail-author {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.detail-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.detail-community {
+  padding: 0 7px;
+  border: 1px solid rgba(249, 115, 22, 0.3);
   border-radius: 10px;
   background: rgba(249, 115, 22, 0.1);
   color: #ea580c;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.detail-content {
+  margin: 14px 0 0;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-images {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.detail-images.single {
+  grid-template-columns: minmax(0, 340px);
+}
+
+.detail-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f1f5f9;
+  cursor: zoom-in;
+}
+
+.detail-images.single .detail-image {
+  aspect-ratio: 4 / 3;
+}
+
+.detail-image .image-error {
+  color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.detail-stats {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 14px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 12.5px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-tabs {
+  display: flex;
+  gap: 24px;
+  margin-top: 16px;
+  padding: 0 2px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.detail-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 10px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 14px;
   font-weight: 600;
+  cursor: pointer;
+}
+
+.detail-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.detail-tab:hover {
+  color: #1e293b;
+}
+
+.detail-tab.active {
+  color: #ea580c;
+}
+
+.detail-tab.active::after {
+  background: #ea580c;
+}
+
+.detail-tab-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+.detail-tab.active .detail-tab-count {
+  background: rgba(249, 115, 22, 0.12);
+  color: #ea580c;
+}
+
+.detail-tab-panel {
+  padding-top: 14px;
+}
+
+.detail-empty {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.sharer-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sharer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 12px;
+  color: #475569;
+}
+
+.sharer-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.detail-comments {
+  padding-top: 14px;
+}
+
+.comment-item.clickable {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.comment-item.clickable:hover {
+  background: #f8fafc;
+}
+
+.reply-prefix {
+  color: #ea580c;
+}
+
+.detail-compose {
+  margin-top: 12px;
+}
+
+.detail-compose .comment-compose {
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.reply-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: rgba(249, 115, 22, 0.1);
+  color: #ea580c;
+  font-size: 12px;
+}
+
+.reply-chip-close {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.reply-chip-close:hover {
+  color: #f87171;
 }
 
 .comment-list {
@@ -1774,15 +2482,42 @@ onMounted(() => {
   padding-right: 4px;
 }
 
+.comment-thread {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.comment-thread:last-child {
+  border-bottom: none;
+}
+
 .comment-item {
   display: flex;
   gap: 10px;
   padding: 10px 0;
-  border-bottom: 1px solid #f1f5f9;
 }
 
-.comment-item:last-child {
-  border-bottom: none;
+.comment-replies {
+  margin: 0 0 10px 42px;
+  padding-left: 10px;
+  border-left: 2px solid #f1f5f9;
+}
+
+.comment-reply {
+  padding: 6px 0;
+}
+
+.reply-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
+.comment-reply .comment-author {
+  font-size: 12px;
+}
+
+.comment-reply .comment-text {
+  font-size: 12px;
 }
 
 .comment-avatar {
@@ -2016,6 +2751,10 @@ onMounted(() => {
   }
 
   .moment-images {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-images {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

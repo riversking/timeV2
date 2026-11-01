@@ -48,6 +48,11 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.rivers.core.util.DateTimeUtils.formatDateTime;
+import static com.rivers.core.util.ValueUtils.defaultInt;
+import static com.rivers.core.util.ValueUtils.defaultLong;
+import static com.rivers.core.util.ValueUtils.defaultString;
+
 /**
  * <p>
  * 比赛信息表 服务实现类
@@ -456,45 +461,5 @@ public class GameServiceImpl implements IGameService {
             return "";
         }
         return gameTime.atZone(GAME_ZONE).withZoneSameInstant(CHINA_ZONE).toLocalDateTime().format(DATE_TIME_FORMATTER);
-    }
-
-    /**
-     * 日期时间格式化为 yyyy-MM-dd HH:mm:ss（空值用默认值替换）
-     */
-    private static String formatDateTime(LocalDateTime dateTime) {
-        if (dateTime == null) {
-            return "";
-        }
-        return dateTime.format(DATE_TIME_FORMATTER);
-    }
-
-    /**
-     * 字符串空值用默认值替换（null 转空串）
-     */
-    private static String defaultString(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value;
-    }
-
-    /**
-     * 整数空值用默认值替换（null 转 0）
-     */
-    private static int defaultInt(Integer value) {
-        if (value == null) {
-            return 0;
-        }
-        return value;
-    }
-
-    /**
-     * 长整数空值用默认值替换（null 转 0）
-     */
-    private static long defaultLong(Long value) {
-        if (value == null) {
-            return 0L;
-        }
-        return value;
     }
 }

@@ -52,7 +52,7 @@
     </main>
 
     <footer class="portal-footer">
-      <span>NBA 数据中心 · 数据来源 SportsData / ESPN · 仅供学习交流</span>
+      <span>NBA 数据中心 · 数据来源 ESPN · 仅供学习交流</span>
     </footer>
 
     <!-- C 端登录弹窗（全局挂载一次） -->

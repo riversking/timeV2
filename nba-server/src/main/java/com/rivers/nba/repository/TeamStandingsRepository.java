@@ -28,6 +28,13 @@ public interface TeamStandingsRepository extends ReactiveCrudRepository<TeamStan
     Mono<Integer> latestSeason();
 
     /**
+     * 清理指定赛季（同步时整季替换，避免旧数据源行残留）
+     */
+    @Modifying
+    @Query("DELETE FROM team_standings WHERE season = :season")
+    Mono<Long> deleteBySeason(int season);
+
+    /**
      * 按 (season, team_id) 唯一键 upsert：已存在则更新战绩字段，不存在则插入
      */
     @Modifying

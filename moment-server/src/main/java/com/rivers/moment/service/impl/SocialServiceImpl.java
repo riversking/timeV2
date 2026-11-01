@@ -19,6 +19,8 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+import static com.rivers.core.util.ValueUtils.defaultString;
+
 /**
  * <p>
  * 球队社区与用户关注 服务实现类
@@ -123,9 +125,5 @@ public class SocialServiceImpl implements ISocialService {
                     log.error("{}: {}", failMessage, e.getMessage());
                     return Mono.just(ResultVO.fail(failMessage));
                 });
-    }
-
-    private static String defaultString(String value) {
-        return value == null ? "" : value;
     }
 }

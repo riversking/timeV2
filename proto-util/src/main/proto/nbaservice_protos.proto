@@ -34,6 +34,7 @@ message GetPlayersReq {
     int32 currentPage = 1;
     int32 pageSize = 2;
     string playerName = 3;
+    int32 teamId = 4;
 }
 //响应参数
 message GetPlayersRes {
@@ -353,6 +354,63 @@ message GetPlayerDetailReq {
 message GetPlayerDetailRes {
     Player player = 1;
 }
+//球员赛季数据查询请求
+message GetPlayerSeasonStatsReq {
+    int64 playerId = 1;
+}
+//联盟对比项（球员场均 vs 同赛季全联盟平均/最高，rank 为联盟名次）
+message LeagueCompareInfo {
+    string key = 1;
+    string label = 2;
+    double playerValue = 3;
+    double leagueAvg = 4;
+    double leagueMax = 5;
+    int32 rank = 6;
+    int32 totalPlayers = 7;
+}
+//球员单赛季数据（场均由后台按赛季总量与场次换算，fieldGoalPct 为百分比数值）
+message PlayerSeasonStatInfo {
+    int32 season = 1;
+    string team = 2;
+    string position = 3;
+    int32 games = 4;
+    double avgPoints = 5;
+    double avgRebounds = 6;
+    double avgAssists = 7;
+    double avgSteals = 8;
+    double avgBlocks = 9;
+    double avgThreePointersMade = 10;
+    double avgFieldGoalsMade = 11;
+    double avgFieldGoalsAttempted = 12;
+    double fieldGoalPct = 13;
+    repeated LeagueCompareInfo leagueCompare = 14;
+}
+//球员历年数据项（命中率为百分比数值，其余为场均）
+message PlayerSeasonHistoryInfo {
+    int32 season = 1;
+    //1季前赛 2常规赛 3季后赛
+    int32 seasonType = 2;
+    string team = 3;
+    int32 games = 4;
+    double avgPoints = 5;
+    double avgMinutes = 6;
+    double fieldGoalPct = 7;
+    double avgFieldGoalsAttempted = 8;
+    double threePointPct = 9;
+    double avgThreePointersAttempted = 10;
+    double freeThrowPct = 11;
+    double avgFreeThrowsAttempted = 12;
+    double avgRebounds = 13;
+    double avgAssists = 14;
+    double avgSteals = 15;
+    double avgBlocks = 16;
+    double avgFouls = 17;
+}
+//球员赛季数据查询响应（按赛季倒序；history 为季前赛/常规赛/季后赛历年数据）
+message GetPlayerSeasonStatsRes {
+    repeated PlayerSeasonStatInfo seasons = 1;
+    repeated PlayerSeasonHistoryInfo history = 2;
+}
 
 //球馆详情查询请求
 message GetStadiumDetailReq {
@@ -458,9 +516,56 @@ message GetPlayerStatLeadersReq {
     string statType = 2;
     int32 limit = 3;
 }
+//球队数据排名条目（value 为场均数值，命中率为百分比）
+message TeamStatLeaderInfo {
+    string team = 1;
+    int32 games = 2;
+    double value = 3;
+}
 //球员数据排名查询响应
 message GetPlayerStatLeadersRes {
     int32 season = 1;
     string statType = 2;
     repeated PlayerStatLeaderInfo leaders = 3;
+    repeated TeamStatLeaderInfo teams = 4;
+}
+
+//每日最佳条目（单场比赛数据）
+message DailyLeaderInfo {
+    int64 playerId = 1;
+    string name = 2;
+    string team = 3;
+    string position = 4;
+    int32 points = 5;
+    int32 rebounds = 6;
+    int32 assists = 7;
+    int32 steals = 8;
+    int32 blocks = 9;
+    string photoUrl = 10;
+    int32 threePointers = 11;
+    double fieldGoalPercentage = 12;
+}
+//每日最佳查询请求（date 为空时取最近一个有完赛的比赛日，格式 yyyy-MM-dd）
+message GetDailyLeadersReq {
+    string date = 1;
+    int32 limit = 2;
+    string statType = 3;
+}
+//每日最佳球队条目（当日全队合计数据，margin 为净胜分）
+message DailyTeamLeaderInfo {
+    string team = 1;
+    int32 points = 2;
+    int32 rebounds = 3;
+    int32 assists = 4;
+    int32 steals = 5;
+    int32 blocks = 6;
+    int32 margin = 7;
+    int32 threePointers = 8;
+    double fieldGoalPercentage = 9;
+}
+//每日最佳查询响应（date 为实际比赛日）
+message GetDailyLeadersRes {
+    string date = 1;
+    repeated DailyLeaderInfo leaders = 2;
+    repeated DailyTeamLeaderInfo teams = 3;
 }

@@ -1,6 +1,8 @@
 package com.rivers.nba.controller;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.nba.GetDailyLeadersReq;
+import com.rivers.nba.GetDailyLeadersRes;
 import com.rivers.nba.GetPlayerStatLeadersReq;
 import com.rivers.nba.GetPlayerStatLeadersRes;
 import com.rivers.nba.GetTeamStandingsReq;
@@ -14,7 +16,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * <p>
- * 排行榜 前端控制器（球队排名 / 球员数据排名，数据源 SportsData）
+ * 排行榜 前端控制器（球队排名 / 球员数据排名，数据源 ESPN）
  * </p>
  *
  * @author rivers
@@ -44,5 +46,13 @@ public class RankingController {
     @PostMapping("getPlayerStatLeaders")
     public Mono<ResultVO<GetPlayerStatLeadersRes>> getPlayerStatLeaders(@RequestBody GetPlayerStatLeadersReq req) {
         return rankingService.getPlayerStatLeaders(req);
+    }
+
+    /**
+     * 每日最佳（指定比赛日的单场数据榜，缺省取最近一个有完赛的比赛日）
+     */
+    @PostMapping("getDailyLeaders")
+    public Mono<ResultVO<GetDailyLeadersRes>> getDailyLeaders(@RequestBody GetDailyLeadersReq req) {
+        return rankingService.getDailyLeaders(req);
     }
 }

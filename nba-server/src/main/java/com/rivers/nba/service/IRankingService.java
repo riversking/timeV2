@@ -1,15 +1,19 @@
 package com.rivers.nba.service;
 
 import com.rivers.core.vo.ResultVO;
+import com.rivers.nba.GetDailyLeadersReq;
+import com.rivers.nba.GetDailyLeadersRes;
 import com.rivers.nba.GetPlayerStatLeadersReq;
 import com.rivers.nba.GetPlayerStatLeadersRes;
+import com.rivers.nba.GetPlayerSeasonStatsReq;
+import com.rivers.nba.GetPlayerSeasonStatsRes;
 import com.rivers.nba.GetTeamStandingsReq;
 import com.rivers.nba.GetTeamStandingsRes;
 import reactor.core.publisher.Mono;
 
 /**
  * <p>
- * 排行榜 服务接口（球队排名 / 球员数据排名）
+ * 排行榜 服务接口（球队排名 / 球员数据排名 / 每日最佳）
  * </p>
  *
  * @author rivers
@@ -28,7 +32,22 @@ public interface IRankingService {
     Mono<ResultVO<GetPlayerStatLeadersRes>> getPlayerStatLeaders(GetPlayerStatLeadersReq req);
 
     /**
+     * 每日最佳（指定比赛日的单场数据榜，缺省取最近一个有完赛的比赛日）
+     */
+    Mono<ResultVO<GetDailyLeadersRes>> getDailyLeaders(GetDailyLeadersReq req);
+
+    /**
+     * 球员单赛季数据（按赛季倒序；库内无数据时实时拉取当季 ESPN 并异步落库）
+     */
+    Mono<ResultVO<GetPlayerSeasonStatsRes>> getPlayerSeasonStats(GetPlayerSeasonStatsReq req);
+
+    /**
      * 同步排名数据落库（定时任务调用：球队排名 + 球员赛季统计全量）
      */
     Mono<ResultVO<Void>> syncRankings();
+
+    /**
+     * 同步球员赛季数据落库（定时任务调用：当季整季刷新，历史赛季仅在库内缺失时回填）
+     */
+    Mono<ResultVO<Void>> syncPlayerSeasonStats();
 }

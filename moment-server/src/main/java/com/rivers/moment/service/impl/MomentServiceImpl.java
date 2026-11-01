@@ -6,10 +6,12 @@ import com.rivers.moment.entity.Moment;
 import com.rivers.moment.entity.MomentComment;
 import com.rivers.moment.entity.MomentImage;
 import com.rivers.moment.entity.MomentLike;
+import com.rivers.moment.entity.MomentShare;
 import com.rivers.moment.repository.MomentCommentRepository;
 import com.rivers.moment.repository.MomentImageRepository;
 import com.rivers.moment.repository.MomentLikeRepository;
 import com.rivers.moment.repository.MomentRepository;
+import com.rivers.moment.repository.MomentShareRepository;
 import com.rivers.moment.service.IMomentService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -18,13 +20,18 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
+import static com.rivers.core.util.DateTimeUtils.formatDateTime;
+import static com.rivers.core.util.ValueUtils.defaultInt;
+import static com.rivers.core.util.ValueUtils.defaultLong;
+import static com.rivers.core.util.ValueUtils.defaultString;
 
 /**
  * <p>
@@ -38,28 +45,31 @@ import java.util.stream.IntStream;
 @Service
 public class MomentServiceImpl implements IMomentService {
 
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int MAX_CONTENT_LENGTH = 1000;
     private static final int MAX_IMAGE_COUNT = 9;
     private static final int MAX_COMMENT_LENGTH = 500;
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int MAX_SHARE_USERS = 50;
 
     private final MomentRepository momentRepository;
     private final MomentImageRepository momentImageRepository;
     private final MomentLikeRepository momentLikeRepository;
     private final MomentCommentRepository momentCommentRepository;
+    private final MomentShareRepository momentShareRepository;
     private final TransactionalOperator txOperator;
 
     public MomentServiceImpl(MomentRepository momentRepository,
                              MomentImageRepository momentImageRepository,
                              MomentLikeRepository momentLikeRepository,
                              MomentCommentRepository momentCommentRepository,
+                             MomentShareRepository momentShareRepository,
                              TransactionalOperator txOperator) {
         this.momentRepository = momentRepository;
         this.momentImageRepository = momentImageRepository;
         this.momentLikeRepository = momentLikeRepository;
         this.momentCommentRepository = momentCommentRepository;
+        this.momentShareRepository = momentShareRepository;
         this.txOperator = txOperator;
     }
 
@@ -176,14 +186,18 @@ public class MomentServiceImpl implements IMomentService {
         }
         int pageSize = resolvePageSize(req.getPageSize());
         long offset = (long) (Math.max(req.getCurrentPage(), 1) - 1) * pageSize;
-        return momentCommentRepository.countByMomentIdAndIsDeleted(momentId, 0)
-                .flatMap(total -> momentCommentRepository.pageByMomentId(momentId, pageSize, offset)
-                        .map(MomentServiceImpl::toCommentInfo)
+        return Mono.zip(
+                        momentCommentRepository.countByMomentIdAndIsDeleted(momentId, 0),
+                        momentCommentRepository.countByMomentIdAndParentIdAndIsDeleted(momentId, 0L, 0))
+                .flatMap(counts -> momentCommentRepository.pageTopLevelByMomentId(momentId, pageSize, offset)
                         .collectList()
-                        .map(comments -> ResultVO.ok(GetCommentPageRes.newBuilder()
-                                .setTotal(total)
-                                .addAllComments(comments)
-                                .build())))
+                        .flatMap(parents -> momentCommentRepository.findAllRepliesByMomentId(momentId)
+                                .collectMultimap(MomentComment::getParentId)
+                                .map(repliesByParent -> ResultVO.ok(GetCommentPageRes.newBuilder()
+                                        .setTotal(counts.getT1())
+                                        .setTopLevelTotal(counts.getT2())
+                                        .addAllComments(toCommentInfos(parents, repliesByParent))
+                                        .build()))))
                 .onErrorResume(e -> {
                     log.error("获取评论列表失败: momentId={}, {}", momentId, e.getMessage());
                     return Mono.just(ResultVO.fail("获取评论列表失败"));
@@ -196,6 +210,10 @@ public class MomentServiceImpl implements IMomentService {
         if (momentId <= 0) {
             return Mono.just(ResultVO.fail("动态ID不能为空"));
         }
+        long parentId = req.getParentId();
+        if (parentId < 0) {
+            return Mono.just(ResultVO.fail("父评论ID不正确"));
+        }
         String content = StringUtils.trimToEmpty(req.getContent());
         if (content.isEmpty()) {
             return Mono.just(ResultVO.fail("评论内容不能为空"));
@@ -203,20 +221,27 @@ public class MomentServiceImpl implements IMomentService {
         if (content.length() > MAX_COMMENT_LENGTH) {
             return Mono.just(ResultVO.fail("评论内容不能超过 " + MAX_COMMENT_LENGTH + " 字"));
         }
+        LoginUser loginUser = req.getLoginUser();
         return momentRepository.findById(momentId)
                 .filter(moment -> Integer.valueOf(0).equals(moment.getIsDeleted()))
-                .flatMap(moment -> {
-                    MomentComment comment = buildComment(momentId, content, req.getLoginUser());
-                    Mono<MomentComment> action = momentCommentRepository.save(comment)
-                            .flatMap(saved -> momentRepository.refreshCommentCount(momentId)
-                                    .thenReturn(saved));
-                    return txOperator.transactional(action)
-                            .flatMap(saved -> momentCommentRepository
-                                    .countByMomentIdAndIsDeleted(momentId, 0)
-                                    .map(count -> ResultVO.ok(AddCommentRes.newBuilder()
-                                            .setComment(toCommentInfo(saved))
-                                            .setCommentCount(Math.toIntExact(count))
-                                            .build())));
+                .flatMap(ignored -> {
+                    if (parentId == 0) {
+                        return saveComment(momentId, content, loginUser, 0L, "", "");
+                    }
+                    return momentCommentRepository.findById(parentId)
+                            .filter(parent -> Integer.valueOf(0).equals(parent.getIsDeleted())
+                                    && Objects.equals(parent.getMomentId(), momentId))
+                            .flatMap(parent -> {
+                                if (Objects.equals(parent.getUserId(), loginUser.getUserId())) {
+                                    return Mono.just(ResultVO.<AddCommentRes>fail("不能回复自己的评论"));
+                                }
+                                long rootId = defaultLong(parent.getParentId()) > 0
+                                        ? parent.getParentId() : parentId;
+                                return saveComment(momentId, content, loginUser, rootId,
+                                        defaultString(parent.getUserId()),
+                                        defaultString(parent.getUserName()));
+                            })
+                            .switchIfEmpty(Mono.just(ResultVO.<AddCommentRes>fail("被回复的评论不存在")));
                 })
                 .switchIfEmpty(Mono.just(ResultVO.<AddCommentRes>fail("动态不存在")))
                 .onErrorResume(e -> {
@@ -225,7 +250,26 @@ public class MomentServiceImpl implements IMomentService {
                 });
     }
 
-    private static MomentComment buildComment(long momentId, String content, LoginUser loginUser) {
+    private Mono<ResultVO<AddCommentRes>> saveComment(long momentId, String content,
+                                                      LoginUser loginUser, long parentId,
+                                                      String replyToUserId, String replyToUserName) {
+        MomentComment comment = buildComment(momentId, content, loginUser, parentId,
+                replyToUserId, replyToUserName);
+        Mono<MomentComment> action = momentCommentRepository.save(comment)
+                .flatMap(saved -> momentRepository.refreshCommentCount(momentId)
+                        .thenReturn(saved));
+        return txOperator.transactional(action)
+                .flatMap(saved -> momentCommentRepository
+                        .countByMomentIdAndIsDeleted(momentId, 0)
+                        .map(count -> ResultVO.ok(AddCommentRes.newBuilder()
+                                .setComment(toCommentInfo(saved))
+                                .setCommentCount(Math.toIntExact(count))
+                                .build())));
+    }
+
+    private static MomentComment buildComment(long momentId, String content, LoginUser loginUser,
+                                              long parentId, String replyToUserId,
+                                              String replyToUserName) {
         LocalDateTime now = LocalDateTime.now();
         String userId = loginUser.getUserId();
         String username = loginUser.getUsername();
@@ -234,12 +278,72 @@ public class MomentServiceImpl implements IMomentService {
         comment.setUserId(userId);
         comment.setUserName(username);
         comment.setContent(content);
+        comment.setParentId(parentId);
+        comment.setReplyToUserId(replyToUserId);
+        comment.setReplyToUserName(replyToUserName);
         comment.setCreateUser(userId);
         comment.setCreateTime(now);
         comment.setUpdateUser(userId);
         comment.setUpdateTime(now);
         comment.setIsDeleted(0);
         return comment;
+    }
+
+    @Override
+    public Mono<ResultVO<GetMomentDetailRes>> getMomentDetail(GetMomentDetailReq req) {
+        long momentId = req.getMomentId();
+        if (momentId <= 0) {
+            return Mono.just(ResultVO.fail("动态ID不能为空"));
+        }
+        String viewerId = StringUtils.trimToEmpty(req.getViewerId());
+        return momentRepository.findById(momentId)
+                .filter(moment -> Integer.valueOf(0).equals(moment.getIsDeleted()))
+                .flatMap(moment -> {
+                    Mono<List<String>> imagesMono = momentImageRepository
+                            .findByMomentIdInOrderBySortAscIdAsc(List.of(momentId))
+                            .map(MomentImage::getUrl)
+                            .collectList();
+                    Mono<List<SocialUser>> shareUsersMono = momentShareRepository
+                            .findShareUsers(momentId, MAX_SHARE_USERS)
+                            .map(share -> socialUser(share.getUserId(), share.getUserName()))
+                            .collectList();
+                    return Mono.zip(imagesMono, shareUsersMono,
+                                    likedMomentIds(viewerId, List.of(momentId)))
+                            .map(tuple -> ResultVO.ok(GetMomentDetailRes.newBuilder()
+                                    .setMoment(toMomentInfo(moment, tuple.getT1(), tuple.getT3()))
+                                    .addAllShareUsers(tuple.getT2())
+                                    .build()));
+                })
+                .switchIfEmpty(Mono.just(ResultVO.<GetMomentDetailRes>fail("动态不存在")))
+                .onErrorResume(e -> {
+                    log.error("获取动态详情失败: momentId={}, {}", momentId, e.getMessage());
+                    return Mono.just(ResultVO.fail("获取动态详情失败"));
+                });
+    }
+
+    @Override
+    public Mono<ResultVO<ShareMomentRes>> shareMoment(ShareMomentReq req) {
+        long momentId = req.getMomentId();
+        if (momentId <= 0) {
+            return Mono.just(ResultVO.fail("动态ID不能为空"));
+        }
+        LoginUser loginUser = req.getLoginUser();
+        String userId = loginUser.getUserId();
+        String userName = StringUtils.trimToEmpty(loginUser.getUsername());
+        return momentRepository.findById(momentId)
+                .filter(moment -> Integer.valueOf(0).equals(moment.getIsDeleted()))
+                .flatMap(moment -> txOperator.transactional(
+                                momentShareRepository.upsert(momentId, userId, userName)
+                                        .then(momentRepository.refreshShareCount(momentId)))
+                        .then(momentShareRepository.countByMomentIdAndIsDeleted(momentId, 0))
+                        .map(count -> ResultVO.ok(ShareMomentRes.newBuilder()
+                                .setShareCount(Math.toIntExact(count))
+                                .build())))
+                .switchIfEmpty(Mono.just(ResultVO.<ShareMomentRes>fail("动态不存在")))
+                .onErrorResume(e -> {
+                    log.error("分享动态失败: momentId={}, {}", momentId, e.getMessage());
+                    return Mono.just(ResultVO.fail("分享动态失败"));
+                });
     }
 
     private static Moment buildMoment(String content, int teamId, LoginUser loginUser) {
@@ -251,6 +355,7 @@ public class MomentServiceImpl implements IMomentService {
         moment.setTeamId(teamId);
         moment.setLikeCount(0);
         moment.setCommentCount(0);
+        moment.setShareCount(0);
         moment.setUserId(userId);
         moment.setUserName(StringUtils.trimToEmpty(username));
         moment.setCreateUser(userId);
@@ -293,11 +398,7 @@ public class MomentServiceImpl implements IMomentService {
                 .findByMomentIdInOrderBySortAscIdAsc(momentIds)
                 .collect(Collectors.groupingBy(MomentImage::getMomentId,
                         Collectors.mapping(MomentImage::getUrl, Collectors.toList())));
-        Mono<Set<Long>> likedMono = StringUtils.isBlank(viewerId)
-                ? Mono.<Set<Long>>just(Set.of())
-                : momentLikeRepository.findByMomentIdInAndUserIdAndIsDeleted(momentIds, viewerId, 0)
-                .map(MomentLike::getMomentId)
-                .collect(Collectors.toSet());
+        Mono<Set<Long>> likedMono = likedMomentIds(viewerId, momentIds);
         return Mono.zip(imagesMono, likedMono)
                 .map(tuple -> GetMomentPageRes.newBuilder()
                         .setTotal(total)
@@ -312,6 +413,15 @@ public class MomentServiceImpl implements IMomentService {
         return imagesByMoment.getOrDefault(momentId, List.of());
     }
 
+    private Mono<Set<Long>> likedMomentIds(String viewerId, List<Long> momentIds) {
+        if (StringUtils.isBlank(viewerId)) {
+            return Mono.just(Set.of());
+        }
+        return momentLikeRepository.findByMomentIdInAndUserIdAndIsDeleted(momentIds, viewerId, 0)
+                .map(MomentLike::getMomentId)
+                .collect(Collectors.toSet());
+    }
+
     private static MomentInfo toMomentInfo(Moment moment, List<String> images, Set<Long> likedIds) {
         return MomentInfo.newBuilder()
                 .setId(defaultLong(moment.getId()))
@@ -319,27 +429,47 @@ public class MomentServiceImpl implements IMomentService {
                 .addAllImages(images)
                 .setUserId(defaultString(moment.getUserId()))
                 .setUserName(defaultString(moment.getUserName()))
-                .setCreateTime(formatTime(moment.getCreateTime()))
+                .setCreateTime(formatDateTime(moment.getCreateTime()))
                 .setTeamId(defaultInt(moment.getTeamId()))
                 .setLikeCount(defaultInt(moment.getLikeCount()))
                 .setCommentCount(defaultInt(moment.getCommentCount()))
+                .setShareCount(defaultInt(moment.getShareCount()))
                 .setLiked(likedIds.contains(moment.getId()))
                 .build();
     }
 
+    private static List<CommentInfo> toCommentInfos(List<MomentComment> parents,
+                                                    Map<Long, Collection<MomentComment>> repliesByParent) {
+        return parents.stream()
+                .map(parent -> toCommentInfo(parent,
+                        repliesByParent.getOrDefault(parent.getId(), List.of())))
+                .toList();
+    }
+
     private static CommentInfo toCommentInfo(MomentComment comment) {
-        return CommentInfo.newBuilder()
+        return toCommentInfo(comment, List.of());
+    }
+
+    private static CommentInfo toCommentInfo(MomentComment comment, Collection<MomentComment> replies) {
+        CommentInfo.Builder builder = CommentInfo.newBuilder()
                 .setId(defaultLong(comment.getId()))
                 .setMomentId(defaultLong(comment.getMomentId()))
                 .setUserId(defaultString(comment.getUserId()))
                 .setUserName(defaultString(comment.getUserName()))
                 .setContent(defaultString(comment.getContent()))
-                .setCreateTime(formatTime(comment.getCreateTime()))
-                .build();
+                .setCreateTime(formatDateTime(comment.getCreateTime()))
+                .setParentId(defaultLong(comment.getParentId()))
+                .setReplyToUserId(defaultString(comment.getReplyToUserId()))
+                .setReplyToUserName(defaultString(comment.getReplyToUserName()));
+        replies.forEach(reply -> builder.addReplies(toCommentInfo(reply)));
+        return builder.build();
     }
 
-    private static String formatTime(LocalDateTime time) {
-        return time == null ? "" : time.format(DATE_TIME_FORMATTER);
+    private static SocialUser socialUser(String userId, String userName) {
+        return SocialUser.newBuilder()
+                .setUserId(defaultString(userId))
+                .setUserName(defaultString(userName))
+                .build();
     }
 
     private static int resolvePageSize(int pageSize) {
@@ -347,17 +477,5 @@ public class MomentServiceImpl implements IMomentService {
             return DEFAULT_PAGE_SIZE;
         }
         return Math.min(pageSize, MAX_PAGE_SIZE);
-    }
-
-    private static String defaultString(String value) {
-        return value == null ? "" : value;
-    }
-
-    private static long defaultLong(Long value) {
-        return value == null ? 0L : value;
-    }
-
-    private static int defaultInt(Integer value) {
-        return value == null ? 0 : value;
     }
 }

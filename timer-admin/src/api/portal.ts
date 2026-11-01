@@ -83,6 +83,15 @@ export async function getPlayerStatLeaders(data: any) {
 }
 
 /**
+ * 每日最佳（公开，指定比赛日单场数据榜，date 缺省取最近一个有完赛的比赛日）
+ */
+export async function getDailyLeaders(data: any) {
+  return clientHttp
+    .post(`${API_PREFIX}/ranking/getDailyLeaders`, data)
+    .then((res) => res.data);
+}
+
+/**
  * NBA 新闻资讯（公开，含配图）
  */
 export async function getNews(data: any) {
@@ -106,6 +115,15 @@ export async function getNewsDetail(data: any) {
 export async function getPlayerDetail(data: any) {
   return clientHttp
     .post(`${API_PREFIX}/player/getPlayerDetail`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 球员单赛季数据（需登录，库内无数据时服务端实时拉取并落库，按赛季倒序）
+ */
+export async function getPlayerSeasonStats(data: { playerId: number }) {
+  return clientHttp
+    .post(`${API_PREFIX}/player/getPlayerSeasonStats`, data)
     .then((res) => res.data);
 }
 
@@ -156,6 +174,15 @@ export async function toggleMomentLike(data: { momentId: number }) {
 }
 
 /**
+ * 动态详情（公开，含全量图片与分享人）
+ */
+export async function getMomentDetail(data: { momentId: number; viewerId?: string }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/getMomentDetail`, data)
+    .then((res) => res.data);
+}
+
+/**
  * 评论分页（公开，按 id 倒序）
  */
 export async function getMomentComments(data: {
@@ -169,11 +196,24 @@ export async function getMomentComments(data: {
 }
 
 /**
- * 发表评论（需登录，返回落库评论与最新评论数）
+ * 发表评论 / 回复评论（需登录，parentId>0 表示回复；返回落库评论与最新评论数）
  */
-export async function addMomentComment(data: { momentId: number; content: string }) {
+export async function addMomentComment(data: {
+  momentId: number;
+  content: string;
+  parentId?: number;
+}) {
   return clientHttp
     .post(`${MOMENT_PREFIX}/moment/addComment`, data)
+    .then((res) => res.data);
+}
+
+/**
+ * 分享动态（需登录，记录分享人并返回最新分享人数）
+ */
+export async function recordMomentShare(data: { momentId: number }) {
+  return clientHttp
+    .post(`${MOMENT_PREFIX}/moment/shareMoment`, data)
     .then((res) => res.data);
 }
 

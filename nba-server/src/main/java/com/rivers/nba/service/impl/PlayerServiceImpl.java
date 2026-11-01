@@ -60,7 +60,7 @@ public class PlayerServiceImpl implements IPlayerService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> syncAllPlayer() {
-        return playerRepository.countByName("")
+        return playerRepository.countByName("", 0)
                 .flatMap(count -> {
                     if (count > 0) {
                         return playerRepository.logicDeleteAll().then();
@@ -107,13 +107,14 @@ public class PlayerServiceImpl implements IPlayerService {
         int pageSize = getPlayersReq.getPageSize();
         String playerName = getPlayersReq.getPlayerName();
         String name = StringUtils.defaultIfBlank(playerName, "");
+        int teamId = getPlayersReq.getTeamId();
         long offset = (long) (currentPage - 1) * pageSize;
-        return playerRepository.countByName(name)
+        return playerRepository.countByName(name, teamId)
                 .flatMap(total -> {
                     if (total == 0) {
                         return Mono.just(ResultVO.ok(GetPlayersRes.newBuilder().getDefaultInstanceForType()));
                     }
-                    return playerRepository.pageByName(name, pageSize, offset)
+                    return playerRepository.pageByName(name, teamId, pageSize, offset)
                             .map(this::toProto)
                             .collectList()
                             .map(list -> GetPlayersRes.newBuilder()

@@ -4,9 +4,12 @@ package com.rivers.nba.controller;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.nba.GetPlayerDetailReq;
 import com.rivers.nba.GetPlayerDetailRes;
+import com.rivers.nba.GetPlayerSeasonStatsReq;
+import com.rivers.nba.GetPlayerSeasonStatsRes;
 import com.rivers.nba.GetPlayersReq;
 import com.rivers.nba.GetPlayersRes;
 import com.rivers.nba.service.IPlayerService;
+import com.rivers.nba.service.IRankingService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,8 +30,11 @@ public class PlayerController {
 
     private final IPlayerService playerService;
 
-    public PlayerController(IPlayerService playerService) {
+    private final IRankingService rankingService;
+
+    public PlayerController(IPlayerService playerService, IRankingService rankingService) {
         this.playerService = playerService;
+        this.rankingService = rankingService;
     }
 
     @PostMapping("syncAllPlayer")
@@ -44,5 +50,10 @@ public class PlayerController {
     @PostMapping("getPlayerDetail")
     public Mono<ResultVO<GetPlayerDetailRes>> getPlayerDetail(@RequestBody GetPlayerDetailReq req) {
         return playerService.getPlayerDetail(req);
+    }
+
+    @PostMapping("getPlayerSeasonStats")
+    public Mono<ResultVO<GetPlayerSeasonStatsRes>> getPlayerSeasonStats(@RequestBody GetPlayerSeasonStatsReq req) {
+        return rankingService.getPlayerSeasonStats(req);
     }
 }

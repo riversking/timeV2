@@ -66,12 +66,14 @@ ignore:
     # 门户排行榜（球队排名/球员数据排名，免登录）
     - /nba-server/ranking/getTeamStandings
     - /nba-server/ranking/getPlayerStatLeaders
+    - /nba-server/ranking/getDailyLeaders
     # 门户菜单（后台配置、接口下发，门户导航与动态路由共用；菜单管理接口仍需认证）
     - /user-server/menu/getPortalMenuTree
     # 比分实时推送流（SSE 长连接，前台免登录订阅）
     - /nba-server/game/scoreStream
-    # 动态广场分页列表与评论列表（免登录浏览；发布/点赞/评论仍需认证）
+    # 动态广场分页列表、详情与评论列表（免登录浏览；发布/点赞/评论/分享仍需认证）
     - /moment-server/moment/getMomentPage
+    - /moment-server/moment/getMomentDetail
     - /moment-server/moment/getCommentPage
 
 logging:

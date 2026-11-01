@@ -24,6 +24,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
+import static com.rivers.core.util.ValueUtils.defaultInt;
+import static com.rivers.core.util.ValueUtils.defaultLong;
+import static com.rivers.core.util.ValueUtils.defaultString;
+
 /**
  * <p>
  * 球员简档信息表 服务实现类
@@ -170,35 +174,5 @@ public class PlayerBasicServiceImpl implements IPlayerBasicService {
             return 1;
         }
         return source;
-    }
-
-    /**
-     * 字符串空值用默认值替换（null 转空串）
-     */
-    private static String defaultString(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value;
-    }
-
-    /**
-     * 整数空值用默认值替换（null 转 0）
-     */
-    private static int defaultInt(Integer value) {
-        if (value == null) {
-            return 0;
-        }
-        return value;
-    }
-
-    /**
-     * 长整数空值用默认值替换（null 转 0）
-     */
-    private static long defaultLong(Long value) {
-        if (value == null) {
-            return 0L;
-        }
-        return value;
     }
 }

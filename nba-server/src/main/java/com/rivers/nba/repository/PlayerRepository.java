@@ -18,16 +18,16 @@ import reactor.core.publisher.Mono;
 public interface PlayerRepository extends ReactiveCrudRepository<TimerPlayer, Long> {
 
     /**
-     * 分页查询（过滤逻辑删除，按球员全称模糊匹配）
+     * 分页查询（过滤逻辑删除，按球员全称模糊匹配；teamId 为 0 时不限球队）
      */
-    @Query("SELECT * FROM player WHERE is_deleted = 0 AND draft_kings_name LIKE CONCAT('%', :name, '%') ORDER BY id LIMIT :limit OFFSET :offset")
-    Flux<TimerPlayer> pageByName(String name, int limit, long offset);
+    @Query("SELECT * FROM player WHERE is_deleted = 0 AND draft_kings_name LIKE CONCAT('%', :name, '%') AND (:teamId = 0 OR team_id = :teamId) ORDER BY id LIMIT :limit OFFSET :offset")
+    Flux<TimerPlayer> pageByName(String name, int teamId, int limit, long offset);
 
     /**
-     * 分页总数（过滤逻辑删除）
+     * 分页总数（过滤逻辑删除；teamId 为 0 时不限球队）
      */
-    @Query("SELECT COUNT(*) FROM player WHERE is_deleted = 0 AND draft_kings_name LIKE CONCAT('%', :name, '%')")
-    Mono<Long> countByName(String name);
+    @Query("SELECT COUNT(*) FROM player WHERE is_deleted = 0 AND draft_kings_name LIKE CONCAT('%', :name, '%') AND (:teamId = 0 OR team_id = :teamId)")
+    Mono<Long> countByName(String name, int teamId);
 
     /**
      * 按球员ID查询单条（过滤逻辑删除）
@@ -40,6 +40,12 @@ public interface PlayerRepository extends ReactiveCrudRepository<TimerPlayer, Lo
      */
     @Query("SELECT photo_url FROM player WHERE player_id = :playerId AND is_deleted = 0 AND photo_url IS NOT NULL AND photo_url <> '' ORDER BY id DESC LIMIT 1")
     Mono<String> photoByPlayerId(long playerId);
+
+    /**
+     * 全部有效球员（排行按姓名映射库内球员ID，同一球员可能有多条同步记录）
+     */
+    @Query("SELECT * FROM player WHERE is_deleted = 0")
+    Flux<TimerPlayer> findAllActive();
 
     /**
      * 逻辑删除全表（is_deleted 置 1，与存量 MyBatis @TableLogic 语义对齐）

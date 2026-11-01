@@ -50,6 +50,21 @@ public class MomentComment implements Serializable {
     private String content;
 
     /**
+     * 父评论ID(0=一级评论)
+     */
+    private Long parentId;
+
+    /**
+     * 被回复人ID
+     */
+    private String replyToUserId;
+
+    /**
+     * 被回复人名称(冗余)
+     */
+    private String replyToUserName;
+
+    /**
      * 创建人
      */
     private String createUser;
