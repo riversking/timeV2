@@ -15,7 +15,8 @@ import reactor.core.publisher.Mono;
  * @author rivers
  * @since 2026-11-01
  */
-public interface PlayerLeagueStatRepository extends ReactiveCrudRepository<PlayerLeagueStat, Long> {
+public interface PlayerLeagueStatRepository extends ReactiveCrudRepository<PlayerLeagueStat, Long>,
+        PlayerLeagueStatUpsertRepository {
 
     /**
      * 球员全部赛季的联盟对比行（按赛季倒序、指标顺序）

@@ -15,7 +15,8 @@ import reactor.core.publisher.Mono;
  * @author rivers
  * @since 2026-11-01
  */
-public interface PlayerSeasonHistoryRepository extends ReactiveCrudRepository<PlayerSeasonHistory, Long> {
+public interface PlayerSeasonHistoryRepository extends ReactiveCrudRepository<PlayerSeasonHistory, Long>,
+        PlayerSeasonHistoryUpsertRepository {
 
     @Query("""
             SELECT * FROM player_season_history WHERE is_deleted = 0 AND player_id = :playerId
