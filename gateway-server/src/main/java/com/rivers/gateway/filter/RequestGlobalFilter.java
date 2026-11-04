@@ -89,7 +89,7 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         var ignoreUrls = filterIgnorePropertiesConfig.getUrls();
         if (ignoreUrls != null && ignoreUrls.stream()
                 .anyMatch(pattern -> pathMatcher.match(pattern, path))) {
-            return chain.filter(exchange);
+            return touchActiveWindow(request).then(chain.filter(exchange));
         }
         var sessionId = extractSessionId(request);
         if (sessionId == null) {
@@ -132,6 +132,26 @@ public class RequestGlobalFilter implements WebFilter, Ordered {
         }
         var sessionId = auth.substring(SessionConstant.BEARER_PREFIX.length());
         return StringUtils.hasText(sessionId) ? sessionId : null;
+    }
+
+    /**
+     * 白名单请求同样算活跃：公开接口（新闻/赛程/排行/门户菜单等）不走鉴权，
+     * 若不续期，用户连续只浏览公开页超过活跃窗口（2 天）后会被判定为休眠登出，
+     * 下一次需鉴权的操作直接 401。
+     * <p>
+     * 只用 EXPIRE 续期已存在的活跃窗口：不会为已失效/已吊销的会话重建窗口，
+     * 保持"2 天不活跃即登出"的语义；失败仅记录日志，不影响公开接口可用性。
+     */
+    private Mono<Boolean> touchActiveWindow(ServerHttpRequest request) {
+        var sessionId = extractSessionId(request);
+        if (sessionId == null) {
+            return Mono.just(false);
+        }
+        return redisTemplate.expire(SessionConstant.active(sessionId), SessionConstant.ACTIVE_TTL)
+                .onErrorResume(e -> {
+                    log.debug("白名单请求续期活跃窗口失败: {}", e.getMessage());
+                    return Mono.just(false);
+                });
     }
 
     // ═══════════════════════════════════════════════════════════════

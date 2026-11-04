@@ -75,9 +75,12 @@ public class ScorePushService {
 
     /**
      * 前台订阅的比分事件流（每连接独立 emitter + 30 秒心跳保活，防止网关/代理空闲断流）
+     * <p>
+     * 心跳首拍立即发出：SSE 只有在首次写入时才提交响应头，若等 30 秒才首拍，
+     * 客户端在建立阶段收不到 200，会按响应超时（约 30 秒）直接断开连接。
      */
     public Flux<ServerSentEvent<String>> stream() {
-        Flux<ServerSentEvent<String>> heartbeat = Flux.interval(HEARTBEAT_INTERVAL)
+        Flux<ServerSentEvent<String>> heartbeat = Flux.interval(Duration.ZERO, HEARTBEAT_INTERVAL)
                 .map(_ -> ServerSentEvent.<String>builder().comment("ping").build());
         return Flux.merge(events(), heartbeat);
     }

@@ -1,57 +1,61 @@
 package com.rivers.user.entity;
 
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.rivers.core.entity.BasicDO;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
 
 import java.io.Serial;
+import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
- * <p>
- *
- * </p>
+ * 字典表（R2DBC 映射）
  *
  * @author xx
  * @since 2025-12-07
  */
-@EqualsAndHashCode(callSuper = true)
 @Data
-@TableName("timer_dic")
-public class TimerDic extends BasicDO<TimerDic> {
+@Table("timer_dic")
+public class TimerDic implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
+    @Id
+    private Long id;
+
     /**
      * 字典key
      */
-    @TableField("dic_key")
-    private String dicKey;
+    private String dicKey = "";
 
     /**
      * 字典值
      */
-    @TableField("dic_value")
-    private String dicValue;
+    private String dicValue = "";
 
     /**
      * 字典描述
      */
-    @TableField("dic_desc")
-    private String dicDesc;
+    private String dicDesc = "";
 
     /**
      * 排序
      */
-    @TableField("sort")
-    private Integer sort;
+    private Integer sort = 0;
 
     /**
      * 父类id
      */
-    @TableField("parent_id")
-    private Long parentId;
+    private Long parentId = -1L;
 
+    private String createUser = "";
+
+    private LocalDateTime createTime = LocalDateTime.now();
+
+    private String updateUser = "";
+
+    private LocalDateTime updateTime = LocalDateTime.now();
+
+    private Integer isDeleted = 0;
 }

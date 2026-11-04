@@ -2,20 +2,21 @@ package com.rivers.user.service;
 
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
+import reactor.core.publisher.Mono;
 
 /**
  * @author xx
  */
 public interface ILoginService {
 
-    ResultVO<AutoLoginRes> login(LoginReq loginReq);
+    Mono<ResultVO<AutoLoginRes>> login(LoginReq loginReq);
 
-    ResultVO<AutoLoginRes> autoLogin(String authHeader);
+    Mono<ResultVO<AutoLoginRes>> autoLogin(String authHeader);
 
-    ResultVO<QrCodeRes> generateQrCode();
+    Mono<ResultVO<QrCodeRes>> generateQrCode();
 
-    ResultVO<Void> scanQrCode(ScanQrCodeReq scanQrCodeReq);
+    Mono<ResultVO<Void>> scanQrCode(ScanQrCodeReq scanQrCodeReq);
 
-    ResultVO<Void> confirmQrCode(ConfirmQrCodeReq confirmQrCodeReq);
+    Mono<ResultVO<Void>> confirmQrCode(ConfirmQrCodeReq confirmQrCodeReq);
 
 }

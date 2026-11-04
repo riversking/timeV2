@@ -1,11 +1,5 @@
 package com.rivers.user.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.rivers.core.exception.BusinessException;
 import com.rivers.core.tree.TreeFactory;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
@@ -13,47 +7,50 @@ import com.rivers.user.entity.TimerMenu;
 import com.rivers.user.entity.TimerRoleMenu;
 import com.rivers.user.entity.TimerUser;
 import com.rivers.user.entity.TimerUserRole;
-import com.rivers.user.mapper.TimerMenuMapper;
-import com.rivers.user.mapper.TimerRoleMenuMapper;
-import com.rivers.user.mapper.TimerUserMapper;
-import com.rivers.user.mapper.TimerUserRoleMapper;
+import com.rivers.user.repository.TimerMenuRepository;
+import com.rivers.user.repository.TimerRoleMenuRepository;
+import com.rivers.user.repository.TimerUserRepository;
+import com.rivers.user.repository.TimerUserRoleRepository;
 import com.rivers.user.service.IUserService;
 import com.rivers.user.util.PasswordGenerator;
 import com.rivers.user.vo.MenuTreeVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.jspecify.annotations.NonNull;
-import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
-import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 @Slf4j
 public class UserServiceImpl implements IUserService {
 
     public static final String USER_EMPTY = "用户ID不能为空";
-    private final TimerUserMapper timerUserMapper;
-    private final TimerUserRoleMapper timerUserRoleMapper;
-    private final TimerRoleMenuMapper timerRoleMenuMapper;
-    private final TimerMenuMapper timerMenuMapper;
-    private final ReactiveRedisTemplate<String, String> reactiveRedisTemplate;
+    private static final Integer NOT_DELETED = 0;
+    private static final String ONLINE_KEY_PREFIX = "user:online:";
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    public UserServiceImpl(TimerUserMapper timerUserMapper,
-                           TimerUserRoleMapper timerUserRoleMapper,
-                           TimerRoleMenuMapper timerRoleMenuMapper,
-                           TimerMenuMapper timerMenuMapper,
-                           ReactiveRedisTemplate<String, String> reactiveRedisTemplate) {
-        this.timerUserMapper = timerUserMapper;
-        this.timerUserRoleMapper = timerUserRoleMapper;
-        this.timerRoleMenuMapper = timerRoleMenuMapper;
-        this.timerMenuMapper = timerMenuMapper;
+    private final TimerUserRepository timerUserRepository;
+    private final TimerUserRoleRepository timerUserRoleRepository;
+    private final TimerRoleMenuRepository timerRoleMenuRepository;
+    private final TimerMenuRepository timerMenuRepository;
+    private final ReactiveStringRedisTemplate reactiveRedisTemplate;
+
+    public UserServiceImpl(TimerUserRepository timerUserRepository,
+                           TimerUserRoleRepository timerUserRoleRepository,
+                           TimerRoleMenuRepository timerRoleMenuRepository,
+                           TimerMenuRepository timerMenuRepository,
+                           ReactiveStringRedisTemplate reactiveRedisTemplate) {
+        this.timerUserRepository = timerUserRepository;
+        this.timerUserRoleRepository = timerUserRoleRepository;
+        this.timerRoleMenuRepository = timerRoleMenuRepository;
+        this.timerMenuRepository = timerMenuRepository;
         this.reactiveRedisTemplate = reactiveRedisTemplate;
     }
 
@@ -71,16 +68,13 @@ public class UserServiceImpl implements IUserService {
         if (StringUtils.isBlank(saveUserReq.getUserId())) {
             return Mono.just(ResultVO.fail(USER_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    String userId = saveUserReq.getUserId();
-                    LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerUser::getUserId, userId);
-                    Long count = timerUserMapper.selectCount(wrapper);
-                    if (count > 0) {
-                        throw new BusinessException("用户ID已存在");
+        String userId = saveUserReq.getUserId();
+        String currentUserId = saveUserReq.getLoginUser().getUserId();
+        return timerUserRepository.existsByUserIdAndIsDeleted(userId, NOT_DELETED)
+                .flatMap(exists -> {
+                    if (Boolean.TRUE.equals(exists)) {
+                        return Mono.just(ResultVO.<Void>fail("用户ID已存在"));
                     }
-                    LoginUser loginUser = saveUserReq.getLoginUser();
-                    String currentUserId = loginUser.getUserId();
                     TimerUser timerUser = new TimerUser();
                     timerUser.setUsername(saveUserReq.getUsername());
                     timerUser.setUserId(userId);
@@ -90,12 +84,14 @@ public class UserServiceImpl implements IUserService {
                     timerUser.setUserCode(UUID.randomUUID().toString());
                     timerUser.setCreateUser(currentUserId);
                     timerUser.setUpdateUser(currentUserId);
-                    timerUser.insert();
-                    return ResultVO.<Void>ok();
+                    timerUser.setCreateTime(LocalDateTime.now());
+                    timerUser.setUpdateTime(LocalDateTime.now());
+                    return timerUserRepository.save(timerUser).thenReturn(ResultVO.<Void>ok());
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        ex -> Mono.just(ResultVO.fail(ex.getMessage())));
+                .onErrorResume(Exception.class, e -> {
+                    log.error("保存用户失败", e);
+                    return Mono.just(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
@@ -112,73 +108,53 @@ public class UserServiceImpl implements IUserService {
         if (StringUtils.isBlank(updateUserReq.getUserId())) {
             return Mono.just(ResultVO.fail(USER_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    long id = updateUserReq.getId();
-                    String userId = updateUserReq.getUserId();
-                    LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerUser::getUserId, userId);
-                    TimerUser existing = timerUserMapper.selectOne(wrapper);
-                    if (existing != null && existing.getId() != id) {
-                        throw new BusinessException("用户ID已存在");
+        long id = updateUserReq.getId();
+        String userId = updateUserReq.getUserId();
+        String currentUserId = updateUserReq.getLoginUser().getUserId();
+        return timerUserRepository.findByUserIdAndIsDeleted(userId, NOT_DELETED)
+                .flatMap(existing -> {
+                    if (!existing.getId().equals(id)) {
+                        return Mono.just(ResultVO.<Void>fail("用户ID已存在"));
                     }
-                    LoginUser loginUser = updateUserReq.getLoginUser();
-                    String currentUserId = loginUser.getUserId();
-                    TimerUser user = new TimerUser();
-                    user.setId(id);
-                    user.setUsername(updateUserReq.getUsername());
-                    user.setPhone(updateUserReq.getPhone());
-                    user.setMail(updateUserReq.getMail());
-                    user.setUserId(userId);
-                    user.setUpdateUser(currentUserId);
-                    user.updateById();
-                    return ResultVO.<Void>ok();
+                    return updateUserInfo(id, updateUserReq, currentUserId);
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        ex -> Mono.just(ResultVO.fail(ex.getMessage())));
+                .switchIfEmpty(Mono.defer(() -> updateUserInfo(id, updateUserReq, currentUserId)))
+                .onErrorResume(Exception.class, e -> {
+                    log.error("更新用户失败", e);
+                    return Mono.just(ResultVO.fail("系统异常"));
+                });
+    }
+
+    private Mono<ResultVO<Void>> updateUserInfo(long id, UpdateUserReq updateUserReq, String currentUserId) {
+        return timerUserRepository.updateUserInfo(id, updateUserReq.getUsername(), updateUserReq.getPhone(),
+                        updateUserReq.getMail(), updateUserReq.getUserId(), currentUserId)
+                .map(rows -> ResultVO.<Void>ok());
     }
 
     @Override
     public Mono<ResultVO<UserPageRes>> getUserPage(UserPageReq userPageReq) {
         int currentPage = Math.max(1, userPageReq.getCurrentPage());
         int pageSize = Math.clamp(userPageReq.getPageSize(), 1, 100);
-        return Mono.fromCallable(() -> {
-            String userId = userPageReq.getUserId();
-            String username = userPageReq.getUsername();
-            LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-            wrapper.like(StringUtils.isNotBlank(userId), TimerUser::getUserId, userId)
-                    .like(StringUtils.isNotBlank(username), TimerUser::getUsername, username);
-            Page<TimerUser> page = Page.of(currentPage, pageSize);
-            IPage<TimerUser> result = timerUserMapper.selectPage(page, wrapper);
-            long total = result.getTotal();
-            if (total == 0) {
-                return ResultVO.ok(UserPageRes.newBuilder().build());
-            }
-            DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-            List<User> users = result.getRecords().stream()
-                    .map(u -> User.newBuilder()
-                            .setId(u.getId())
-                            .setUserId(u.getUserId())
-                            .setUsername(u.getUsername())
-                            .setMail(u.getMail())
-                            .setPhone(u.getPhone())
-                            .setIsDisable(u.getIsDisable())
-                            .setCreateTime(Optional.ofNullable(u.getCreateTime())
-                                    .map(dateTimeFormatter::format)
-                                    .orElse(""))
-                            .setUpdateTime(Optional.ofNullable(u.getUpdateTime())
-                                    .map(dateTimeFormatter::format)
-                                    .orElse(""))
-                            .build())
-                    .toList();
-
-            UserPageRes res = UserPageRes.newBuilder()
-                    .setTotal(total)
-                    .addAllUsers(users)
-                    .build();
-
-            return ResultVO.ok(res);
-        }).subscribeOn(Schedulers.boundedElastic());
+        String userId = StringUtils.defaultString(userPageReq.getUserId());
+        String username = StringUtils.defaultString(userPageReq.getUsername());
+        long offset = (long) (currentPage - 1) * pageSize;
+        return timerUserRepository.countByFilter(userId, username)
+                .flatMap(total -> {
+                    if (total == 0) {
+                        return Mono.just(ResultVO.ok(UserPageRes.newBuilder().build()));
+                    }
+                    return timerUserRepository.pageByFilter(userId, username, pageSize, offset)
+                            .map(this::toProtoUser)
+                            .collectList()
+                            .map(users -> ResultVO.ok(UserPageRes.newBuilder()
+                                    .setTotal(total)
+                                    .addAllUsers(users)
+                                    .build()));
+                })
+                .onErrorResume(Exception.class, e -> {
+                    log.error("查询用户分页失败", e);
+                    return Mono.just(ResultVO.fail("加载用户分页失败"));
+                });
     }
 
     @Override
@@ -186,25 +162,19 @@ public class UserServiceImpl implements IUserService {
         if (StringUtils.isBlank(userReq.getUserId())) {
             return Mono.just(ResultVO.fail(USER_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerUser::getUserId, userReq.getUserId());
-                    TimerUser user = timerUserMapper.selectOne(wrapper);
-                    if (user == null) {
-                        throw new BusinessException("用户不存在");
-                    }
-                    UserDetailRes res = UserDetailRes.newBuilder()
-                            .setId(user.getId())
-                            .setUserId(user.getUserId())
-                            .setUsername(user.getUsername())
-                            .setMail(user.getMail())
-                            .setPhone(user.getPhone())
-                            .build();
-                    return ResultVO.ok(res);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        ex -> Mono.just(ResultVO.fail(ex.getMessage())));
+        return timerUserRepository.findByUserIdAndIsDeleted(userReq.getUserId(), NOT_DELETED)
+                .map(user -> ResultVO.ok(UserDetailRes.newBuilder()
+                        .setId(user.getId())
+                        .setUserId(user.getUserId())
+                        .setUsername(user.getUsername())
+                        .setMail(user.getMail())
+                        .setPhone(user.getPhone())
+                        .build()))
+                .switchIfEmpty(Mono.just(ResultVO.<UserDetailRes>fail("用户不存在")))
+                .onErrorResume(Exception.class, e -> {
+                    log.error("查询用户详情失败", e);
+                    return Mono.just(ResultVO.fail("查询用户详情失败"));
+                });
     }
 
     @Override
@@ -212,18 +182,12 @@ public class UserServiceImpl implements IUserService {
         if (StringUtils.isBlank(userReq.getUserId())) {
             return Mono.just(ResultVO.fail("用户不能为空"));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerUser::getUserId, userReq.getUserId());
-                    TimerUser user = timerUserMapper.selectOne(wrapper);
-                    if (user != null) {
-                        user.deleteById();
-                    }
-                    // 幂等：用户不存在也视为成功
-                    return ResultVO.<Void>ok();
-                })
-                .subscribeOn(Schedulers.boundedElastic());
-        // 无 BusinessException，无需 onErrorResume
+        return timerUserRepository.softDeleteByUserId(userReq.getUserId())
+                .thenReturn(ResultVO.<Void>ok())
+                .onErrorResume(Exception.class, e -> {
+                    log.error("删除用户失败", e);
+                    return Mono.just(ResultVO.fail("删除用户失败"));
+                });
     }
 
     @Override
@@ -232,213 +196,167 @@ public class UserServiceImpl implements IUserService {
         if (StringUtils.isBlank(loginUser.getUserId())) {
             return Mono.just(ResultVO.fail("当前用户未登录"));
         }
-        return Mono.fromCallable(() -> {
-                    String userId = loginUser.getUserId();
-                    LambdaQueryWrapper<TimerUserRole> userRoleWrapper = Wrappers.lambdaQuery();
-                    userRoleWrapper.eq(TimerUserRole::getUserId, userId);
-                    List<TimerUserRole> userRoles = timerUserRoleMapper.selectList(userRoleWrapper);
-                    if (CollectionUtils.isEmpty(userRoles)) {
-                        throw new BusinessException("获取菜单失败");
+        String userId = loginUser.getUserId();
+        return timerUserRoleRepository.findByUserIdAndIsDeleted(userId, NOT_DELETED)
+                .map(TimerUserRole::getRoleCode)
+                .collectList()
+                .flatMap(roleCodes -> {
+                    if (CollectionUtils.isEmpty(roleCodes)) {
+                        return Mono.just(ResultVO.<List<MenuTreeVO>>fail("获取菜单失败"));
                     }
-                    List<String> roleCodes = userRoles.stream()
-                            .map(TimerUserRole::getRoleCode)
-                            .toList();
-                    LambdaQueryWrapper<TimerRoleMenu> roleMenuWrapper = Wrappers.lambdaQuery();
-                    roleMenuWrapper.in(TimerRoleMenu::getRoleCode, roleCodes);
-                    List<TimerRoleMenu> roleMenus = timerRoleMenuMapper.selectList(roleMenuWrapper);
-                    if (CollectionUtils.isEmpty(roleMenus)) {
-                        throw new BusinessException("获取菜单失败");
-                    }
-                    List<String> menuCodes = roleMenus.stream()
+                    return timerRoleMenuRepository.findByRoleCodeInAndIsDeleted(roleCodes, NOT_DELETED)
                             .map(TimerRoleMenu::getMenuCode)
                             .distinct()
-                            .toList();
-                    LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
-                    menuWrapper.in(TimerMenu::getMenuCode, menuCodes);
-                    List<TimerMenu> menus = timerMenuMapper.selectList(menuWrapper);
-                    if (CollectionUtils.isEmpty(menus)) {
-                        throw new BusinessException("获取菜单失败");
-                    }
-                    List<MenuTreeVO> menuTree = menus.stream()
-                            .map(m -> {
-                                MenuTreeVO vo = new MenuTreeVO();
-                                vo.setId(m.getId());
-                                vo.setParentId(m.getParentId());
-                                vo.setMenuName(m.getMenuName());
-                                vo.setMenuCode(m.getMenuCode());
-                                vo.setMenuType(m.getMenuType());
-                                vo.setRoutePath(m.getRoutePath());
-                                vo.setIcon(m.getIcon());
-                                vo.setComponent(m.getComponent());
-                                vo.setSortOrder(m.getSortOrder());
-                                return vo;
-                            })
-                            .sorted(Comparator.comparing(MenuTreeVO::getSortOrder))
-                            .toList();
-                    TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
-                    List<MenuTreeVO> tree = treeFactory.buildTree(menuTree);
-
-                    return ResultVO.ok(tree);
+                            .collectList()
+                            .flatMap(menuCodes -> {
+                                if (CollectionUtils.isEmpty(menuCodes)) {
+                                    return Mono.just(ResultVO.<List<MenuTreeVO>>fail("获取菜单失败"));
+                                }
+                                return timerMenuRepository.findByMenuCodeInAndIsDeleted(menuCodes, NOT_DELETED)
+                                        .map(this::toMenuTreeVO)
+                                        .collectList()
+                                        .flatMap(menus -> {
+                                            if (CollectionUtils.isEmpty(menus)) {
+                                                return Mono.just(ResultVO.<List<MenuTreeVO>>fail("获取菜单失败"));
+                                            }
+                                            menus.sort(Comparator.comparing(MenuTreeVO::getSortOrder));
+                                            TreeFactory<Long, MenuTreeVO> treeFactory = new TreeFactory<>();
+                                            return Mono.just(ResultVO.ok(treeFactory.buildTree(menus)));
+                                        });
+                            });
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        ex -> Mono.just(ResultVO.fail(ex.getMessage())));
+                .onErrorResume(Exception.class, e -> {
+                    log.error("获取用户菜单失败", e);
+                    return Mono.just(ResultVO.fail("获取菜单失败"));
+                });
     }
 
     @Override
     public Mono<ResultVO<UserDetailRes>> getCurrentUser(CommonReq commonReq) {
-        LoginUser loginUser = commonReq.getLoginUser();
-        String userId = loginUser.getUserId();
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerUser::getUserId, userId);
-                    TimerUser user = timerUserMapper.selectOne(wrapper);
-                    UserDetailRes userDetailRes = Optional.ofNullable(user)
-                            .map(i -> UserDetailRes.newBuilder()
-                                    .setUserId(i.getUserId())
-                                    .setUsername(i.getUsername())
-                                    .setMail(i.getMail())
-                                    .setPhone(i.getPhone())
-                                    .build()).orElse(UserDetailRes.newBuilder().build());
-                    return ResultVO.ok(userDetailRes);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        e -> Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorReturn(ResultVO.fail("获取用户信息失败"));
+        String userId = commonReq.getLoginUser().getUserId();
+        return timerUserRepository.findByUserIdAndIsDeleted(userId, NOT_DELETED)
+                .map(user -> ResultVO.ok(UserDetailRes.newBuilder()
+                        .setUserId(user.getUserId())
+                        .setUsername(user.getUsername())
+                        .setMail(user.getMail())
+                        .setPhone(user.getPhone())
+                        .build()))
+                .defaultIfEmpty(ResultVO.ok(UserDetailRes.newBuilder().build()))
+                .onErrorResume(Exception.class, e -> {
+                    log.error("获取当前用户失败", e);
+                    return Mono.just(ResultVO.fail("获取用户信息失败"));
+                });
     }
 
     @Override
     public Mono<ResultVO<Void>> enableUser(EnableUserReq enableUserReq) {
-        LoginUser loginUser = enableUserReq.getLoginUser();
-        String userId = enableUserReq.getUserId();
-        return Mono.fromCallable(() -> changeUserStatus(userId, "0", loginUser))
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        e -> Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorReturn(ResultVO.fail("禁用用户失败"));
+        return changeUserStatus(enableUserReq.getUserId(), "0", enableUserReq.getLoginUser());
     }
 
     @Override
     public Mono<ResultVO<Void>> disableUser(DisableUserReq disableUserReq) {
-        LoginUser loginUser = disableUserReq.getLoginUser();
-        String userId = disableUserReq.getUserId();
-        return Mono.fromCallable(() -> changeUserStatus(userId, "1", loginUser))
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        e -> Mono.just(ResultVO.fail(e.getMessage()))
-                ).onErrorReturn(ResultVO.fail("禁用用户失败"));
+        return changeUserStatus(disableUserReq.getUserId(), "1", disableUserReq.getLoginUser());
+    }
+
+    private Mono<ResultVO<Void>> changeUserStatus(String userId, String isDisable, LoginUser loginUser) {
+        return timerUserRepository.updateDisable(userId, isDisable, loginUser.getUserId())
+                .flatMap(rows -> rows == 0
+                        ? Mono.just(ResultVO.<Void>fail("用户不存在"))
+                        : Mono.just(ResultVO.<Void>ok()))
+                .onErrorResume(Exception.class, e -> {
+                    log.error("修改用户状态失败", e);
+                    return Mono.just(ResultVO.fail("修改用户状态失败"));
+                });
     }
 
     @Override
     public Mono<ResultVO<Void>> resetPassword(ResetPasswordReq resetPasswordReq) {
-        LoginUser loginUser = resetPasswordReq.getLoginUser();
         String newPassword = resetPasswordReq.getNewPassword();
         String oldPassword = resetPasswordReq.getOldPassword();
-        String userId = loginUser.getUserId();
+        String userId = resetPasswordReq.getLoginUser().getUserId();
         if (StringUtils.isEmpty(newPassword)) {
             return Mono.just(ResultVO.fail("新密码不能为空"));
         }
         if (StringUtils.isEmpty(oldPassword)) {
             return Mono.just(ResultVO.fail("旧密码不能为空"));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerUser> userWrapper = Wrappers.lambdaQuery();
-                    userWrapper.eq(TimerUser::getUserId, userId);
-                    TimerUser user = timerUserMapper.selectOne(userWrapper);
-                    if (user == null) {
-                        throw new BusinessException("用户不存在");
-                    }
+        return timerUserRepository.findByUserIdAndIsDeleted(userId, NOT_DELETED)
+                .flatMap(user -> {
                     if (!user.getPassword().equals(oldPassword)) {
-                        throw new BusinessException("旧密码错误");
+                        return Mono.just(ResultVO.<Void>fail("旧密码错误"));
                     }
-                    user.setPassword(newPassword);
-                    timerUserMapper.update(user, userWrapper);
-                    return ResultVO.<Void>ok();
+                    return timerUserRepository.updatePassword(userId, newPassword)
+                            .thenReturn(ResultVO.<Void>ok());
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class,
-                        e -> Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorReturn(ResultVO.fail("重置密码失败"));
+                .switchIfEmpty(Mono.just(ResultVO.<Void>fail("用户不存在")))
+                .onErrorResume(Exception.class, e -> {
+                    log.error("重置密码失败", e);
+                    return Mono.just(ResultVO.fail("重置密码失败"));
+                });
     }
 
     @Override
     public Mono<ResultVO<UserPageRes>> getUserActivePage(UserPageReq userPageReq) {
         int currentPage = Math.max(1, userPageReq.getCurrentPage());
         int pageSize = Math.clamp(userPageReq.getPageSize(), 1, 100);
-        String userId = userPageReq.getUserId();
-        String username = userPageReq.getUsername();
-        LambdaQueryWrapper<TimerUser> wrapper = Wrappers.lambdaQuery();
-        wrapper.like(StringUtils.isNotBlank(userId), TimerUser::getUserId, userId)
-                .like(StringUtils.isNotBlank(username), TimerUser::getUsername, username);
-        Page<TimerUser> page = Page.of(currentPage, pageSize);
-        IPage<TimerUser> result = timerUserMapper.selectPage(page, wrapper);
-        long total = result.getTotal();
-        if (total == 0) {
-            return Mono.just(ResultVO.ok(UserPageRes.newBuilder().build()));
-        }
-        List<TimerUser> records = result.getRecords();
-        return Flux.fromIterable(records)
-                .parallel()
-                .runOn(Schedulers.boundedElastic())
-                .flatMap(this::getUserOnlineStatus)
-                .sequential()
-                .collectList()
-                .map(i ->
-                        ResultVO.ok(UserPageRes.newBuilder()
-                                .setTotal(total)
-                                .addAllUsers(i)
-                                .build()))
-                .onErrorResume(e -> {
-                    log.error("❌ Failed to batch query online status", e);
+        String userId = StringUtils.defaultString(userPageReq.getUserId());
+        String username = StringUtils.defaultString(userPageReq.getUsername());
+        long offset = (long) (currentPage - 1) * pageSize;
+        return timerUserRepository.countByFilter(userId, username)
+                .flatMap(total -> {
+                    if (total == 0) {
+                        return Mono.just(ResultVO.ok(UserPageRes.newBuilder().build()));
+                    }
+                    return timerUserRepository.pageByFilter(userId, username, pageSize, offset)
+                            .concatMap(this::toProtoUserWithOnline)
+                            .collectList()
+                            .map(users -> ResultVO.ok(UserPageRes.newBuilder()
+                                    .setTotal(total)
+                                    .addAllUsers(users)
+                                    .build()));
+                })
+                .onErrorResume(Exception.class, e -> {
+                    log.error("批量查询在线状态失败", e);
                     return Mono.just(ResultVO.fail("批量查询在线状态失败"));
                 });
     }
 
-    private Mono<User> getUserOnlineStatus(TimerUser timerUser) {
-        String onlineKey = "user:online:" + timerUser.getUserId();
-        Mono<Boolean> onlineCheck = reactiveRedisTemplate.hasKey(onlineKey);
-        return onlineCheck
-                .flatMap(isOnline -> {
-                    User user;
-                    if (Boolean.TRUE.equals(isOnline)) {
-                        user = User.newBuilder()
-                                .setId(timerUser.getId())
-                                .setUserId(timerUser.getUserId())
-                                .setUsername(timerUser.getUsername())
-                                .setMail(timerUser.getMail())
-                                .setPhone(timerUser.getPhone())
-                                .setIsDisable(timerUser.getIsDisable())
-                                .setIsActive("1")
-                                .build();
-                    } else {
-                        user = User.newBuilder()
-                                .setId(timerUser.getId())
-                                .setUserId(timerUser.getUserId())
-                                .setUsername(timerUser.getUsername())
-                                .setMail(timerUser.getMail())
-                                .setPhone(timerUser.getPhone())
-                                .setIsDisable(timerUser.getIsDisable())
-                                .setIsActive("0")
-                                .build();
-                    }
-                    return Mono.just(user);
-                })
-                .cache(Duration.ofSeconds(30));
+    private Mono<User> toProtoUserWithOnline(TimerUser timerUser) {
+        return reactiveRedisTemplate.hasKey(ONLINE_KEY_PREFIX + timerUser.getUserId())
+                .defaultIfEmpty(false)
+                .map(online -> toProtoUser(timerUser).toBuilder()
+                        .setIsActive(Boolean.TRUE.equals(online) ? "1" : "0")
+                        .build());
     }
 
-    private @NonNull ResultVO<Void> changeUserStatus(String userId, String isDisable, LoginUser loginUser) {
-        LambdaUpdateWrapper<TimerUser> userWrapper = Wrappers.lambdaUpdate();
-        userWrapper.eq(TimerUser::getUserId, userId);
-        TimerUser timerUser = timerUserMapper.selectOne(userWrapper);
-        if (Objects.isNull(timerUser)) {
-            throw new BusinessException("用户不存在");
-        }
-        TimerUser user = new TimerUser();
-        user.setIsDisable(isDisable);
-        user.setId(timerUser.getId());
-        user.setUpdateUser(loginUser.getUserId());
-        user.updateById();
-        return ResultVO.ok();
+    private User toProtoUser(TimerUser user) {
+        return User.newBuilder()
+                .setId(user.getId())
+                .setUserId(user.getUserId())
+                .setUsername(user.getUsername())
+                .setMail(user.getMail())
+                .setPhone(user.getPhone())
+                .setIsDisable(user.getIsDisable())
+                .setCreateTime(formatTime(user.getCreateTime()))
+                .setUpdateTime(formatTime(user.getUpdateTime()))
+                .build();
+    }
+
+    private MenuTreeVO toMenuTreeVO(TimerMenu menu) {
+        MenuTreeVO vo = new MenuTreeVO();
+        vo.setId(menu.getId());
+        vo.setParentId(menu.getParentId());
+        vo.setMenuName(menu.getMenuName());
+        vo.setMenuCode(menu.getMenuCode());
+        vo.setMenuType(menu.getMenuType());
+        vo.setRoutePath(menu.getRoutePath());
+        vo.setIcon(menu.getIcon());
+        vo.setComponent(menu.getComponent());
+        vo.setSortOrder(menu.getSortOrder());
+        return vo;
+    }
+
+    private static String formatTime(LocalDateTime time) {
+        return time == null ? "" : DATE_TIME_FORMATTER.format(time);
     }
 }

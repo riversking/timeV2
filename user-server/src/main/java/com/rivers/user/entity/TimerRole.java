@@ -1,43 +1,46 @@
 package com.rivers.user.entity;
 
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.rivers.core.entity.BasicDO;
+import lombok.Data;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
 
 import java.io.Serial;
 import java.io.Serializable;
-
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.Setter;
+import java.time.LocalDateTime;
 
 /**
- * <p>
- * 
- * </p>
+ * 角色表（R2DBC 映射）
  *
  * @author xx
  * @since 2025-10-10
  */
-@EqualsAndHashCode(callSuper = true)
 @Data
-@TableName("timer_role")
-public class TimerRole extends BasicDO<TimerRole>{
+@Table("timer_role")
+public class TimerRole implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
+    @Id
+    private Long id;
+
     /**
      * 角色名称
      */
-    @TableField("role_name")
-    private String roleName;
+    private String roleName = "";
 
     /**
      * 角色编码
      */
-    @TableField("role_code")
-    private String roleCode;
+    private String roleCode = "";
 
+    private String createUser = "";
+
+    private LocalDateTime createTime = LocalDateTime.now();
+
+    private String updateUser = "";
+
+    private LocalDateTime updateTime = LocalDateTime.now();
+
+    private Integer isDeleted = 0;
 }

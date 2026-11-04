@@ -1,90 +1,88 @@
 package com.rivers.user.entity;
 
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.rivers.core.entity.BasicDO;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
 
 import java.io.Serial;
+import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
- * <p>
- * 菜单表
- * </p>
+ * 菜单表（R2DBC 映射）
  *
  * @author xx
  * @since 2025-10-23
  */
-@EqualsAndHashCode(callSuper = true)
 @Data
-@TableName("timer_menu")
-public class TimerMenu extends BasicDO<TimerMenu> {
+@Table("timer_menu")
+public class TimerMenu implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
+    @Id
+    private Long id;
+
     /**
      * 父级菜单ID，0表示顶级菜单
      */
-    @TableField("parent_id")
-    private Long parentId;
+    private Long parentId = 0L;
 
     /**
      * 菜单名称
      */
-    @TableField("menu_name")
-    private String menuName;
+    private String menuName = "";
 
     /**
      * 菜单编码
      */
-    @TableField("menu_code")
-    private String menuCode;
+    private String menuCode = "";
 
     /**
      * 菜单类型：1-目录，2-菜单，3-按钮
      */
-    @TableField("menu_type")
-    private Integer menuType;
+    private Integer menuType = 1;
 
     /**
      * 菜单归属：1-后台管理，2-门户
      */
-    @TableField("menu_scope")
-    private Integer menuScope;
+    private Integer menuScope = 1;
 
     /**
      * 路由路径
      */
-    @TableField("route_path")
-    private String routePath;
+    private String routePath = "";
 
     /**
      * 菜单图标
      */
-    @TableField("icon")
-    private String icon;
+    private String icon = "";
 
     /**
      * 权限标识
      */
-    @TableField("permission_code")
-    private String permissionCode;
+    private String permissionCode = "";
 
     /**
      * 排序号
      */
-    @TableField("sort_order")
-    private Integer sortOrder;
+    private Integer sortOrder = 0;
 
     /**
      * 状态：1-启用，0-禁用
      */
-    @TableField("status")
-    private Integer status;
+    private Integer status = 1;
 
-    @TableField("component")
-    private String component;
+    private String component = "";
 
+    private String createUser = "";
+
+    private LocalDateTime createTime = LocalDateTime.now();
+
+    private String updateUser = "";
+
+    private LocalDateTime updateTime = LocalDateTime.now();
+
+    private Integer isDeleted = 0;
 }

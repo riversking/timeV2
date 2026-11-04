@@ -1,75 +1,76 @@
 package com.rivers.user.entity;
 
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.rivers.core.entity.BasicDO;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
- * <p>
- *
- * </p>
+ * 用户表（R2DBC 映射，非空列给出与库一致的默认值，避免整行插入时写 NULL）
  *
  * @author xx
  * @since 2025-10-07
  */
-@EqualsAndHashCode(callSuper = true)
 @Data
-@TableName("timer_user")
-public class TimerUser extends BasicDO<TimerUser> implements Serializable {
+@Table("timer_user")
+public class TimerUser implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
+    @Id
+    private Long id;
+
     /**
      * 员工号
      */
-    @TableField("user_id")
-    private String userId;
+    private String userId = "";
 
     /**
      * 用户名
      */
-    @TableField("username")
-    private String username;
+    private String username = "";
 
     /**
      * 密码
      */
-    @TableField("password")
-    private String password;
+    private String password = "";
 
     /**
-     * 简介
+     * 手机号
      */
-    @TableField("phone")
-    private String phone;
+    private String phone = "";
 
     /**
      * 头像
      */
-    @TableField("avatar")
-    private String avatar;
+    private String avatar = "";
 
     /**
      * 邮箱
      */
-    @TableField("mail")
-    private String mail;
+    private String mail = "";
 
     /**
-     * 昵称
+     * 用户编码
      */
-    @TableField("user_code")
-    private String userCode;
+    private String userCode = "";
 
     /**
      * 0-有效，1-失效
      */
-    @TableField("is_disable")
-    private String isDisable;
+    private String isDisable = "0";
+
+    private String createUser = "";
+
+    private LocalDateTime createTime = LocalDateTime.now();
+
+    private String updateUser = "";
+
+    private LocalDateTime updateTime = LocalDateTime.now();
+
+    private Integer isDeleted = 0;
 }

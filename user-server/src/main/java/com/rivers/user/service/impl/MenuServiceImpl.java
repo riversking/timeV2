@@ -1,18 +1,14 @@
 package com.rivers.user.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.google.protobuf.ProtocolStringList;
-import com.rivers.core.exception.BusinessException;
 import com.rivers.core.tree.TreeFactory;
 import com.rivers.core.vo.ResultVO;
 import com.rivers.proto.*;
 import com.rivers.user.entity.TimerMenu;
-import com.rivers.user.entity.TimerRole;
 import com.rivers.user.entity.TimerRoleMenu;
-import com.rivers.user.mapper.TimerMenuMapper;
-import com.rivers.user.mapper.TimerRoleMapper;
-import com.rivers.user.mapper.TimerRoleMenuMapper;
+import com.rivers.user.repository.TimerMenuRepository;
+import com.rivers.user.repository.TimerRoleMenuRepository;
+import com.rivers.user.repository.TimerRoleRepository;
 import com.rivers.user.service.IMenuService;
 import com.rivers.user.vo.MenuTreeVO;
 import lombok.extern.slf4j.Slf4j;
@@ -20,14 +16,12 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 
 @Service
 @Slf4j
@@ -40,15 +34,22 @@ public class MenuServiceImpl implements IMenuService {
      */
     private static final int SCOPE_ADMIN = 1;
     private static final int SCOPE_PORTAL = 2;
-    private final TimerMenuMapper timerMenuMapper;
-    private final TimerRoleMapper timerRoleMapper;
-    private final TimerRoleMenuMapper timerRoleMenuMapper;
+    private static final int STATUS_ENABLED = 1;
+    private static final Integer NOT_DELETED = 0;
 
-    public MenuServiceImpl(TimerMenuMapper timerMenuMapper, TimerRoleMapper timerRoleMapper,
-                           TimerRoleMenuMapper timerRoleMenuMapper) {
-        this.timerMenuMapper = timerMenuMapper;
-        this.timerRoleMapper = timerRoleMapper;
-        this.timerRoleMenuMapper = timerRoleMenuMapper;
+    private final TimerMenuRepository timerMenuRepository;
+    private final TimerRoleRepository timerRoleRepository;
+    private final TimerRoleMenuRepository timerRoleMenuRepository;
+    private final TransactionalOperator transactionalOperator;
+
+    public MenuServiceImpl(TimerMenuRepository timerMenuRepository,
+                           TimerRoleRepository timerRoleRepository,
+                           TimerRoleMenuRepository timerRoleMenuRepository,
+                           TransactionalOperator transactionalOperator) {
+        this.timerMenuRepository = timerMenuRepository;
+        this.timerRoleRepository = timerRoleRepository;
+        this.timerRoleMenuRepository = timerRoleMenuRepository;
+        this.transactionalOperator = transactionalOperator;
     }
 
     @Override
@@ -59,15 +60,15 @@ public class MenuServiceImpl implements IMenuService {
         if (StringUtils.isBlank(saveMenuReq.getMenuName())) {
             return Mono.just(ResultVO.fail("菜单名称不能为空"));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerMenu::getMenuCode, saveMenuReq.getMenuCode());
-                    if (timerMenuMapper.selectCount(wrapper) > 0) {
-                        throw new BusinessException("菜单编码已存在");
+        String menuCode = saveMenuReq.getMenuCode();
+        String currentUserId = saveMenuReq.getLoginUser().getUserId();
+        return timerMenuRepository.existsByMenuCodeAndIsDeleted(menuCode, NOT_DELETED)
+                .flatMap(exists -> {
+                    if (Boolean.TRUE.equals(exists)) {
+                        return Mono.just(ResultVO.<Void>fail("菜单编码已存在"));
                     }
-                    LoginUser user = saveMenuReq.getLoginUser();
                     TimerMenu menu = new TimerMenu();
-                    menu.setMenuCode(saveMenuReq.getMenuCode());
+                    menu.setMenuCode(menuCode);
                     menu.setMenuName(saveMenuReq.getMenuName());
                     menu.setMenuType(saveMenuReq.getMenuType());
                     menu.setMenuScope(normalizeScope(saveMenuReq.getMenuScope()));
@@ -77,19 +78,16 @@ public class MenuServiceImpl implements IMenuService {
                     menu.setPermissionCode(saveMenuReq.getPermissionCode());
                     menu.setComponent(saveMenuReq.getComponent());
                     menu.setSortOrder(saveMenuReq.getSortOrder());
-                    menu.setCreateUser(user.getUserId());
-                    menu.setUpdateUser(user.getUserId());
-                    timerMenuMapper.insert(menu);
-                    return ResultVO.<Void>ok();
+                    menu.setCreateUser(currentUserId);
+                    menu.setUpdateUser(currentUserId);
+                    menu.setCreateTime(LocalDateTime.now());
+                    menu.setUpdateTime(LocalDateTime.now());
+                    return timerMenuRepository.save(menu).thenReturn(ResultVO.<Void>ok());
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class, e ->
-                        Mono.just(ResultVO.fail(e.getMessage())))
                 .onErrorResume(Exception.class, e -> {
                     log.error("保存菜单失败", e);
                     return Mono.just(ResultVO.fail("系统异常"));
-                })
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
@@ -97,88 +95,58 @@ public class MenuServiceImpl implements IMenuService {
         if (StringUtils.isBlank(updateMenuReq.getMenuCode()) || StringUtils.isBlank(updateMenuReq.getMenuName())) {
             return Mono.just(ResultVO.fail("菜单编码和名称不能为空"));
         }
-        return Mono.fromCallable(() -> {
-                    long id = updateMenuReq.getId();
-                    LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerMenu::getMenuCode, updateMenuReq.getMenuCode());
-                    TimerMenu existing = timerMenuMapper.selectOne(wrapper);
-                    if (existing != null && !Objects.equals(existing.getId(), id)) {
-                        throw new BusinessException("菜单编码已存在");
+        long id = updateMenuReq.getId();
+        String menuCode = updateMenuReq.getMenuCode();
+        String currentUserId = updateMenuReq.getLoginUser().getUserId();
+        return timerMenuRepository.findByMenuCodeAndIsDeleted(menuCode, NOT_DELETED)
+                .flatMap(existing -> {
+                    if (!existing.getId().equals(id)) {
+                        return Mono.just(ResultVO.<Void>fail("菜单编码已存在"));
                     }
-                    TimerMenu menu = new TimerMenu();
-                    menu.setId(id);
-                    menu.setMenuCode(updateMenuReq.getMenuCode());
-                    menu.setMenuName(updateMenuReq.getMenuName());
-                    menu.setMenuType(updateMenuReq.getMenuType());
-                    menu.setMenuScope(normalizeScope(updateMenuReq.getMenuScope()));
-                    menu.setIcon(updateMenuReq.getIcon());
-                    menu.setParentId(updateMenuReq.getParentId());
-                    menu.setRoutePath(updateMenuReq.getRoutePath());
-                    menu.setPermissionCode(updateMenuReq.getPermissionCode());
-                    menu.setComponent(updateMenuReq.getComponent());
-                    menu.setSortOrder(updateMenuReq.getSortOrder());
-                    menu.setUpdateUser(updateMenuReq.getLoginUser().getUserId());
-                    menu.updateById();
-                    return ResultVO.<Void>ok();
+                    return doUpdateMenu(id, updateMenuReq, currentUserId);
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class, e ->
-                        Mono.just(ResultVO.fail(e.getMessage())))
+                .switchIfEmpty(Mono.defer(() -> doUpdateMenu(id, updateMenuReq, currentUserId)))
                 .onErrorResume(Exception.class, e -> {
                     log.error("更新菜单失败", e);
                     return Mono.just(ResultVO.fail("系统异常"));
-                })
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                });
+    }
+
+    private Mono<ResultVO<Void>> doUpdateMenu(long id, UpdateMenuReq updateMenuReq, String currentUserId) {
+        return timerMenuRepository.updateMenu(id, updateMenuReq.getMenuCode(), updateMenuReq.getMenuName(),
+                        updateMenuReq.getMenuType(), normalizeScope(updateMenuReq.getMenuScope()),
+                        updateMenuReq.getIcon(), updateMenuReq.getParentId(), updateMenuReq.getRoutePath(),
+                        updateMenuReq.getPermissionCode(), updateMenuReq.getComponent(),
+                        updateMenuReq.getSortOrder(), currentUserId)
+                .map(rows -> ResultVO.<Void>ok());
     }
 
     @Override
     public Mono<ResultVO<List<MenuTreeVO>>> getMenuTree() {
-        return Mono.fromCallable(() -> {
-                    List<TimerMenu> menus = timerMenuMapper.selectList(Wrappers.emptyWrapper());
-                    List<MenuTreeVO> menuTrees = menus.stream()
-                            .map(menu -> {
-                                MenuTreeVO vo = new MenuTreeVO();
-                                BeanUtils.copyProperties(menu, vo);
-                                return vo;
-                            })
-                            .sorted(Comparator.comparing(MenuTreeVO::getSortOrder))
-                            .toList();
+        return timerMenuRepository.findAllByIsDeleted(NOT_DELETED)
+                .map(this::toMenuTreeVO)
+                .collectList()
+                .map(menuTrees -> {
+                    menuTrees.sort(Comparator.comparing(MenuTreeVO::getSortOrder));
                     TreeFactory<Long, MenuTreeVO> factory = new TreeFactory<>();
-                    List<MenuTreeVO> tree = factory.buildTree(menuTrees);
-                    return ResultVO.ok(tree);
+                    return ResultVO.ok(factory.buildTree(menuTrees));
                 })
-                .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(Exception.class, e -> {
                     log.error("获取菜单树失败", e);
                     return Mono.just(ResultVO.fail("加载菜单失败"));
-                })
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
     public Mono<ResultVO<List<MenuTreeVO>>> getPortalMenuTree() {
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerMenu::getMenuScope, SCOPE_PORTAL)
-                            .eq(TimerMenu::getStatus, 1)
-                            .isNotNull(TimerMenu::getRoutePath)
-                            .ne(TimerMenu::getRoutePath, "")
-                            .orderByAsc(TimerMenu::getSortOrder);
-                    List<MenuTreeVO> menus = timerMenuMapper.selectList(wrapper).stream()
-                            .map(menu -> {
-                                MenuTreeVO vo = new MenuTreeVO();
-                                BeanUtils.copyProperties(menu, vo);
-                                return vo;
-                            })
-                            .toList();
-                    return ResultVO.ok(menus);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
+        return timerMenuRepository.findPortalMenus(SCOPE_PORTAL, STATUS_ENABLED)
+                .map(this::toMenuTreeVO)
+                .collectList()
+                .map(ResultVO::ok)
                 .onErrorResume(Exception.class, e -> {
                     log.error("获取门户菜单失败", e);
                     return Mono.just(ResultVO.fail("加载菜单失败"));
-                })
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
@@ -186,27 +154,19 @@ public class MenuServiceImpl implements IMenuService {
         if (StringUtils.isBlank(menuDetailReq.getMenuCode())) {
             return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerMenu::getMenuCode, menuDetailReq.getMenuCode());
-                    TimerMenu menu = timerMenuMapper.selectOne(wrapper);
-                    MenuDetailRes res = Optional.ofNullable(menu)
-                            .map(m -> MenuDetailRes.newBuilder()
-                                    .setId(m.getId())
-                                    .setMenuCode(m.getMenuCode())
-                                    .setMenuName(m.getMenuName())
-                                    .setMenuType(m.getMenuType())
-                                    .setIcon(m.getIcon())
-                                    .setParentId(m.getParentId())
-                                    .setRoutePath(m.getRoutePath())
-                                    .setSortOrder(m.getSortOrder())
-                                    .setPermissionCode(m.getPermissionCode())
-                                    .build())
-                            .orElse(null);
-
-                    return ResultVO.ok(res);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
+        return timerMenuRepository.findByMenuCodeAndIsDeleted(menuDetailReq.getMenuCode(), NOT_DELETED)
+                .map(menu -> ResultVO.ok(MenuDetailRes.newBuilder()
+                        .setId(menu.getId())
+                        .setMenuCode(menu.getMenuCode())
+                        .setMenuName(menu.getMenuName())
+                        .setMenuType(menu.getMenuType())
+                        .setIcon(menu.getIcon())
+                        .setParentId(menu.getParentId())
+                        .setRoutePath(menu.getRoutePath())
+                        .setSortOrder(menu.getSortOrder())
+                        .setPermissionCode(menu.getPermissionCode())
+                        .build()))
+                .defaultIfEmpty(ResultVO.ok(MenuDetailRes.newBuilder().build()))
                 .onErrorResume(Exception.class, e -> {
                     log.error("查询菜单详情失败", e);
                     return Mono.just(ResultVO.fail("查询失败"));
@@ -218,25 +178,15 @@ public class MenuServiceImpl implements IMenuService {
         if (StringUtils.isBlank(deleteMenuReq.getMenuCode())) {
             return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerMenu> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerMenu::getMenuCode, deleteMenuReq.getMenuCode());
-                    TimerMenu menu = timerMenuMapper.selectOne(wrapper);
-                    if (menu != null) {
-                        menu.deleteById();
-                    }
-                    return ResultVO.<Void>ok();
-                })
-                .subscribeOn(Schedulers.boundedElastic())
+        return timerMenuRepository.softDeleteByMenuCode(deleteMenuReq.getMenuCode())
+                .thenReturn(ResultVO.<Void>ok())
                 .onErrorResume(Exception.class, e -> {
                     log.error("删除菜单失败", e);
                     return Mono.just(ResultVO.fail("删除失败"));
-                })
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public Mono<ResultVO<Void>> saveRoleMenu(SaveRoleMenuReq saveRoleMenuReq) {
         String roleCode = saveRoleMenuReq.getRoleCode();
         ProtocolStringList menuCodes = saveRoleMenuReq.getMenuCodesList();
@@ -246,44 +196,47 @@ public class MenuServiceImpl implements IMenuService {
         if (CollectionUtils.isEmpty(menuCodes)) {
             return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
-        LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
-        roleWrapper.eq(TimerRole::getRoleCode, roleCode);
-        TimerRole role = timerRoleMapper.selectOne(roleWrapper);
-        if (role == null) {
-            return Mono.just(ResultVO.fail("角色不存在"));
-        }
-        // 获取有效菜单
-        LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
-        menuWrapper.in(TimerMenu::getMenuCode, menuCodes);
-        List<TimerMenu> validMenus = timerMenuMapper.selectList(menuWrapper);
-        if (CollectionUtils.isEmpty(validMenus)) {
-            return Mono.just(ResultVO.ok());
-        }
-        List<String> validMenuCodes = validMenus.stream()
-                .map(TimerMenu::getMenuCode)
-                .distinct()
-                .toList();
-        // 构建新记录
-        var loginUser = saveRoleMenuReq.getLoginUser();
-        String userId = loginUser.getUserId();
-        List<TimerRoleMenu> toInsert = validMenuCodes.stream()
+        String currentUserId = saveRoleMenuReq.getLoginUser().getUserId();
+        Mono<ResultVO<Void>> replace = timerRoleRepository.existsByRoleCodeAndIsDeleted(roleCode, NOT_DELETED)
+                .flatMap(roleExists -> {
+                    if (!Boolean.TRUE.equals(roleExists)) {
+                        return Mono.just(ResultVO.<Void>fail("角色不存在"));
+                    }
+                    return timerMenuRepository.findByMenuCodeInAndIsDeleted(menuCodes, NOT_DELETED)
+                            .map(TimerMenu::getMenuCode)
+                            .distinct()
+                            .collectList()
+                            .flatMap(validMenuCodes -> {
+                                if (CollectionUtils.isEmpty(validMenuCodes)) {
+                                    return Mono.just(ResultVO.<Void>ok());
+                                }
+                                return timerRoleMenuRepository.softDeleteByRoleCode(roleCode)
+                                        .thenMany(timerRoleMenuRepository.saveAll(
+                                                buildRoleMenus(roleCode, validMenuCodes, currentUserId)))
+                                        .then(Mono.just(ResultVO.<Void>ok()));
+                            });
+                });
+        return transactionalOperator.transactional(replace)
+                .onErrorResume(Exception.class, e -> {
+                    log.error("保存角色菜单失败", e);
+                    return Mono.just(ResultVO.fail("操作失败"));
+                });
+    }
+
+    private List<TimerRoleMenu> buildRoleMenus(String roleCode, List<String> menuCodes, String currentUserId) {
+        LocalDateTime now = LocalDateTime.now();
+        return menuCodes.stream()
                 .map(code -> {
                     TimerRoleMenu rm = new TimerRoleMenu();
                     rm.setRoleCode(roleCode);
                     rm.setMenuCode(code);
-                    rm.setCreateUser(userId);
-                    rm.setUpdateUser(userId);
+                    rm.setCreateUser(currentUserId);
+                    rm.setUpdateUser(currentUserId);
+                    rm.setCreateTime(now);
+                    rm.setUpdateTime(now);
                     return rm;
                 })
                 .toList();
-        if (!toInsert.isEmpty()) {
-            LambdaQueryWrapper<TimerRoleMenu> roleMenuWrapper = Wrappers.lambdaQuery();
-            roleMenuWrapper.eq(TimerRoleMenu::getRoleCode, roleCode);
-            timerRoleMenuMapper.delete(roleMenuWrapper);
-            timerRoleMenuMapper.insert(toInsert);
-        }
-        // 检查角色是否存在
-        return Mono.just(ResultVO.<Void>ok());
     }
 
     @Override
@@ -296,19 +249,12 @@ public class MenuServiceImpl implements IMenuService {
         if (CollectionUtils.isEmpty(menuCodes)) {
             return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerRoleMenu> wrapper = Wrappers.lambdaQuery();
-                    wrapper.eq(TimerRoleMenu::getRoleCode, roleCode)
-                            .in(TimerRoleMenu::getMenuCode, menuCodes);
-                    timerRoleMenuMapper.delete(wrapper);
-                    return ResultVO.<Void>ok();
-                })
-                .subscribeOn(Schedulers.boundedElastic())
+        return timerRoleMenuRepository.softDeleteByRoleCodeAndMenuCodeIn(roleCode, menuCodes)
+                .thenReturn(ResultVO.<Void>ok())
                 .onErrorResume(Exception.class, e -> {
                     log.error("移除角色菜单失败", e);
                     return Mono.just(ResultVO.fail("操作失败"));
-                })
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
@@ -317,26 +263,22 @@ public class MenuServiceImpl implements IMenuService {
         if (StringUtils.isBlank(roleCode)) {
             return Mono.just(ResultVO.fail(ROLE_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    // 验证角色存在
-                    LambdaQueryWrapper<TimerRole> roleWrapper = Wrappers.lambdaQuery();
-                    roleWrapper.eq(TimerRole::getRoleCode, roleCode);
-                    if (timerRoleMapper.selectCount(roleWrapper) == 0) {
-                        throw new BusinessException("角色不存在");
+        return timerRoleRepository.existsByRoleCodeAndIsDeleted(roleCode, NOT_DELETED)
+                .flatMap(roleExists -> {
+                    if (!Boolean.TRUE.equals(roleExists)) {
+                        return Mono.just(ResultVO.<CheckedMenuRes>fail("角色不存在"));
                     }
-                    // 获取该角色已分配的菜单
-                    LambdaQueryWrapper<TimerRoleMenu> rmWrapper = Wrappers.lambdaQuery();
-                    rmWrapper.eq(TimerRoleMenu::getRoleCode, roleCode);
-                    List<String> assignedMenuCodes = timerRoleMenuMapper.selectList(rmWrapper)
-                            .stream()
+                    return timerRoleMenuRepository.findByRoleCodeAndIsDeleted(roleCode, NOT_DELETED)
                             .map(TimerRoleMenu::getMenuCode)
-                            .toList();
-                    return ResultVO.ok(CheckedMenuRes.newBuilder().addAllCheckedMenu(assignedMenuCodes).build());
+                            .collectList()
+                            .map(menuCodes -> ResultVO.ok(CheckedMenuRes.newBuilder()
+                                    .addAllCheckedMenu(menuCodes)
+                                    .build()));
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(BusinessException.class, e ->
-                        Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorReturn(ResultVO.fail("系统异常"));
+                .onErrorResume(Exception.class, e -> {
+                    log.error("查询角色菜单失败", e);
+                    return Mono.just(ResultVO.fail("系统异常"));
+                });
     }
 
     @Override
@@ -345,15 +287,18 @@ public class MenuServiceImpl implements IMenuService {
         if (CollectionUtils.isEmpty(menuCodesList)) {
             return Mono.just(ResultVO.fail(MENU_EMPTY));
         }
-        return Mono.fromCallable(() -> {
-                    LambdaQueryWrapper<TimerMenu> menuWrapper = Wrappers.lambdaQuery();
-                    menuWrapper.in(TimerMenu::getMenuCode, menuCodesList);
-                    timerMenuMapper.delete(menuWrapper);
-                    return ResultVO.<Void>ok();
-                })
-                .onErrorResume(BusinessException.class, e ->
-                        Mono.just(ResultVO.fail(e.getMessage())))
-                .onErrorReturn(ResultVO.fail("系统异常"));
+        return timerMenuRepository.softDeleteByMenuCodeIn(menuCodesList)
+                .thenReturn(ResultVO.<Void>ok())
+                .onErrorResume(Exception.class, e -> {
+                    log.error("批量删除菜单失败", e);
+                    return Mono.just(ResultVO.fail("系统异常"));
+                });
+    }
+
+    private MenuTreeVO toMenuTreeVO(TimerMenu menu) {
+        MenuTreeVO vo = new MenuTreeVO();
+        BeanUtils.copyProperties(menu, vo);
+        return vo;
     }
 
     /**
